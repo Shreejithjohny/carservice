@@ -33,7 +33,7 @@ export function Book() {
   const [pickupLatitude, setPickupLatitude] = useState<number | null>(12.9784);
   const [pickupLongitude, setPickupLongitude] = useState<number | null>(77.6408);
   const [preferredDate, setPreferredDate] = useState(DEFAULT_DATE);
-  const [preferredTime, setPreferredTime] = useState("10:00:00");
+  const [preferredTime, setPreferredTime] = useState(TIME_SLOTS[0].value);
   const [customerNotes, setCustomerNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);

@@ -1609,9 +1609,13 @@ def admin_dashboard_stats(request):
     total_drivers = User.objects.filter(role=UserRole.DRIVER).count()
     total_mechanics = User.objects.filter(role=UserRole.MECHANIC).count()
 
-    total_revenue = sum(
-        (float(inv.grand_total or inv.total_amount or 0) for inv in Invoice.objects.all()),
-        0.0,
+    # Revenue counts only paid invoices; unpaid invoice totals are reported separately.
+    def invoice_sum(qs):
+        return sum((float(inv.grand_total or inv.total_amount or 0) for inv in qs), 0.0)
+
+    total_revenue = invoice_sum(Invoice.objects.filter(payment_status=Invoice.PaymentStatus.PAID))
+    outstanding_amount = invoice_sum(
+        Invoice.objects.exclude(payment_status=Invoice.PaymentStatus.PAID).exclude(invoice_status=InvoiceStatus.CANCELLED)
     )
 
     repair_stats = {
@@ -1631,6 +1635,7 @@ def admin_dashboard_stats(request):
         "total_drivers": total_drivers,
         "total_mechanics": total_mechanics,
         "total_revenue": round(total_revenue, 2),
+        "outstanding_amount": round(outstanding_amount, 2),
         "repair_approvals": repair_stats,
     })
 

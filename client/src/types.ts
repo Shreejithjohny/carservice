@@ -237,6 +237,7 @@ export interface AdminStats {
   total_drivers: number;
   total_mechanics: number;
   total_revenue: number;
+  outstanding_amount: number;
   repair_approvals: {
     total: number;
     approved: number;

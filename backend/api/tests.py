@@ -753,7 +753,9 @@ class Phase9To11CompleteOperationsTests(TestCase):
         res_admin = self.client.get("/api/admin/dashboard-stats/")
         self.assertEqual(res_admin.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(res_admin.data["completed_services"], 1)
-        self.assertGreater(res_admin.data["total_revenue"], 0)
+        # The invoice is not paid yet, so it is outstanding rather than revenue
+        self.assertEqual(res_admin.data["total_revenue"], 0)
+        self.assertEqual(res_admin.data["outstanding_amount"], round(float(inv.grand_total), 2))
 
 
 # ==========================================
@@ -1194,3 +1196,73 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(Invoice.objects.filter(booking=self.booking).exists())
 
+
+
+class RepairEvidenceUploadTests(TestCase):
+    def setUp(self):
+        import tempfile
+
+        self.media_dir = tempfile.mkdtemp()
+        self.client = APIClient()
+        customer = User.objects.create_user(username="ev_cust", email="ev_cust@example.com", role=UserRole.CUSTOMER)
+        self.mechanic = User.objects.create_user(username="ev_mech", email="ev_mech@example.com", role=UserRole.MECHANIC)
+        brand = CarBrand.objects.create(name="Skoda")
+        model = CarModel.objects.create(brand=brand, name="Slavia")
+        vehicle = Vehicle.objects.create(
+            customer=customer, car_brand=brand, car_model=model, brand="Skoda", model="Slavia",
+            registration_number="KA01EV01", year=2023, fuel_type="Petrol",
+        )
+        service_type = ServiceType.objects.create(name="Brake Check", base_price=999, estimated_duration="1 hour")
+        center = ServiceCenter.objects.create(name="Ev Hub", address="HSR", phone="+918000000002", email="ev@example.com")
+        self.booking = ServiceBooking.objects.create(
+            customer=customer, vehicle=vehicle, service_type=service_type, service_center=center,
+            pickup_address="HSR Layout", status=BookingStatus.IN_SERVICE, assigned_mechanic=self.mechanic,
+        )
+        self.client.force_authenticate(user=self.mechanic)
+
+    def upload(self, name, content, content_type):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        with self.settings(MEDIA_ROOT=self.media_dir):
+            return self.client.post(
+                "/api/repair-evidence/",
+                {"booking": self.booking.id, "issue_title": "Worn pads", "file": SimpleUploadedFile(name, content, content_type)},
+                format="multipart",
+            )
+
+    def test_real_photo_is_saved_under_a_safe_name(self):
+        from io import BytesIO
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), "red").save(buf, format="JPEG")
+        res = self.upload("brake.html", buf.getvalue(), "image/jpeg")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        self.assertEqual(res.data["media_type"], "PHOTO")
+        self.assertTrue(res.data["file"].endswith(".jpg"))
+        self.assertNotIn("brake", res.data["file"])
+
+    def test_disguised_or_missing_files_are_rejected(self):
+        fake = self.upload("photo.jpg", b"<html><script>alert(1)</script></html>", "image/jpeg")
+        self.assertEqual(fake.status_code, status.HTTP_400_BAD_REQUEST)
+        wrong_type = self.upload("notes.txt", b"hello", "text/plain")
+        self.assertEqual(wrong_type.status_code, status.HTTP_400_BAD_REQUEST)
+        missing = self.client.post(
+            "/api/repair-evidence/", {"booking": self.booking.id, "issue_title": "No media"}, format="json"
+        )
+        self.assertEqual(missing.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_revenue_counts_only_paid_invoices(self):
+        self.booking.status = BookingStatus.COMPLETED
+        self.booking.save()
+        invoice = Invoice.objects.create(booking=self.booking, subtotal=999, tax=179.82, grand_total=1178.82)
+        admin = User.objects.create_superuser(username="ev_admin", email="ev_admin@example.com", password="x", role=UserRole.ADMIN)
+        self.client.force_authenticate(user=admin)
+        stats = self.client.get("/api/admin/dashboard-stats/").data
+        self.assertEqual(stats["total_revenue"], 0)
+        self.assertEqual(stats["outstanding_amount"], 1178.82)
+        invoice.payment_status = Invoice.PaymentStatus.PAID
+        invoice.save()
+        stats = self.client.get("/api/admin/dashboard-stats/").data
+        self.assertEqual(stats["total_revenue"], 1178.82)
+        self.assertEqual(stats["outstanding_amount"], 0)

@@ -33,7 +33,7 @@ export function AdminHome() {
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Stat label="Total Customers" value={stats.total_customers} />
         <Stat label="Total Vehicles" value={stats.total_vehicles} />
         <Stat label="Active Services" value={stats.active_services} />
@@ -41,7 +41,8 @@ export function AdminHome() {
         <Stat label="Service Centers" value={stats.service_centers} />
         <Stat label="Valets / Drivers" value={stats.total_drivers} />
         <Stat label="Service Mechanics" value={stats.total_mechanics} />
-        <Stat label="Total Platform Revenue" value={`₹${stats.total_revenue.toLocaleString("en-IN")}`} />
+        <Stat label="Revenue Collected (paid invoices)" value={`₹${stats.total_revenue.toLocaleString("en-IN")}`} />
+        <Stat label="Outstanding (unpaid invoices)" value={`₹${stats.outstanding_amount.toLocaleString("en-IN")}`} />
       </div>
 
       {/* Repair Approval Breakdown */}
