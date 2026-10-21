@@ -91,6 +91,25 @@ WORKSHOP_STATUSES = {BookingStatus.VEHICLE_PICKED_UP, BookingStatus.IN_SERVICE, 
 MECHANIC_SETTABLE_STATUSES = {BookingStatus.IN_SERVICE, "Inspection", "Repair Approval Required", BookingStatus.READY_FOR_DELIVERY}
 
 
+# Driver stages: before the handover OTP, and while driving the car to the workshop.
+PICKUP_STAGE_STATUSES = {
+    BookingStatus.CONFIRMED, BookingStatus.PICKUP_SCHEDULED, "Driver Assigned", "En Route for Pickup", "Arrived at Pickup",
+}
+DRIVER_SETTABLE_STATUSES = {"En Route for Pickup", "Arrived at Pickup"}
+DRIVER_GPS_STATUSES = PICKUP_STAGE_STATUSES | {BookingStatus.VEHICLE_PICKED_UP}
+
+
+def driver_job_error(user, booking, allowed_statuses):
+    """Returns an error Response unless the user is an admin, or the assigned driver at an allowed stage."""
+    if is_admin(user):
+        return None
+    if not is_driver(user) or booking.assigned_driver_id != user.id:
+        return Response({"error": "This pickup is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
+    if booking.status not in allowed_statuses:
+        return Response({"error": f"Not available while the booking is '{booking.status}'."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
 def mechanic_job_error(user, booking):
     """Returns a 403 Response unless the user is an admin or the mechanic assigned to this open booking."""
     if is_admin(user):
@@ -931,8 +950,8 @@ def driver_pickups_list(request):
     if is_admin(request.user):
         qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).order_by("-created_at")
     else:
-        qs = ServiceBooking.objects.filter(
-            Q(assigned_driver=request.user) | Q(status__in=[BookingStatus.PICKUP_SCHEDULED, BookingStatus.CONFIRMED])
+        qs = ServiceBooking.objects.filter(assigned_driver=request.user).exclude(
+            status=BookingStatus.CANCELLED
         ).order_by("-created_at")
 
     serializer = ServiceBookingSerializer(qs, many=True)
@@ -953,15 +972,18 @@ def driver_pickup_status_update(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if booking.assigned_driver and booking.assigned_driver != request.user and not is_admin(request.user):
-        return Response({"error": "You are not the assigned driver for this pickup."}, status=status.HTTP_403_FORBIDDEN)
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    if error:
+        return error
 
     new_status = request.data.get("status")
     if not new_status:
         return Response({"error": "Status is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-    if not booking.assigned_driver:
-        booking.assigned_driver = request.user
+    if not is_admin(request.user) and new_status not in DRIVER_SETTABLE_STATUSES:
+        return Response(
+            {"error": f"Drivers cannot set status '{new_status}'. The handover OTP marks the vehicle picked up."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     booking.status = new_status
     booking.save()
@@ -981,6 +1003,10 @@ def driver_request_handover_otp(request, pk):
     booking = ServiceBooking.objects.filter(pk=pk).first()
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    if error:
+        return error
 
     code = generate_otp_code()
     booking.handover_otp = code
@@ -1013,6 +1039,10 @@ def driver_verify_handover_otp(request, pk):
     booking = ServiceBooking.objects.filter(pk=pk).first()
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    if error:
+        return error
 
     otp_code = str(request.data.get("otp_code") or request.data.get("code") or "").strip()
     if not otp_code:
@@ -1071,8 +1101,9 @@ def driver_post_location(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if booking.assigned_driver and booking.assigned_driver != request.user and not is_admin(request.user):
-        return Response({"error": "Cannot post location for another driver's booking."}, status=status.HTTP_403_FORBIDDEN)
+    error = driver_job_error(request.user, booking, DRIVER_GPS_STATUSES)
+    if error:
+        return error
 
     try:
         lat = float(request.data.get("latitude"))

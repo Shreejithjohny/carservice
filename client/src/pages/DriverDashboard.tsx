@@ -6,6 +6,9 @@ import { Skeleton, Empty } from "../components/States";
 import { CarFront, Navigation, KeyRound, CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
 import type { Booking } from "../types";
 
+// Matches the backend: drivers act only during the pickup stage of their assigned jobs.
+const PICKUP_STAGE = ["Confirmed", "Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup"];
+
 export function DriverDashboard() {
   const { data: pickups, loading, reload } = useApi<Booking[]>("/api/driver/pickups/");
   const { push } = useToast();
@@ -250,60 +253,68 @@ export function DriverDashboard() {
                 )}
               </div>
 
-              {/* GPS Tracking Toggle Control */}
-              <div className="flex items-center justify-between rounded-2xl border border-zinc-200 p-3 dark:border-zinc-700 text-xs">
-                <div className="flex items-center gap-2">
-                  <Navigation size={16} className={isTracking ? "text-emerald-500 animate-pulse" : "text-zinc-400"} />
-                  <div>
-                    <span className="font-bold block">Live GPS Location Sharing</span>
-                    <span className="text-[11px] text-zinc-500">
-                      {isTracking ? "Transmitting real-time GPS coordinates to customer map" : "GPS tracking inactive"}
-                    </span>
+              {PICKUP_STAGE.includes(b.status) ? (
+                <>
+                  {/* GPS Tracking Toggle Control */}
+                  <div className="flex items-center justify-between rounded-2xl border border-zinc-200 p-3 dark:border-zinc-700 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Navigation size={16} className={isTracking ? "text-emerald-500 animate-pulse" : "text-zinc-400"} />
+                      <div>
+                        <span className="font-bold block">Live GPS Location Sharing</span>
+                        <span className="text-[11px] text-zinc-500">
+                          {isTracking ? "Transmitting real-time GPS coordinates to customer map" : "GPS tracking inactive"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleGps(bId)}
+                      className={`rounded-xl px-3 py-1.5 font-bold transition ${
+                        isTracking
+                          ? "bg-emerald-600 text-white"
+                          : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {isTracking ? "Tracking Active" : "Enable GPS"}
+                    </button>
                   </div>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => toggleGps(bId)}
-                  className={`rounded-xl px-3 py-1.5 font-bold transition ${
-                    isTracking
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                  }`}
-                >
-                  {isTracking ? "Tracking Active" : "Enable GPS"}
-                </button>
-              </div>
+                  {/* Workflow Step Actions */}
+                  <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                      Pickup Workflow Stage Controls
+                    </span>
 
-              {/* Workflow Step Actions */}
-              <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                  Pickup Workflow Stage Controls
-                </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                      <button
+                        onClick={() => handleStatusUpdate(b, "En Route for Pickup")}
+                        className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
+                      >
+                        En Route
+                      </button>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  <button
-                    onClick={() => handleStatusUpdate(b, "En Route for Pickup")}
-                    className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
-                  >
-                    En Route
-                  </button>
+                      <button
+                        onClick={() => handleStatusUpdate(b, "Arrived at Pickup")}
+                        className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
+                      >
+                        Arrived at Location
+                      </button>
 
-                  <button
-                    onClick={() => handleStatusUpdate(b, "Arrived at Pickup")}
-                    className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
-                  >
-                    Arrived at Location
-                  </button>
-
-                  <button
-                    onClick={() => handleRequestOtp(b)}
-                    className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-[#ff4d2e] py-2 font-bold text-white hover:bg-[#e03e21]"
-                  >
-                    <KeyRound size={14} /> Handover OTP
-                  </button>
-                </div>
-              </div>
+                      <button
+                        onClick={() => handleRequestOtp(b)}
+                        className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-[#ff4d2e] py-2 font-bold text-white hover:bg-[#e03e21]"
+                      >
+                        <KeyRound size={14} /> Handover OTP
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="rounded-2xl bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-800/60">
+                  {b.handover_otp_verified ? "Vehicle handed over — pickup complete." : `No pickup actions while the booking is "${b.status}".`}
+                </p>
+              )}
             </div>
           );
         })}

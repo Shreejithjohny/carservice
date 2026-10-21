@@ -345,6 +345,7 @@ class Phase4ServiceBookingTests(TestCase):
             service_center=self.service_center,
             assigned_driver=driver,
             pickup_address="GPS test address",
+            status=BookingStatus.PICKUP_SCHEDULED,
         )
 
         self.client.force_authenticate(user=driver)
@@ -1138,6 +1139,8 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.assertIsNone(self.client.get("/api/health-check/").data["payment_gateway"])
 
     def test_tracking_returns_driver_route_oldest_first(self):
+        self.booking.status = BookingStatus.PICKUP_SCHEDULED
+        self.booking.save()
         self.client.force_authenticate(user=self.driver)
         for lat in (12.90, 12.91, 12.92):
             res = self.client.post(
@@ -1328,3 +1331,62 @@ class MechanicScopeTests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         est = self.post_as(self.mech, "/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "clutch slipping"})
         self.assertEqual(est.status_code, status.HTTP_200_OK)
+
+
+class DriverScopeTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        customer = User.objects.create_user(username="ds_cust", email="ds_cust@example.com", role=UserRole.CUSTOMER)
+        self.drv = User.objects.create_user(username="ds_drv", email="ds_drv@example.com", role=UserRole.DRIVER)
+        self.other = User.objects.create_user(username="ds_other", email="ds_other@example.com", role=UserRole.DRIVER)
+        brand = CarBrand.objects.create(name="Mahindra")
+        model = CarModel.objects.create(brand=brand, name="XUV300")
+        vehicle = Vehicle.objects.create(
+            customer=customer, car_brand=brand, car_model=model, brand="Mahindra", model="XUV300",
+            registration_number="KA01DS01", year=2021, fuel_type="Diesel",
+        )
+        st = ServiceType.objects.create(name="Oil Change", base_price=1500, estimated_duration="1 hour")
+        center = ServiceCenter.objects.create(name="DS Hub", address="BTM", phone="+918000000004", email="ds@example.com")
+        common = dict(customer=customer, vehicle=vehicle, service_type=st, service_center=center, pickup_address="BTM Layout")
+        self.job = ServiceBooking.objects.create(status=BookingStatus.PICKUP_SCHEDULED, assigned_driver=self.drv, **common)
+        self.unassigned = ServiceBooking.objects.create(status=BookingStatus.PICKUP_SCHEDULED, **common)
+
+    def as_user(self, user, url, body=None):
+        self.client.force_authenticate(user=user)
+        return self.client.post(url, body or {}, format="json")
+
+    def test_pickup_list_shows_only_assigned_jobs(self):
+        self.client.force_authenticate(user=self.drv)
+        self.assertEqual([j["id"] for j in self.client.get("/api/driver/pickups/").data], [self.job.id])
+        self.client.force_authenticate(user=self.other)
+        self.assertEqual(self.client.get("/api/driver/pickups/").data, [])
+
+    def test_other_driver_cannot_touch_the_pickup(self):
+        base = f"/api/driver/pickups/{self.job.id}"
+        self.assertEqual(self.as_user(self.other, f"{base}/status/", {"status": "En Route for Pickup"}).status_code, 403)
+        self.assertEqual(self.as_user(self.other, f"{base}/handover-otp/request/").status_code, 403)
+        self.assertEqual(self.as_user(self.other, f"{base}/handover-otp/verify/", {"otp_code": "123456"}).status_code, 403)
+        self.assertEqual(self.as_user(self.other, f"{base}/location/", {"latitude": 12.9, "longitude": 77.6}).status_code, 403)
+
+    def test_unassigned_pickup_cannot_be_claimed(self):
+        res = self.as_user(self.drv, f"/api/driver/pickups/{self.unassigned.id}/status/", {"status": "En Route for Pickup"})
+        self.assertEqual(res.status_code, 403)
+        self.unassigned.refresh_from_db()
+        self.assertIsNone(self.unassigned.assigned_driver)
+
+    def test_assigned_driver_stage_rules(self):
+        base = f"/api/driver/pickups/{self.job.id}"
+        # Picked-up and later statuses come only from the OTP handover / workshop
+        self.assertEqual(self.as_user(self.drv, f"{base}/status/", {"status": "Vehicle Picked Up"}).status_code, 400)
+        self.assertEqual(self.as_user(self.drv, f"{base}/status/", {"status": "Completed"}).status_code, 400)
+        self.assertEqual(self.as_user(self.drv, f"{base}/status/", {"status": "En Route for Pickup"}).status_code, 200)
+        self.assertEqual(self.as_user(self.drv, f"{base}/handover-otp/request/").status_code, 200)
+        self.job.refresh_from_db()
+        res = self.as_user(self.drv, f"{base}/handover-otp/verify/", {"otp_code": self.job.handover_otp})
+        self.assertEqual(res.status_code, 200)
+        # After pickup: GPS to the workshop still allowed, a new handover OTP is not
+        self.assertEqual(self.as_user(self.drv, f"{base}/location/", {"latitude": 12.9, "longitude": 77.6}).status_code, 201)
+        self.assertEqual(self.as_user(self.drv, f"{base}/handover-otp/request/").status_code, 400)
+        self.job.status = BookingStatus.COMPLETED
+        self.job.save()
+        self.assertEqual(self.as_user(self.drv, f"{base}/location/", {"latitude": 12.9, "longitude": 77.6}).status_code, 400)
