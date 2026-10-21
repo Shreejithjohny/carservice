@@ -1,0 +1,10 @@
+import "./User.js";
+import "./Vehicle.js";
+import "./Booking.js";
+import "./Mechanic.js";
+import "./RepairApproval.js";
+import "./RepairVideo.js";
+import "./Notification.js";
+import "./HealthScore.js";
+import "./Reward.js";
+import "./OTPVerification.js";

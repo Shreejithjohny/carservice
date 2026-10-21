@@ -1,0 +1,15 @@
+{
+  "name": "smart-doorstep",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"python backend/manage.py runserver 8000\" \"npm run dev --prefix client\"",
+    "dev:django": "python backend/manage.py runserver 8000",
+    "migrate:django": "python backend/manage.py migrate",
+    "seed": "npm run seed --prefix server",
+    "build": "npm run build --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

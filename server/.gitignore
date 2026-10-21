@@ -1,0 +1,6 @@
+uploads
+data
+node_modules
+dist
+.env
+*.local
