@@ -16,6 +16,7 @@ from .models import (
     RepairRequest,
     Invoice,
     InvoiceItem,
+    Payment,
     CarHealthScore,
     RepairCostEstimate,
     Notification,
@@ -390,8 +391,26 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         ]
 
 
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "amount",
+            "method",
+            "status",
+            "provider",
+            "transaction_id",
+            "payer_reference",
+            "failure_reason",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, read_only=True)
+    payments = PaymentSerializer(many=True, read_only=True)
     booking_reference = serializers.CharField(source="booking.booking_reference", read_only=True)
     customer_name = serializers.SerializerMethodField()
     customer_email = serializers.CharField(source="customer.email", read_only=True)
@@ -431,6 +450,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "items",
+            "payments",
         ]
         read_only_fields = ["id", "invoice_number", "issued_at", "created_at", "updated_at"]
 

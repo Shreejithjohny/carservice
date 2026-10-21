@@ -12,6 +12,9 @@ from api.models import (
     ServiceCenter,
     ServiceBooking,
     BookingStatus,
+    Invoice,
+    Payment,
+    Notification,
 )
 
 User = get_user_model()
@@ -1035,3 +1038,102 @@ class AuthSecurityTests(TestCase):
             res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500099"}, format="json")
         self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("not configured", res.data["error"])
+
+
+class InvoicePaymentAndTrackingTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="pay_cust", email="pay_cust@example.com", role=UserRole.CUSTOMER)
+        self.other = User.objects.create_user(username="pay_other", email="pay_other@example.com", role=UserRole.CUSTOMER)
+        self.manager = User.objects.create_user(
+            username="pay_mgr", email="pay_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER
+        )
+        self.driver = User.objects.create_user(username="pay_drv", email="pay_drv@example.com", role=UserRole.DRIVER)
+        brand = CarBrand.objects.create(name="Kia")
+        model = CarModel.objects.create(brand=brand, name="Seltos")
+        vehicle = Vehicle.objects.create(
+            customer=self.customer, car_brand=brand, car_model=model, brand="Kia", model="Seltos",
+            registration_number="KA01PAY1", year=2022, fuel_type="Petrol",
+        )
+        service_type = ServiceType.objects.create(name="General Service", base_price=2000, estimated_duration="3 hours")
+        center = ServiceCenter.objects.create(
+            user=self.manager, name="Pay Hub", address="Indiranagar", phone="+918000000000", email="hub@example.com",
+        )
+        self.booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=service_type, service_center=center,
+            pickup_address="Koramangala", status=BookingStatus.COMPLETED, assigned_driver=self.driver,
+        )
+        self.invoice = Invoice.objects.create(booking=self.booking, subtotal=2000, tax=360, grand_total=2360)
+
+    def pay(self, user, **body):
+        self.client.force_authenticate(user=user)
+        return self.client.post(f"/api/invoices/{self.invoice.id}/pay/", body, format="json")
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_customer_pays_with_upi_once(self):
+        res = self.pay(self.customer, method="UPI", upi_id="rahul@okhdfc")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["payment"]["status"], "SUCCESS")
+        self.assertEqual(float(res.data["payment"]["amount"]), 2360.0)
+        self.assertEqual(res.data["invoice"]["payment_status"], "PAID")
+        self.assertEqual(len(res.data["invoice"]["payments"]), 1)
+        self.assertTrue(Notification.objects.filter(user=self.manager, title="Invoice paid").exists())
+
+        again = self.pay(self.customer, method="UPI", upi_id="rahul@okhdfc")
+        self.assertEqual(again.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(Payment.objects.filter(invoice=self.invoice).count(), 1)
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_card_payment_stores_only_last_four_digits(self):
+        res = self.pay(self.customer, method="CARD", card_number="4111 1111 1111 1111", card_expiry="12/39")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        payment = Payment.objects.get(invoice=self.invoice)
+        self.assertEqual(payment.payer_reference, "Card ending 1111")
+        self.assertNotIn("41111111", str(res.data))
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_declined_payment_can_be_retried(self):
+        res = self.pay(self.customer, method="UPI", upi_id="failure@mock")
+        self.assertEqual(res.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "FAILED")
+
+        retry = self.pay(self.customer, method="UPI", upi_id="rahul@okhdfc")
+        self.assertEqual(retry.status_code, status.HTTP_200_OK)
+        self.assertEqual(Payment.objects.filter(invoice=self.invoice).count(), 2)
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_invalid_details_and_wrong_payer_are_rejected(self):
+        self.assertEqual(self.pay(self.customer, method="UPI", upi_id="not-an-upi").status_code, 400)
+        self.assertEqual(
+            self.pay(self.customer, method="CARD", card_number="4111111111111112", card_expiry="12/39").status_code, 400
+        )
+        self.assertEqual(
+            self.pay(self.customer, method="CARD", card_number="4111111111111111", card_expiry="01/20").status_code, 400
+        )
+        self.assertEqual(self.pay(self.other, method="UPI", upi_id="x@okaxis").status_code, 403)
+        self.assertEqual(self.pay(self.manager, method="UPI", upi_id="x@okaxis").status_code, 403)
+        self.assertFalse(Payment.objects.exists())
+
+    @override_settings(PAYMENT_GATEWAY="")
+    def test_payment_disabled_without_gateway(self):
+        res = self.pay(self.customer, method="UPI", upi_id="rahul@okhdfc")
+        self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIsNone(self.client.get("/api/health-check/").data["payment_gateway"])
+
+    def test_tracking_returns_driver_route_oldest_first(self):
+        self.client.force_authenticate(user=self.driver)
+        for lat in (12.90, 12.91, 12.92):
+            res = self.client.post(
+                f"/api/driver/pickups/{self.booking.id}/location/", {"latitude": lat, "longitude": 77.6}, format="json"
+            )
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        bad = self.client.post(
+            f"/api/driver/pickups/{self.booking.id}/location/", {"latitude": 500, "longitude": 77.6}, format="json"
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.client.force_authenticate(user=self.customer)
+        data = self.client.get(f"/api/bookings/{self.booking.id}/tracking/").data
+        self.assertEqual([p["latitude"] for p in data["driver_route"]], [12.90, 12.91, 12.92])
+        self.assertEqual(data["latest_driver_location"]["latitude"], 12.92)

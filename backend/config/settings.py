@@ -5,13 +5,16 @@ from datetime import timedelta
 import dotenv
 from django.core.exceptions import ImproperlyConfigured
 
-# Load environment variables from .env file
 BASE_DIR = Path(__file__).resolve().parent.parent
-dotenv.load_dotenv(BASE_DIR / ".env")
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
+
+# Load environment variables from .env file. Tests skip it so they behave the same on every
+# machine and never use real SMS/email credentials from a developer's .env.
+if not TESTING:
+    dotenv.load_dotenv(BASE_DIR / ".env")
 
 # Production-safe defaults: DEBUG is off unless explicitly enabled (backend/.env.example turns it on for local dev).
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
-TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 
 SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 if not SECRET_KEY:
@@ -166,4 +169,7 @@ OTP_BYPASS = os.getenv("OTP_BYPASS", "False").lower() in ("true", "1", "t")
 # When no SMS/email provider is configured, print OTPs to the server console instead of failing.
 # On by default only in DEBUG; in production a missing provider is reported as an error.
 OTP_CONSOLE_FALLBACK = os.getenv("OTP_CONSOLE_FALLBACK", str(DEBUG)).lower() in ("true", "1", "t")
+
+# Online invoice payment: "mock" is a test gateway (no real money); empty disables online payment.
+PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "mock" if DEBUG else "").strip().lower()
 

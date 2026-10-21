@@ -164,6 +164,19 @@ export interface Invoice {
   issued_at: string;
   created_at?: string;
   items: InvoiceItem[];
+  payments?: Payment[];
+}
+
+export interface Payment {
+  id: number;
+  amount: number | string;
+  method: "UPI" | "CARD";
+  status: "SUCCESS" | "FAILED";
+  provider: string;
+  transaction_id: string;
+  payer_reference: string;
+  failure_reason: string;
+  created_at: string;
 }
 
 export interface NotificationItem {

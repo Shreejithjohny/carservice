@@ -704,6 +704,36 @@ class InvoiceItem(models.Model):
         return f"{self.description} - ₹{self.total_price}"
 
 
+class Payment(models.Model):
+    """One payment attempt against an invoice (successful or failed)."""
+
+    class Method(models.TextChoices):
+        UPI = "UPI", _("UPI")
+        CARD = "CARD", _("Card")
+
+    class Status(models.TextChoices):
+        SUCCESS = "SUCCESS", _("Success")
+        FAILED = "FAILED", _("Failed")
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payments")
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="payments")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    method = models.CharField(max_length=10, choices=Method.choices)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    provider = models.CharField(max_length=20, default="MOCK")
+    transaction_id = models.CharField(max_length=40, unique=True)
+    # Masked payer reference only (UPI ID or card last 4); full card numbers are never stored.
+    payer_reference = models.CharField(max_length=60, blank=True)
+    failure_reason = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.transaction_id} {self.status} ₹{self.amount}"
+
+
 class CarHealthScore(models.Model):
     vehicle = models.OneToOneField(
         Vehicle, on_delete=models.CASCADE, related_name="health_score"
@@ -740,6 +770,7 @@ class NotificationType(models.TextChoices):
     READY_FOR_DELIVERY = "READY_FOR_DELIVERY", _("Ready for Delivery")
     DELIVERY_COMPLETED = "DELIVERY_COMPLETED", _("Delivery Completed")
     INVOICE_GENERATED = "INVOICE_GENERATED", _("Invoice Generated")
+    PAYMENT_RECEIVED = "PAYMENT_RECEIVED", _("Payment Received")
     GENERAL = "GENERAL", _("General")
 
 

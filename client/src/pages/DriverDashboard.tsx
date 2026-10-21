@@ -112,18 +112,17 @@ export function DriverDashboard() {
   }
 
   const toggleGps = (bookingId: string | number) => {
-    setGpsTrackingActive((prev) => {
-      const next = !prev[bookingId];
-      if (next && "geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition((pos) => {
-          sendLocationUpdate(bookingId, pos.coords.latitude, pos.coords.longitude);
-        });
-        push({ title: "GPS location tracking enabled" });
-      } else {
-        push({ title: "GPS location tracking disabled" });
-      }
-      return { ...prev, [bookingId]: next };
-    });
+    // Side effects stay outside the state updater: React may run updaters twice in development.
+    const next = !gpsTrackingActive[bookingId];
+    setGpsTrackingActive((prev) => ({ ...prev, [bookingId]: next }));
+    if (next && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        sendLocationUpdate(bookingId, pos.coords.latitude, pos.coords.longitude);
+      });
+      push({ title: "GPS location tracking enabled" });
+    } else {
+      push({ title: "GPS location tracking disabled" });
+    }
   };
 
   if (loading) return <Skeleton className="h-96" />;

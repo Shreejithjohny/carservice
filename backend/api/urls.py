@@ -66,6 +66,7 @@ urlpatterns = [
     # Phase 10 Invoices & Car Health Score
     path("invoices/", views.invoices_list, name="invoices_list"),
     path("invoices/<str:pk>/", views.invoice_detail, name="invoice_detail"),
+    path("invoices/<int:pk>/pay/", views.invoice_pay, name="invoice_pay"),
     path("bookings/<str:pk>/generate-invoice/", views.booking_generate_invoice, name="booking_generate_invoice"),
     path("vehicles/<int:pk>/health-score/", views.vehicle_health_score, name="vehicle_health_score"),
 

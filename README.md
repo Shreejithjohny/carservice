@@ -74,8 +74,17 @@ Set these in `backend/.env` (or the server environment):
 | `ALLOWED_HOSTS` | Your API domain(s), comma-separated |
 | `CORS_ALLOWED_ORIGINS` | Your frontend URL(s), e.g. `https://app.example.com` |
 | `OTP_BYPASS` | `False` — **never** enable in production; it allows signing in to any existing account without a code |
+| `PAYMENT_GATEWAY` | Leave empty: online payment is turned off and customers pay at the service center. `mock` is a test gateway only — it moves no real money. |
 | `TWILIO_*` and/or `EMAIL_*` | An SMS or email provider. Without one, OTP requests fail with an error in production. |
 | `USE_MYSQL`, `DB_*` | Optional MySQL connection |
+
+## Payments
+
+Customers pay invoices from the Invoices page with UPI or card. Only a **mock gateway** exists today (`PAYMENT_GATEWAY=mock`, on by default in development): it records the payment and marks the invoice paid without charging anything, and the payment screen says so. Use `failure@mock` or card `4000 0000 0000 0002` to simulate a declined payment. Card numbers are validated (Luhn check) but only the last 4 digits are stored. A real gateway such as Razorpay plugs in at `backend/api/payment_service.py`.
+
+## Live tracking
+
+The driver dashboard posts the phone's GPS position every 10 seconds while "Enable GPS" is on. The customer's Track page shows the pickup point, service center and the driver's recent route on an OpenStreetMap map (Leaflet), refreshing every 10 seconds. The public OpenStreetMap tile servers are fine for development and light use; for production traffic, switch the tile URL in `client/src/components/LiveTrackingMap.tsx` to a tile provider.
 
 ## About the cost estimator
 

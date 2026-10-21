@@ -54,6 +54,7 @@ from .serializers import (
     RepairCostEstimateSerializer,
     InvoiceItemSerializer,
     InvoiceSerializer,
+    PaymentSerializer,
     CarHealthScoreSerializer,
     NotificationSerializer,
 )
@@ -62,6 +63,7 @@ from .ai_cost_service import estimate_repair_cost
 from .invoice_service import generate_invoice_for_booking
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
+from .payment_service import PaymentError, pay_invoice, payment_gateway
 
 
 def is_admin(user):
@@ -93,6 +95,7 @@ def health_check(request):
         "service": "Smart Doorstep Vehicle Service Management System API",
         "backend": "Django REST Framework",
         "demo_login": getattr(settings, "OTP_BYPASS", False),
+        "payment_gateway": payment_gateway() or None,
     })
 
 
@@ -1060,6 +1063,8 @@ def driver_post_location(request, pk):
         lng = float(request.data.get("longitude"))
     except (ValueError, TypeError):
         return Response({"error": "Valid latitude and longitude coordinates are required."}, status=status.HTTP_400_BAD_REQUEST)
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return Response({"error": "Coordinates are out of range."}, status=status.HTTP_400_BAD_REQUEST)
 
     location = DriverLocation.objects.create(
         driver=request.user,
@@ -1242,6 +1247,8 @@ def customer_booking_tracking_detail(request, pk):
         return Response({"error": "Unauthorized access to booking tracking."}, status=status.HTTP_403_FORBIDDEN)
 
     latest_location = DriverLocation.objects.filter(booking=booking).first()
+    # Recent GPS trail, oldest first, for drawing the driver's route on the map
+    recent_route = list(DriverLocation.objects.filter(booking=booking)[:50])[::-1]
     inspections = ServiceInspection.objects.filter(booking=booking)
     evidence_items = RepairEvidence.objects.filter(booking=booking)
     repair_requests = RepairRequest.objects.filter(booking=booking)
@@ -1249,6 +1256,7 @@ def customer_booking_tracking_detail(request, pk):
     return Response({
         "booking": ServiceBookingSerializer(booking).data,
         "latest_driver_location": DriverLocationSerializer(latest_location).data if latest_location else None,
+        "driver_route": DriverLocationSerializer(recent_route, many=True).data,
         "assigned_driver": UserSerializer(booking.assigned_driver).data if booking.assigned_driver else None,
         "assigned_mechanic": UserSerializer(booking.assigned_mechanic).data if booking.assigned_mechanic else None,
         "handover_otp_code": booking.handover_otp if booking.customer == request.user else None,
@@ -1451,6 +1459,28 @@ def invoice_detail(request, pk):
 
     serializer = InvoiceSerializer(invoice)
     return Response(serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def invoice_pay(request, pk):
+    """
+    POST /api/invoices/<id>/pay/
+    Customer pays their invoice. Body: {"method": "UPI", "upi_id": ...}
+    or {"method": "CARD", "card_number": ..., "card_expiry": "MM/YY"}.
+    """
+    try:
+        payment = pay_invoice(pk, request.user, request.data)
+    except PaymentError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+
+    invoice_data = InvoiceSerializer(payment.invoice).data
+    if payment.status != payment.Status.SUCCESS:
+        return Response(
+            {"error": payment.failure_reason, "payment": PaymentSerializer(payment).data, "invoice": invoice_data},
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    return Response({"payment": PaymentSerializer(payment).data, "invoice": invoice_data})
 
 
 @api_view(["POST"])
