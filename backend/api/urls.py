@@ -11,12 +11,6 @@ urlpatterns = [
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", views.me, name="auth_me"),
 
-    # Backward compatibility aliases
-    path("auth/register/request-otp", views.send_otp, name="register_request_otp"),
-    path("auth/register/verify-otp", views.verify_otp, name="register_verify_otp"),
-    path("auth/login", views.send_otp, name="login_send_otp"),
-    path("auth/otp", views.send_otp, name="auth_otp"),
-
     # Vehicle Catalog Endpoints
     path("car-brands/", views.car_brand_list_create, name="car_brand_list_create"),
     path("car-brands/<int:pk>/", views.car_brand_detail, name="car_brand_detail"),

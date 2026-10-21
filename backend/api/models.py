@@ -7,11 +7,8 @@ import uuid
 
 class UserRole(models.TextChoices):
     CUSTOMER = "CUSTOMER", _("Customer")
-    SERVICE_CENTER = "SERVICE_CENTER", _("Service Center Manager")
     SERVICE_CENTER_MANAGER = "SERVICE_CENTER_MANAGER", _("Service Center Manager")
-    EMPLOYEE = "EMPLOYEE", _("Employee")
     DRIVER = "DRIVER", _("Driver / Valet")
-    VALET = "VALET", _("Driver / Valet")
     MECHANIC = "MECHANIC", _("Mechanic")
     ADMIN = "ADMIN", _("Admin")
 

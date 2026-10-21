@@ -583,6 +583,18 @@ class Phase9To11CompleteOperationsTests(TestCase):
         res_detail_unauth = self.client.get(f"/api/invoices/{inv_data['id']}/")
         self.assertEqual(res_detail_unauth.status_code, status.HTTP_403_FORBIDDEN)
 
+        # Manager sees their service center's invoices
+        self.client.force_authenticate(user=self.manager)
+        res_mgr_list = self.client.get("/api/invoices/")
+        self.assertEqual(res_mgr_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_mgr_list.data), 1)
+
+        # Drivers can neither list nor open customer invoices
+        self.client.force_authenticate(user=self.driver)
+        self.assertEqual(self.client.get("/api/invoices/").status_code, status.HTTP_403_FORBIDDEN)
+        res_drv_detail = self.client.get(f"/api/invoices/{inv_data['id']}/")
+        self.assertEqual(res_drv_detail.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_car_health_score_calculation(self):
         self.client.force_authenticate(user=self.customer1)
         res = self.client.get(f"/api/vehicles/{self.vehicle1.id}/health-score/")

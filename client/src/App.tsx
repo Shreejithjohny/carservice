@@ -11,11 +11,9 @@ import { Book } from "./pages/Book";
 import { History, Track } from "./pages/Track";
 import { Estimate } from "./pages/Estimate";
 import { Health } from "./pages/Health";
-import { Approvals } from "./pages/Approvals";
-import { OtpHandover } from "./pages/Otp";
+import { RepairApproval } from "./pages/RepairApproval";
 import { Notifications } from "./pages/Notifications";
-import { Offers, Wallet } from "./pages/Wallet";
-import { AdminBookings, AdminDiscounts, AdminHome, AdminVideo } from "./pages/Admin";
+import { AdminHome } from "./pages/Admin";
 import { AdminCatalog } from "./pages/AdminCatalog";
 import { ServiceCenterDashboard } from "./pages/ServiceCenterDashboard";
 import { DriverDashboard } from "./pages/DriverDashboard";
@@ -44,8 +42,8 @@ export function App() {
       <Route path="/verify-otp" element={<VerifyOtp />} />
 
       {/* Protected Customer Routes */}
-      <Route element={<Guard roles={["customer", "CUSTOMER"]} />}>
-        <Route path="/app" element={<AppShell variant="customer" />}>
+      <Route element={<Guard roles={["customer"]} />}>
+        <Route path="/app" element={<AppShell />}>
           <Route index element={<Fade><Dashboard /></Fade>} />
           <Route path="vehicles" element={<Fade><Vehicles /></Fade>} />
           <Route path="book" element={<Fade><Book /></Fade>} />
@@ -53,18 +51,15 @@ export function App() {
           <Route path="history" element={<Fade><History /></Fade>} />
           <Route path="estimate" element={<Fade><Estimate /></Fade>} />
           <Route path="health" element={<Fade><Health /></Fade>} />
-          <Route path="approvals" element={<Fade><Approvals /></Fade>} />
-          <Route path="otp" element={<Fade><OtpHandover /></Fade>} />
+          <Route path="approvals" element={<Fade><RepairApproval /></Fade>} />
           <Route path="notifications" element={<Fade><Notifications /></Fade>} />
           <Route path="invoices" element={<Fade><Invoices /></Fade>} />
-          <Route path="wallet" element={<Fade><Wallet /></Fade>} />
-          <Route path="offers" element={<Fade><Offers /></Fade>} />
         </Route>
       </Route>
 
       {/* Protected Service Center Manager Routes */}
-      <Route element={<Guard roles={["admin", "ADMIN", "SERVICE_CENTER", "SERVICE_CENTER_MANAGER", "manager"]} />}>
-        <Route path="/service-center" element={<AppShell variant="admin" />}>
+      <Route element={<Guard roles={["service_center_manager"]} />}>
+        <Route path="/service-center" element={<AppShell />}>
           <Route index element={<Fade><ServiceCenterDashboard /></Fade>} />
           <Route path="bookings" element={<Fade><ServiceCenterDashboard /></Fade>} />
           <Route path="invoices" element={<Fade><Invoices /></Fade>} />
@@ -72,27 +67,25 @@ export function App() {
       </Route>
 
       {/* Protected Admin Routes */}
-      <Route element={<Guard roles={["admin", "ADMIN"]} />}>
-        <Route path="/admin" element={<AppShell variant="admin" />}>
+      <Route element={<Guard roles={["admin"]} />}>
+        <Route path="/admin" element={<AppShell />}>
           <Route index element={<Fade><AdminHome /></Fade>} />
           <Route path="catalog" element={<Fade><AdminCatalog /></Fade>} />
-          <Route path="bookings" element={<Fade><AdminBookings /></Fade>} />
+          <Route path="bookings" element={<Fade><ServiceCenterDashboard /></Fade>} />
           <Route path="invoices" element={<Fade><Invoices /></Fade>} />
-          <Route path="video" element={<Fade><AdminVideo /></Fade>} />
-          <Route path="discounts" element={<Fade><AdminDiscounts /></Fade>} />
         </Route>
       </Route>
 
       {/* Protected Valet/Driver Routes */}
-      <Route element={<Guard roles={["driver", "DRIVER", "VALET", "EMPLOYEE"]} />}>
-        <Route path="/driver" element={<AppShell variant="driver" />}>
+      <Route element={<Guard roles={["driver"]} />}>
+        <Route path="/driver" element={<AppShell />}>
           <Route index element={<Fade><DriverDashboard /></Fade>} />
         </Route>
       </Route>
 
       {/* Protected Mechanic Routes */}
-      <Route element={<Guard roles={["mechanic", "MECHANIC", "admin", "ADMIN"]} />}>
-        <Route path="/mechanic" element={<AppShell variant="admin" />}>
+      <Route element={<Guard roles={["mechanic"]} />}>
+        <Route path="/mechanic" element={<AppShell />}>
           <Route index element={<Fade><MechanicDashboard /></Fade>} />
         </Route>
       </Route>

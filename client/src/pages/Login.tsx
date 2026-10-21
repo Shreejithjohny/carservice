@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
 import type { Role } from "../types";
+import { ROLE_LABELS, homePathForRole } from "../utils/roles";
 import { Sparkles, Shield, Car, Wrench, Building2, Truck } from "lucide-react";
 
 export function Login() {
@@ -15,12 +16,7 @@ export function Login() {
   const [busy, setBusy] = useState(false);
 
   function redirectForRole(targetRole: string) {
-    const r = targetRole.toLowerCase();
-    if (r === "admin") navigate("/admin");
-    else if (r === "service_center" || r === "service_center_manager" || r === "manager") navigate("/service-center");
-    else if (r === "driver" || r === "valet") navigate("/driver");
-    else if (r === "mechanic") navigate("/mechanic");
-    else navigate("/app");
+    navigate(homePathForRole(targetRole));
   }
 
   // 1-Click Fast Login for any role
@@ -158,7 +154,7 @@ export function Login() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => handleQuickLogin("manager", "manager@smartdoorstep.com")}
+            onClick={() => handleQuickLogin("service_center_manager", "manager@smartdoorstep.com")}
             className="mt-2 w-full flex items-center justify-center gap-2 rounded-2xl bg-zinc-100 dark:bg-zinc-800 p-2 text-xs font-semibold text-zinc-800 dark:text-zinc-100 hover:bg-[#ff4d2e] hover:text-white transition group disabled:opacity-50"
           >
             <Building2 size={15} className="text-[#ff4d2e] group-hover:text-white" />
@@ -173,7 +169,7 @@ export function Login() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {(["customer", "driver", "admin", "mechanic", "manager"] as Role[]).map((r) => (
+          {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
             <button
               key={r}
               type="button"
@@ -182,7 +178,7 @@ export function Login() {
                 role === r ? "bg-[#ff4d2e] text-white" : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
               }`}
             >
-              {r}
+              {ROLE_LABELS[r]}
             </button>
           ))}
         </div>

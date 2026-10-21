@@ -66,48 +66,23 @@ from .notification_service import send_notification
 
 
 def is_admin(user):
-    return user and (user.is_staff or user.role in [UserRole.ADMIN, "ADMIN", "admin"])
+    return user and (user.is_staff or user.role == UserRole.ADMIN)
 
 
 def is_manager(user):
-    return user and (
-        user.is_staff
-        or user.role
-        in [
-            UserRole.ADMIN,
-            UserRole.SERVICE_CENTER,
-            UserRole.SERVICE_CENTER_MANAGER,
-            "ADMIN",
-            "SERVICE_CENTER",
-            "SERVICE_CENTER_MANAGER",
-            "manager",
-        ]
-    )
+    return user and (user.is_staff or user.role in [UserRole.ADMIN, UserRole.SERVICE_CENTER_MANAGER])
 
 
 def is_driver(user):
-    return user and (
-        user.role
-        in [
-            UserRole.DRIVER,
-            UserRole.VALET,
-            UserRole.EMPLOYEE,
-            "DRIVER",
-            "VALET",
-            "EMPLOYEE",
-            "driver",
-        ]
-    )
+    return user and user.role == UserRole.DRIVER
 
 
 def is_mechanic(user):
-    return user and (
-        user.role in [UserRole.MECHANIC, "MECHANIC", "mechanic"] or user.is_staff
-    )
+    return user and (user.role == UserRole.MECHANIC or user.is_staff)
 
 
 def is_customer(user):
-    return user and (user.role in [UserRole.CUSTOMER, "CUSTOMER", "customer"] or not user.is_staff)
+    return user and user.role == UserRole.CUSTOMER and not user.is_staff
 
 
 
@@ -144,10 +119,8 @@ def bypass_login(request):
     if not identifier:
         role_defaults = {
             UserRole.ADMIN: "admin@smartdoorstep.com",
-            UserRole.SERVICE_CENTER: "manager@smartdoorstep.com",
             UserRole.SERVICE_CENTER_MANAGER: "manager@smartdoorstep.com",
             UserRole.DRIVER: "driver@smartdoorstep.com",
-            UserRole.VALET: "driver@smartdoorstep.com",
             UserRole.MECHANIC: "mechanic@smartdoorstep.com",
             UserRole.CUSTOMER: "customer@smartdoorstep.com",
         }
@@ -919,12 +892,8 @@ def service_center_employees_list(request):
     if not is_manager(request.user):
         return Response({"error": "Manager permissions required."}, status=status.HTTP_403_FORBIDDEN)
 
-    drivers = User.objects.filter(
-        Q(role=UserRole.DRIVER) | Q(role=UserRole.VALET) | Q(role=UserRole.EMPLOYEE) | Q(role="DRIVER") | Q(role="driver")
-    )
-    mechanics = User.objects.filter(
-        Q(role=UserRole.MECHANIC) | Q(role="MECHANIC") | Q(role="mechanic")
-    )
+    drivers = User.objects.filter(role=UserRole.DRIVER)
+    mechanics = User.objects.filter(role=UserRole.MECHANIC)
 
     return Response({
         "drivers": UserSerializer(drivers, many=True).data,
@@ -1477,7 +1446,7 @@ def invoice_detail(request, pk):
         return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
 
     # Permissions
-    if is_customer(request.user) and invoice.customer != request.user and not is_admin(request.user):
+    if invoice.customer != request.user and not is_manager(request.user):
         return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
 
     if is_manager(request.user):
@@ -1604,7 +1573,7 @@ def admin_dashboard_stats(request):
     ).count()
     completed_services = ServiceBooking.objects.filter(status=BookingStatus.COMPLETED).count()
     service_centers_count = ServiceCenter.objects.count()
-    total_drivers = User.objects.filter(role__in=[UserRole.DRIVER, UserRole.VALET]).count()
+    total_drivers = User.objects.filter(role=UserRole.DRIVER).count()
     total_mechanics = User.objects.filter(role=UserRole.MECHANIC).count()
 
     total_revenue = sum(

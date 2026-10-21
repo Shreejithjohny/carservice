@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
 import type { Role } from "../types";
+import { homePathForRole } from "../utils/roles";
 
 export function VerifyOtp() {
   const { sendOtp, verifyOtp, bypassLogin } = useAuth();
@@ -20,12 +21,7 @@ export function VerifyOtp() {
   const [cooldown, setCooldown] = useState(0);
 
   function routeUser(user: { role: string; name?: string }) {
-    const targetRole = user.role.toLowerCase();
-    if (targetRole === "admin") navigate("/admin");
-    else if (targetRole === "service_center" || targetRole === "service_center_manager" || targetRole === "manager") navigate("/service-center");
-    else if (targetRole === "driver" || targetRole === "valet") navigate("/driver");
-    else if (targetRole === "mechanic") navigate("/mechanic");
-    else navigate("/app");
+    navigate(homePathForRole(user.role));
   }
 
   // Resend cooldown timer
