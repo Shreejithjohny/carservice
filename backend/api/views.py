@@ -60,7 +60,7 @@ from .serializers import (
 )
 from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number
 from .ai_cost_service import estimate_repair_cost
-from .invoice_service import generate_invoice_for_booking
+from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
@@ -842,8 +842,8 @@ def service_center_booking_update(request, pk):
             )
             try:
                 generate_invoice_for_booking(booking)
-            except Exception:
-                pass
+            except InvoiceError:
+                pass  # e.g. already paid; completing the booking still succeeds
             try:
                 recalculate_car_health_score(booking.vehicle)
             except Exception:
@@ -1488,7 +1488,8 @@ def invoice_pay(request, pk):
 def booking_generate_invoice(request, pk):
     """
     POST /api/bookings/<id>/generate-invoice/
-    Generates or recalculates itemized invoice for booking.
+    Generates or recalculates the itemized invoice for a completed booking.
+    Only admins and the manager of the booking's service center may do this.
     """
     if str(pk).isdigit():
         booking = ServiceBooking.objects.filter(pk=pk).first()
@@ -1498,10 +1499,19 @@ def booking_generate_invoice(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if not (is_manager(request.user) or is_mechanic(request.user) or is_admin(request.user) or booking.customer == request.user):
-        return Response({"error": "Unauthorized to generate invoice for this booking."}, status=status.HTTP_403_FORBIDDEN)
+    if not is_admin(request.user):
+        employee = getattr(request.user, "employee_profile", None)
+        manager_center = getattr(request.user, "service_center_profile", None) or (employee.service_center if employee else None)
+        if not (is_manager(request.user) and manager_center and booking.service_center_id == manager_center.id):
+            return Response(
+                {"error": "Only the service center manager for this booking can generate its invoice."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-    invoice = generate_invoice_for_booking(booking)
+    try:
+        invoice = generate_invoice_for_booking(booking)
+    except InvoiceError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
     recalculate_car_health_score(booking.vehicle)
     return Response(InvoiceSerializer(invoice).data, status=status.HTTP_200_OK)
 

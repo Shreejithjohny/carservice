@@ -557,6 +557,20 @@ class Phase9To11CompleteOperationsTests(TestCase):
             status=RepairRequestStatus.APPROVED,
         )
 
+        # Not invoiceable before the service is completed
+        self.client.force_authenticate(user=self.manager)
+        res_early = self.client.post(f"/api/bookings/{booking.id}/generate-invoice/")
+        self.assertEqual(res_early.status_code, status.HTTP_400_BAD_REQUEST)
+
+        booking.status = BookingStatus.COMPLETED
+        booking.save()
+
+        # Customers, mechanics and drivers cannot generate invoices
+        for outsider in (self.customer1, self.mechanic, self.driver):
+            self.client.force_authenticate(user=outsider)
+            res_forbidden = self.client.post(f"/api/bookings/{booking.id}/generate-invoice/")
+            self.assertEqual(res_forbidden.status_code, status.HTTP_403_FORBIDDEN)
+
         self.client.force_authenticate(user=self.manager)
         res_inv = self.client.post(f"/api/bookings/{booking.id}/generate-invoice/")
         self.assertEqual(res_inv.status_code, status.HTTP_200_OK)
@@ -1137,3 +1151,46 @@ class InvoicePaymentAndTrackingTests(TestCase):
         data = self.client.get(f"/api/bookings/{self.booking.id}/tracking/").data
         self.assertEqual([p["latitude"] for p in data["driver_route"]], [12.90, 12.91, 12.92])
         self.assertEqual(data["latest_driver_location"]["latitude"], 12.92)
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_invoice_generation_rules(self):
+        self.invoice.delete()
+        url = f"/api/bookings/{self.booking.id}/generate-invoice/"
+
+        # A manager of a different service center is refused
+        other_mgr = User.objects.create_user(
+            username="other_mgr", email="other_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER
+        )
+        ServiceCenter.objects.create(
+            user=other_mgr, name="Other Hub", address="Whitefield", phone="+918000000001", email="o@example.com"
+        )
+        self.client.force_authenticate(user=other_mgr)
+        self.assertEqual(self.client.post(url).status_code, status.HTTP_403_FORBIDDEN)
+
+        # The booking's own manager can generate it
+        self.client.force_authenticate(user=self.manager)
+        res = self.client.post(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        invoice_id = res.data["id"]
+
+        # Once paid, it can no longer be recalculated (by the endpoint or by re-completing the booking)
+        self.client.force_authenticate(user=self.customer)
+        self.client.post(f"/api/invoices/{invoice_id}/pay/", {"method": "UPI", "upi_id": "rahul@okhdfc"}, format="json")
+        paid_total = Invoice.objects.get(pk=invoice_id).grand_total
+        self.client.force_authenticate(user=self.manager)
+        self.assertEqual(self.client.post(url).status_code, status.HTTP_409_CONFLICT)
+        res_complete = self.client.patch(
+            f"/api/service-center/bookings/{self.booking.id}/", {"status": "Completed"}, format="json"
+        )
+        self.assertEqual(res_complete.status_code, status.HTTP_200_OK)
+        self.assertEqual(Invoice.objects.get(pk=invoice_id).grand_total, paid_total)
+
+    def test_completing_booking_creates_invoice_automatically(self):
+        self.invoice.delete()
+        self.booking.status = BookingStatus.IN_SERVICE
+        self.booking.save()
+        self.client.force_authenticate(user=self.manager)
+        res = self.client.patch(f"/api/service-center/bookings/{self.booking.id}/", {"status": "Completed"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(Invoice.objects.filter(booking=self.booking).exists())
+
