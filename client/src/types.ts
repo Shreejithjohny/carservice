@@ -8,8 +8,6 @@ export interface User {
   email?: string;
   role: Role;
   avatarUrl?: string;
-  // Only read by the unrouted legacy Wallet page; remove together with it.
-  walletBalance?: number;
   is_verified?: boolean;
 }
 
