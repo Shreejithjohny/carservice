@@ -9,7 +9,6 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 import re
-import random
 from .models import (
     User,
     CustomerProfile,
@@ -93,7 +92,7 @@ def health_check(request):
         "status": "ok",
         "service": "Smart Doorstep Vehicle Service Management System API",
         "backend": "Django REST Framework",
-        "phase": 4
+        "demo_login": getattr(settings, "OTP_BYPASS", False),
     })
 
 
@@ -106,9 +105,12 @@ def health_check(request):
 def bypass_login(request):
     """
     POST /api/auth/bypass-login/
-    Directly signs in or registers any role without requiring OTP.
-    Controlled by settings.OTP_BYPASS.
+    Demo login without OTP. Only available when settings.OTP_BYPASS is enabled.
+    Existing accounts keep their own role; new accounts may take any non-admin role.
     """
+    if not getattr(settings, "OTP_BYPASS", False):
+        return Response({"error": "Demo login is disabled. Please sign in with an OTP."}, status=status.HTTP_403_FORBIDDEN)
+
     identifier = str(request.data.get("identifier") or "").strip()
     requested_role = str(request.data.get("role") or UserRole.CUSTOMER).upper()
     provided_name = str(request.data.get("name") or "").strip()
@@ -130,26 +132,24 @@ def bypass_login(request):
 
     if is_email:
         user = User.objects.filter(email__iexact=identifier).first()
-        if not user:
+    else:
+        norm_phone = normalize_phone_number(identifier)
+        clean_phone = identifier.replace(" ", "").replace("-", "")
+        user = User.objects.filter(phone=norm_phone).first() or User.objects.filter(phone=clean_phone).first()
+
+    if not user and requested_role == UserRole.ADMIN:
+        return Response({"error": "Admin accounts cannot be created through demo login."}, status=status.HTTP_403_FORBIDDEN)
+
+    if not user:
+        if is_email:
             username = identifier.split("@")[0] + f"_{timezone.now().strftime('%M%S')}"
             user = User.objects.create(
                 email=identifier.lower(),
                 username=username,
                 role=requested_role,
                 first_name=provided_name or identifier.split("@")[0].capitalize(),
-                is_staff=requested_role in [UserRole.ADMIN, "ADMIN"],
-                is_superuser=requested_role in [UserRole.ADMIN, "ADMIN"],
             )
-        elif requested_role != UserRole.CUSTOMER and user.role != requested_role:
-            user.role = requested_role
-            if requested_role in [UserRole.ADMIN, "ADMIN"]:
-                user.is_staff = True
-            user.save()
-    else:
-        norm_phone = normalize_phone_number(identifier)
-        clean_phone = identifier.replace(" ", "").replace("-", "")
-        user = User.objects.filter(phone=norm_phone).first() or User.objects.filter(phone=clean_phone).first()
-        if not user:
+        else:
             clean_digits = re.sub(r"\D", "", norm_phone) or "0000"
             username = f"user_{clean_digits[-4:]}_{timezone.now().strftime('%M%S')}"
             dummy_email = f"{clean_digits}@smartdoorstep.local"
@@ -160,9 +160,6 @@ def bypass_login(request):
                 role=requested_role,
                 first_name=provided_name or f"User {clean_digits[-4:]}",
             )
-        elif requested_role != UserRole.CUSTOMER and user.role != requested_role:
-            user.role = requested_role
-            user.save()
 
     user.is_verified = True
     user.otp_code = None
@@ -198,17 +195,14 @@ def send_otp(request):
         return Response({"error": serializer.errors.get("identifier", ["Invalid request"])[0]}, status=status.HTTP_400_BAD_REQUEST)
 
     identifier = serializer.validated_data["identifier"]
-    requested_role = serializer.validated_data.get("role", UserRole.CUSTOMER).upper()
-    if requested_role not in UserRole.values:
-        requested_role = UserRole.CUSTOMER
-
+    # Self sign-up always creates a customer; staff accounts are created by an admin.
     is_email = "@" in identifier
 
     if is_email:
         user = User.objects.filter(email__iexact=identifier).first()
         if not user:
             username = identifier.split("@")[0] + f"_{timezone.now().strftime('%M%S')}"
-            user = User.objects.create(email=identifier.lower(), username=username, role=requested_role)
+            user = User.objects.create(email=identifier.lower(), username=username, role=UserRole.CUSTOMER)
         target_identifier = identifier
     else:
         norm_phone = normalize_phone_number(identifier)
@@ -218,7 +212,7 @@ def send_otp(request):
             clean_digits = re.sub(r"\D", "", norm_phone)
             username = f"user_{clean_digits[-4:]}_{timezone.now().strftime('%M%S')}"
             dummy_email = f"{clean_digits}@smartdoorstep.local"
-            user = User.objects.create(phone=norm_phone, email=dummy_email, username=username, role=requested_role)
+            user = User.objects.create(phone=norm_phone, email=dummy_email, username=username, role=UserRole.CUSTOMER)
         else:
             if user.phone != norm_phone:
                 user.phone = norm_phone
@@ -969,7 +963,7 @@ def driver_request_handover_otp(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    code = f"{random.randint(100000, 999999)}"
+    code = generate_otp_code()
     booking.handover_otp = code
     booking.handover_otp_verified = False
     booking.handover_otp_attempts = 0
@@ -982,7 +976,6 @@ def driver_request_handover_otp(request, pk):
         "expires_in_minutes": 10,
     }
     if getattr(settings, "OTP_BYPASS", False):
-        resp_data["otp_code"] = code
         resp_data["bypass_code"] = "123456"
 
     return Response(resp_data)

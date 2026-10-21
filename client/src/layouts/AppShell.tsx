@@ -25,7 +25,7 @@ const customer = [
   { to: "/app/vehicles", label: "Vehicles", icon: Car },
   { to: "/app/book", label: "Book", icon: Wrench },
   { to: "/app/track", label: "Track", icon: Gauge },
-  { to: "/app/estimate", label: "AI Estimate", icon: IndianRupee },
+  { to: "/app/estimate", label: "Cost Estimate", icon: IndianRupee },
   { to: "/app/health", label: "Car Health", icon: HeartPulse },
   { to: "/app/approvals", label: "Approvals", icon: Video },
   { to: "/app/invoices", label: "Invoices", icon: Receipt },

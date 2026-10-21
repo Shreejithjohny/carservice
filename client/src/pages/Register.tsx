@@ -5,7 +5,7 @@ import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
 
 export function Register() {
-  const { sendOtp, bypassLogin } = useAuth();
+  const { sendOtp, bypassLogin, demoMode } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
 
@@ -39,7 +39,8 @@ export function Register() {
     }
   }
 
-  async function onSendOtp() {
+  async function onSendOtp(e?: FormEvent) {
+    e?.preventDefault();
     if (name.trim().length < 2) {
       push({ title: "Enter your full name first", tone: "err" });
       return;
@@ -51,10 +52,10 @@ export function Register() {
 
     setBusy(true);
     try {
-      const res = await sendOtp(identifier.trim(), "customer");
+      const res = await sendOtp(identifier.trim());
       push({ title: res.message || `Verification code sent to ${identifier}` });
       navigate("/verify-otp", {
-        state: { identifier: identifier.trim(), name: name.trim(), role: "customer" },
+        state: { identifier: identifier.trim(), name: name.trim() },
       });
     } catch (err) {
       push({
@@ -77,7 +78,7 @@ export function Register() {
           Register with your email or mobile phone to book doorstep vehicle services.
         </p>
 
-        <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={onDirectRegister}>
+        <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={demoMode ? onDirectRegister : onSendOtp}>
           <label className="block text-xs font-semibold text-zinc-500">
             Full Name
             <input
@@ -105,19 +106,21 @@ export function Register() {
             className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white transition hover:bg-[#e94529] disabled:opacity-50 shadow-md shadow-[#ff4d2e]/20"
             type="submit"
           >
-            {busy ? "Creating account..." : "Register & Start (Bypass OTP)"}
+            {busy ? "Please wait..." : demoMode ? "Register & Start (demo, no OTP)" : "Send verification code"}
           </button>
 
-          <div className="pt-1 text-center">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onSendOtp}
-              className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 underline"
-            >
-              Test with SMS/Email OTP code →
-            </button>
-          </div>
+          {demoMode && (
+            <div className="pt-1 text-center">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onSendOtp()}
+                className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 underline"
+              >
+                Use SMS/Email OTP instead →
+              </button>
+            </div>
+          )}
         </form>
 
         <p className="mt-4 text-center text-sm text-zinc-500">

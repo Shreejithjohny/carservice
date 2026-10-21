@@ -12,6 +12,8 @@ export function DriverDashboard() {
 
   const [otpModalBooking, setOtpModalBooking] = useState<Booking | null>(null);
   const [otpInput, setOtpInput] = useState("");
+  // Test code returned by the backend only when OTP_BYPASS (demo mode) is on
+  const [demoCode, setDemoCode] = useState<string | null>(null);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [gpsTrackingActive, setGpsTrackingActive] = useState<Record<string | number, boolean>>({});
 
@@ -73,28 +75,29 @@ export function DriverDashboard() {
   async function handleRequestOtp(booking: Booking) {
     const bId = booking.id || booking._id || booking.booking_reference;
     try {
-      const res = await api<{ message?: string; otp_code?: string; bypass_code?: string }>(
+      const res = await api<{ message?: string; bypass_code?: string }>(
         `/api/driver/pickups/${bId}/handover-otp/request/`,
         { method: "POST" }
       );
-      push({ title: "Handover OTP generated (Bypass code: 123456)" });
+      push({ title: "Handover OTP sent to the customer. Ask them for the 6-digit code." });
       setOtpModalBooking(booking);
-      setOtpInput(res.otp_code || res.bypass_code || "123456");
+      setOtpInput("");
+      setDemoCode(res.bypass_code ?? null);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Failed to request OTP";
       push({ title: msg, tone: "err" });
     }
   }
 
-  async function handleVerifyOtp() {
-    if (!otpModalBooking || !otpInput.trim()) return;
+  async function handleVerifyOtp(code: string = otpInput) {
+    if (!otpModalBooking || !code.trim()) return;
     const bId = otpModalBooking.id || otpModalBooking._id || otpModalBooking.booking_reference;
 
     setVerifyingOtp(true);
     try {
       await api(`/api/driver/pickups/${bId}/handover-otp/verify/`, {
         method: "POST",
-        body: JSON.stringify({ otp_code: otpInput.trim() }),
+        body: JSON.stringify({ otp_code: code.trim() }),
       });
       push({ title: "Vehicle handover OTP verified! Status: Vehicle Picked Up" });
       setOtpModalBooking(null);
@@ -164,23 +167,22 @@ export function DriverDashboard() {
               </button>
               <button
                 disabled={verifyingOtp}
-                onClick={handleVerifyOtp}
+                onClick={() => handleVerifyOtp()}
                 className="w-full rounded-2xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {verifyingOtp ? "Verifying..." : "Verify & Pick Up"}
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setOtpInput("123456");
-                setTimeout(handleVerifyOtp, 50);
-              }}
-              className="w-full rounded-xl bg-zinc-100 dark:bg-zinc-800 py-2 text-[11px] font-bold text-zinc-600 dark:text-zinc-300 hover:bg-emerald-500 hover:text-white transition"
-            >
-              ⚡ Instant Bypass Handover (Code: 123456)
-            </button>
+            {demoCode && (
+              <button
+                type="button"
+                onClick={() => handleVerifyOtp(demoCode)}
+                className="w-full rounded-xl bg-zinc-100 dark:bg-zinc-800 py-2 text-[11px] font-bold text-zinc-600 dark:text-zinc-300 hover:bg-emerald-500 hover:text-white transition"
+              >
+                ⚡ Demo mode: use test code {demoCode}
+              </button>
+            )}
           </div>
         </div>
       )}

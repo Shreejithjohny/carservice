@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework import status
@@ -748,6 +748,7 @@ from django.utils import timezone
 from api.otp_service import normalize_phone_number, OTP_SMS_TEMPLATE
 
 
+@override_settings(OTP_CONSOLE_FALLBACK=True)
 class TwilioProgrammableSMSOTPTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -978,5 +979,59 @@ class TwilioProgrammableSMSOTPTests(TestCase):
             self.assertNotIn("AC_INVALID", str(res.data))
 
 
+class AuthSecurityTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(
+            username="sec_cust", email="sec_cust@example.com", role=UserRole.CUSTOMER
+        )
 
+    @override_settings(OTP_BYPASS=False)
+    def test_demo_login_disabled_without_bypass(self):
+        res = self.client.post(
+            "/api/auth/bypass-login/", {"identifier": "attacker@example.com", "role": "ADMIN"}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(User.objects.filter(email="attacker@example.com").exists())
+        self.assertFalse(self.client.get("/api/health-check/").data["demo_login"])
 
+    @override_settings(OTP_BYPASS=True)
+    def test_demo_login_cannot_create_admin_or_change_roles(self):
+        res_admin = self.client.post(
+            "/api/auth/bypass-login/", {"identifier": "newadmin@example.com", "role": "ADMIN"}, format="json"
+        )
+        self.assertEqual(res_admin.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(User.objects.filter(email="newadmin@example.com").exists())
+
+        # Existing account keeps its own role whatever role is requested
+        res_existing = self.client.post(
+            "/api/auth/bypass-login/", {"identifier": "sec_cust@example.com", "role": "ADMIN"}, format="json"
+        )
+        self.assertEqual(res_existing.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.role, UserRole.CUSTOMER)
+        self.assertFalse(self.customer.is_staff)
+
+        # New non-admin demo accounts are allowed
+        res_driver = self.client.post(
+            "/api/auth/bypass-login/", {"identifier": "newdriver@example.com", "role": "DRIVER"}, format="json"
+        )
+        self.assertEqual(res_driver.status_code, status.HTTP_200_OK)
+        self.assertEqual(User.objects.get(email="newdriver@example.com").role, UserRole.DRIVER)
+        self.assertTrue(self.client.get("/api/health-check/").data["demo_login"])
+
+    @override_settings(OTP_CONSOLE_FALLBACK=True)
+    def test_otp_signup_always_creates_customer(self):
+        res = self.client.post("/api/auth/send-otp/", {"identifier": "wannabe@example.com", "role": "ADMIN"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        user = User.objects.get(email="wannabe@example.com")
+        self.assertEqual(user.role, UserRole.CUSTOMER)
+        self.assertFalse(user.is_staff)
+        self.assertRegex(user.otp_code, r"^[0-9]{6}$")
+
+    @override_settings(OTP_CONSOLE_FALLBACK=False, EMAIL_HOST="")
+    def test_missing_otp_provider_is_an_error_in_production(self):
+        with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}):
+            res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500099"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn("not configured", res.data["error"])

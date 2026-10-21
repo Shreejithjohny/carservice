@@ -7,7 +7,7 @@ const tiles = [
   { to: "/app/vehicles", title: "My Vehicles", icon: Car, hint: "Garage & RC details" },
   { to: "/app/track", title: "Active Services", icon: Sparkles, hint: "Live job status" },
   { to: "/app/history", title: "Service History", icon: History, hint: "Past jobs" },
-  { to: "/app/estimate", title: "AI Cost Estimator", icon: IndianRupee, hint: "Symptom → price band" },
+  { to: "/app/estimate", title: "Cost Estimator", icon: IndianRupee, hint: "Symptom → price band" },
   { to: "/app/health", title: "Car Health", icon: HeartPulse, hint: "Score, badges, trend" },
   { to: "/app/notifications", title: "Notifications", icon: Bell, hint: "Approvals & valet" },
   { to: "/app/approvals", title: "Video approvals", icon: Video, hint: "Transparent extras" },

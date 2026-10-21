@@ -3,20 +3,18 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
-import type { Role } from "../types";
 import { homePathForRole } from "../utils/roles";
 
 export function VerifyOtp() {
-  const { sendOtp, verifyOtp, bypassLogin } = useAuth();
+  const { sendOtp, verifyOtp, bypassLogin, demoMode } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const state = (location.state as { identifier?: string; name?: string; role?: Role } | null) || {};
+  const state = (location.state as { identifier?: string; name?: string } | null) || {};
   const [identifier, setIdentifier] = useState(state.identifier || "");
   const [name, setName] = useState(state.name || "");
-  const [role] = useState<Role>(state.role || "customer");
-  const [otpCode, setOtpCode] = useState("123456");
+  const [otpCode, setOtpCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
 
@@ -35,36 +33,34 @@ export function VerifyOtp() {
 
   async function handleVerify(e: FormEvent) {
     e.preventDefault();
-    const cleanId = identifier.trim() || "customer@smartdoorstep.com";
+    if (!identifier.trim() || otpCode.trim().length !== 6) {
+      push({ title: "Enter your email/mobile and the 6-digit code", tone: "err" });
+      return;
+    }
 
     setBusy(true);
     try {
-      const code = otpCode.trim() || "123456";
-      const user = await verifyOtp(cleanId, code, name.trim());
+      const user = await verifyOtp(identifier.trim(), otpCode.trim(), name.trim());
       push({ title: `Verification successful! Welcome ${user.name}` });
       routeUser(user);
-    } catch {
-      // Graceful fallback to bypassLogin
-      try {
-        const user = await bypassLogin(cleanId, role, name.trim());
-        push({ title: `Verified via bypass! Welcome ${user.name}` });
-        routeUser(user);
-      } catch (err2) {
-        push({
-          title: err2 instanceof ApiError ? err2.message : "Verification failed. Please try again.",
-          tone: "err",
-        });
-      }
+    } catch (err) {
+      push({
+        title: err instanceof ApiError ? err.message : "Verification failed. Please try again.",
+        tone: "err",
+      });
     } finally {
       setBusy(false);
     }
   }
 
   async function handleInstantBypass() {
-    const cleanId = identifier.trim() || "customer@smartdoorstep.com";
+    if (!identifier.trim()) {
+      push({ title: "Enter an email or mobile phone number first", tone: "err" });
+      return;
+    }
     setBusy(true);
     try {
-      const user = await bypassLogin(cleanId, role, name.trim());
+      const user = await bypassLogin(identifier.trim(), "customer", name.trim());
       push({ title: `Bypassed OTP! Welcome ${user.name}` });
       routeUser(user);
     } catch (err) {
@@ -85,7 +81,7 @@ export function VerifyOtp() {
     }
     setBusy(true);
     try {
-      const res = await sendOtp(identifier.trim(), role);
+      const res = await sendOtp(identifier.trim());
       setCooldown(res.cooldown_seconds || 60);
       push({ title: `New OTP code sent to ${identifier}` });
     } catch (err) {
@@ -158,14 +154,16 @@ export function VerifyOtp() {
             {busy ? "Verifying..." : "Verify & Continue"}
           </button>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={handleInstantBypass}
-            className="w-full rounded-2xl bg-zinc-200 dark:bg-zinc-800 py-2.5 text-xs font-bold text-zinc-700 dark:text-zinc-200 transition hover:bg-emerald-600 hover:text-white flex items-center justify-center gap-1.5"
-          >
-            ⚡ Instant Bypass OTP (Dev Mode)
-          </button>
+          {demoMode && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={handleInstantBypass}
+              className="w-full rounded-2xl bg-zinc-200 dark:bg-zinc-800 py-2.5 text-xs font-bold text-zinc-700 dark:text-zinc-200 transition hover:bg-emerald-600 hover:text-white flex items-center justify-center gap-1.5"
+            >
+              ⚡ Skip OTP (demo mode)
+            </button>
+          )}
 
           <div className="flex items-center justify-between border-t border-zinc-200/70 pt-4 text-xs dark:border-zinc-700/70">
             <span className="text-zinc-500">Didn't receive code?</span>

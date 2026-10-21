@@ -399,7 +399,7 @@ export function MechanicDashboard() {
                           onClick={() => setShowAiModal(true)}
                           className="flex items-center gap-1.5 rounded-xl bg-[#ff4d2e]/10 px-3 py-1.5 text-xs font-bold text-[#ff4d2e] hover:bg-[#ff4d2e]/20"
                         >
-                          <Sparkles className="h-3.5 w-3.5" /> AI Cost Estimator
+                          <Sparkles className="h-3.5 w-3.5" /> Cost Estimator
                         </button>
                       </div>
 

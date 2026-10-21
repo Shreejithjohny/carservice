@@ -57,7 +57,7 @@ export function AICostEstimatorModal({
         }),
       });
       setEstimate(res);
-      push({ title: "AI Cost Estimate Generated", tone: "ok" });
+      push({ title: "Cost estimate generated", tone: "ok" });
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Failed to generate estimate";
       push({ title: `Estimation Error: ${msg}`, tone: "err" });
@@ -83,8 +83,8 @@ export function AICostEstimatorModal({
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold">AI Repair Cost Estimator</h2>
-            <p className="text-xs text-zinc-500">Instant AI & rule-assisted pricing calculation</p>
+            <h2 className="text-xl font-bold">Repair Cost Estimator</h2>
+            <p className="text-xs text-zinc-500">Instant estimate from service price, severity, labour and fuel type</p>
           </div>
         </div>
 
@@ -180,7 +180,7 @@ export function AICostEstimatorModal({
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff4d2e] py-3 text-sm font-bold text-white shadow-lg shadow-[#ff4d2e]/20 transition hover:bg-[#ff3514] disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4" />
-            {loading ? "Calculating AI Estimate..." : "Calculate AI Cost Estimate"}
+            {loading ? "Calculating..." : "Calculate Cost Estimate"}
           </button>
         </form>
 
@@ -210,7 +210,7 @@ export function AICostEstimatorModal({
             <div className="flex items-start gap-2 rounded-xl bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                <strong>AI Estimate — Not Final Price.</strong> Final price may vary based on actual physical
+                <strong>Estimate — Not Final Price.</strong> Final price may vary based on actual physical
                 inspection and service-center pricing.
               </span>
             </div>

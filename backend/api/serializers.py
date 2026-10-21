@@ -35,7 +35,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 class SendOTPSerializer(serializers.Serializer):
     identifier = serializers.CharField(required=True)
-    role = serializers.CharField(required=False, default="CUSTOMER")
 
     def validate_identifier(self, value):
         val = value.strip()
