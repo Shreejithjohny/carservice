@@ -7,6 +7,9 @@ import { Wrench, ClipboardCheck, Camera, PlusCircle, Sparkles } from "lucide-rea
 import { AICostEstimatorModal } from "../components/AICostEstimatorModal";
 import type { Booking } from "../types";
 
+// Matches the backend: mechanics change status only while the car is at the workshop.
+const AT_WORKSHOP = ["Vehicle Picked Up", "In Service", "Inspection", "Repair Approval Required"];
+
 export function MechanicDashboard() {
   const { data: jobs, loading, reload } = useApi<Booking[]>("/api/mechanic/jobs/");
   const { push } = useToast();
@@ -190,32 +193,40 @@ export function MechanicDashboard() {
               )}
 
               {/* Status Action Buttons */}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  onClick={() => handleStatusUpdate(b, "In Service")}
-                  className="rounded-xl bg-purple-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-purple-700"
-                >
-                  Start Service
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate(b, "Inspection")}
-                  className="rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
-                >
-                  Under Inspection
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate(b, "Repair Approval Required")}
-                  className="rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
-                >
-                  Request Approval
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate(b, "Ready for Delivery")}
-                  className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
-                >
-                  Mark Ready
-                </button>
-              </div>
+              {AT_WORKSHOP.includes(b.status) ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    onClick={() => handleStatusUpdate(b, "In Service")}
+                    className="rounded-xl bg-purple-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-purple-700"
+                  >
+                    Start Service
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(b, "Inspection")}
+                    className="rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                  >
+                    Under Inspection
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(b, "Repair Approval Required")}
+                    className="rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
+                  >
+                    Request Approval
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(b, "Ready for Delivery")}
+                    className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
+                  >
+                    Mark Ready
+                  </button>
+                </div>
+              ) : (
+                <p className="pt-1 text-xs text-zinc-500">
+                  {["Completed", "Cancelled", "Ready for Delivery"].includes(b.status)
+                    ? "Workshop work on this job is finished."
+                    : "Status actions unlock once the driver has brought the vehicle to the workshop."}
+                </p>
+              )}
 
               {/* Open Operations Portal Control */}
               <button

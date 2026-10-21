@@ -86,6 +86,22 @@ def is_customer(user):
     return user and user.role == UserRole.CUSTOMER and not user.is_staff
 
 
+# Statuses while the car is at the workshop, and the ones a mechanic may set.
+WORKSHOP_STATUSES = {BookingStatus.VEHICLE_PICKED_UP, BookingStatus.IN_SERVICE, "Inspection", "Repair Approval Required"}
+MECHANIC_SETTABLE_STATUSES = {BookingStatus.IN_SERVICE, "Inspection", "Repair Approval Required", BookingStatus.READY_FOR_DELIVERY}
+
+
+def mechanic_job_error(user, booking):
+    """Returns a 403 Response unless the user is an admin or the mechanic assigned to this open booking."""
+    if is_admin(user):
+        return None
+    if not is_mechanic(user) or booking.assigned_mechanic_id != user.id:
+        return Response({"error": "This job is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
+    if booking.status in (BookingStatus.COMPLETED, BookingStatus.CANCELLED):
+        return Response({"error": "This job is already closed."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
@@ -1092,8 +1108,8 @@ def mechanic_jobs_list(request):
     if is_admin(request.user):
         qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).order_by("-created_at")
     else:
-        qs = ServiceBooking.objects.filter(
-            Q(assigned_mechanic=request.user) | Q(status__in=[BookingStatus.VEHICLE_PICKED_UP, BookingStatus.IN_SERVICE])
+        qs = ServiceBooking.objects.filter(assigned_mechanic=request.user).exclude(
+            status=BookingStatus.CANCELLED
         ).order_by("-created_at")
 
     serializer = ServiceBookingSerializer(qs, many=True)
@@ -1114,15 +1130,18 @@ def mechanic_job_status_update(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if booking.assigned_mechanic and booking.assigned_mechanic != request.user and not is_admin(request.user):
-        return Response({"error": "Cannot modify another mechanic's assigned job."}, status=status.HTTP_403_FORBIDDEN)
+    error = mechanic_job_error(request.user, booking)
+    if error:
+        return error
 
     new_status = request.data.get("status")
     if not new_status:
         return Response({"error": "Status is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-    if not booking.assigned_mechanic:
-        booking.assigned_mechanic = request.user
+    if not is_admin(request.user):
+        if new_status not in MECHANIC_SETTABLE_STATUSES:
+            return Response({"error": f"Mechanics cannot set status '{new_status}'."}, status=status.HTTP_400_BAD_REQUEST)
+        if booking.status not in WORKSHOP_STATUSES:
+            return Response({"error": "The vehicle is not at the workshop yet."}, status=status.HTTP_400_BAD_REQUEST)
 
     booking.status = new_status
     booking.save()
@@ -1152,6 +1171,9 @@ def create_service_inspection(request):
     booking = ServiceBooking.objects.filter(pk=booking_id).first()
     if not booking:
         return Response({"error": "Valid booking ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+    error = mechanic_job_error(request.user, booking)
+    if error:
+        return error
 
     serializer = ServiceInspectionSerializer(data=request.data)
     if serializer.is_valid():
@@ -1178,6 +1200,9 @@ def upload_repair_evidence(request):
     booking = ServiceBooking.objects.filter(pk=booking_id).first()
     if not booking:
         return Response({"error": "Valid booking ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+    error = mechanic_job_error(request.user, booking)
+    if error:
+        return error
 
     serializer = RepairEvidenceSerializer(data=request.data)
     if serializer.is_valid():
@@ -1201,6 +1226,9 @@ def create_repair_request(request):
     booking = ServiceBooking.objects.filter(pk=booking_id).first()
     if not booking:
         return Response({"error": "Valid booking ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+    error = mechanic_job_error(request.user, booking)
+    if error:
+        return error
 
     serializer = RepairRequestSerializer(data=request.data)
     if serializer.is_valid():
@@ -1366,8 +1394,14 @@ def repair_cost_estimate(request):
     if not vehicle:
         return Response({"error": "Vehicle not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    # Validate access: vehicle owner or mechanic / manager / admin
-    if vehicle.customer != request.user and not (is_mechanic(request.user) or is_manager(request.user) or is_admin(request.user)):
+    # Validate access: vehicle owner, manager / admin, or a mechanic with an open job on this vehicle
+    assigned_mechanic = (
+        request.user.role == UserRole.MECHANIC
+        and ServiceBooking.objects.filter(vehicle=vehicle, assigned_mechanic=request.user)
+        .exclude(status__in=[BookingStatus.COMPLETED, BookingStatus.CANCELLED])
+        .exists()
+    )
+    if vehicle.customer != request.user and not (assigned_mechanic or is_manager(request.user) or is_admin(request.user)):
         return Response({"error": "Unauthorized: You do not have permission to estimate for this vehicle."}, status=status.HTTP_403_FORBIDDEN)
 
     service_type = None

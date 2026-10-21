@@ -1266,3 +1266,65 @@ class RepairEvidenceUploadTests(TestCase):
         stats = self.client.get("/api/admin/dashboard-stats/").data
         self.assertEqual(stats["total_revenue"], 1178.82)
         self.assertEqual(stats["outstanding_amount"], 0)
+
+
+class MechanicScopeTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        customer = User.objects.create_user(username="ms_cust", email="ms_cust@example.com", role=UserRole.CUSTOMER)
+        self.mech = User.objects.create_user(username="ms_mech", email="ms_mech@example.com", role=UserRole.MECHANIC)
+        self.other = User.objects.create_user(username="ms_other", email="ms_other@example.com", role=UserRole.MECHANIC)
+        brand = CarBrand.objects.create(name="Renault")
+        model = CarModel.objects.create(brand=brand, name="Kiger")
+        self.vehicle = Vehicle.objects.create(
+            customer=customer, car_brand=brand, car_model=model, brand="Renault", model="Kiger",
+            registration_number="KA01MS01", year=2022, fuel_type="Petrol",
+        )
+        st = ServiceType.objects.create(name="Clutch Check", base_price=1200, estimated_duration="2 hours")
+        center = ServiceCenter.objects.create(name="MS Hub", address="JP Nagar", phone="+918000000003", email="ms@example.com")
+        common = dict(customer=customer, vehicle=self.vehicle, service_type=st, service_center=center, pickup_address="JP Nagar")
+        self.job = ServiceBooking.objects.create(status=BookingStatus.IN_SERVICE, assigned_mechanic=self.mech, **common)
+        self.unassigned = ServiceBooking.objects.create(status=BookingStatus.IN_SERVICE, **common)
+
+    def post_as(self, user, url, body):
+        self.client.force_authenticate(user=user)
+        return self.client.post(url, body, format="json")
+
+    def test_job_list_shows_only_assigned_jobs(self):
+        self.client.force_authenticate(user=self.mech)
+        self.assertEqual([j["id"] for j in self.client.get("/api/mechanic/jobs/").data], [self.job.id])
+        self.client.force_authenticate(user=self.other)
+        self.assertEqual(self.client.get("/api/mechanic/jobs/").data, [])
+
+    def test_other_mechanic_cannot_touch_the_job(self):
+        bid = self.job.id
+        self.assertEqual(self.post_as(self.other, "/api/inspections/", {"booking": bid, "issue_description": "x", "severity": "LOW"}).status_code, 403)
+        self.assertEqual(self.post_as(self.other, "/api/repair-evidence/", {"booking": bid, "issue_title": "x", "file_url": "https://e.com/a.jpg"}).status_code, 403)
+        self.assertEqual(self.post_as(self.other, "/api/repair-requests/", {"booking": bid, "issue_title": "x", "additional_cost": 100}).status_code, 403)
+        res = self.client.patch(f"/api/mechanic/jobs/{bid}/status/", {"status": "Ready for Delivery"}, format="json")
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(self.post_as(self.other, "/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "noise"}).status_code, 403)
+
+    def test_unassigned_job_cannot_be_claimed(self):
+        self.client.force_authenticate(user=self.mech)
+        res = self.client.patch(f"/api/mechanic/jobs/{self.unassigned.id}/status/", {"status": "Inspection"}, format="json")
+        self.assertEqual(res.status_code, 403)
+        self.unassigned.refresh_from_db()
+        self.assertIsNone(self.unassigned.assigned_mechanic)
+
+    def test_assigned_mechanic_status_rules(self):
+        self.client.force_authenticate(user=self.mech)
+        url = f"/api/mechanic/jobs/{self.job.id}/status/"
+        self.assertEqual(self.client.patch(url, {"status": "Completed"}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(url, {"status": "Ready for Delivery"}, format="json").status_code, 200)
+        # No longer at the workshop stage, so further mechanic status changes are refused
+        self.assertEqual(self.client.patch(url, {"status": "In Service"}, format="json").status_code, 400)
+        self.job.status = BookingStatus.COMPLETED
+        self.job.save()
+        self.assertEqual(self.post_as(self.mech, "/api/repair-requests/", {"booking": self.job.id, "issue_title": "x", "additional_cost": 1}).status_code, 400)
+
+    def test_assigned_mechanic_can_work_and_estimate(self):
+        res = self.post_as(self.mech, "/api/repair-requests/", {"booking": self.job.id, "issue_title": "Clutch plate", "description": "Clutch slipping under load", "additional_cost": 3000})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        est = self.post_as(self.mech, "/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "clutch slipping"})
+        self.assertEqual(est.status_code, status.HTTP_200_OK)
