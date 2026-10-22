@@ -38,7 +38,11 @@ LABOR_HOURLY_RATE = 500.0
 
 
 def calculate_vhi(service_count, critical_issues, warning_issues, resolved_issues, age):
-    """Vehicle Health Index as implemented in the app (warning_issues there also includes pending repairs)."""
+    """Vehicle Health Index as implemented in the app.
+
+    critical_issues / warning_issues count UNRESOLVED findings: the app stops counting a finding once its
+    booking is completed with an approved repair. warning_issues also includes pending repair requests.
+    """
     base_score = 90
     service_bonus = min(service_count * 5, 15)
     resolved_bonus = min(resolved_issues * 3, 10)

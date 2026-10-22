@@ -123,8 +123,9 @@ def fig1_vhi_sensitivity():
 
 def fig2_vhi_scenarios():
     scenarios = dict(VHI_SCENARIOS)
-    # The app never clears an inspection finding, so a repaired critical fault keeps its -25 penalty.
-    scenarios["Critical fault found AND repaired (4 yrs, 1 Serv)"] = (1, 1, 0, 1, 4)
+    # A critical fault stops counting once its repair is approved and the service completed.
+    scenarios["Critical fault found and repaired (4 yrs, 1 Serv)"] = (1, 0, 0, 1, 4)
+    scenarios["Critical fault found, repair declined (4 yrs, 1 Serv)"] = (1, 1, 0, 0, 4)
     names = list(scenarios)[::-1]
     scores = [calculate_vhi(*scenarios[n]) for n in names]
 

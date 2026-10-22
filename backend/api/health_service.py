@@ -7,7 +7,8 @@ def recalculate_car_health_score(vehicle: Vehicle) -> CarHealthScore:
     """
     Computes a deterministic Car Health Score (0-100) based on:
     - Completed service history (+5 per service up to +15)
-    - Unresolved critical issues from inspections (-25 per critical issue)
+    - Unresolved critical issues from inspections (-25 per critical issue; fixed once the booking
+      is completed with an approved repair)
     - Unresolved high/warning severity issues (-10 per warning issue)
     - Resolved / approved repairs (+3 per resolved item)
     - Vehicle age deduction (-2 per year over 3 years old)
@@ -16,8 +17,10 @@ def recalculate_car_health_score(vehicle: Vehicle) -> CarHealthScore:
     completed_bookings = bookings.filter(status="Completed")
     service_count = completed_bookings.count()
 
-    # Inspections for this vehicle's bookings
-    inspections = ServiceInspection.objects.filter(booking__vehicle=vehicle)
+    # Inspection findings count until fixed: a finding on a completed booking whose repair the
+    # customer approved has been resolved, so it no longer lowers the score.
+    fixed_bookings = completed_bookings.filter(repair_requests__status=RepairRequestStatus.APPROVED)
+    inspections = ServiceInspection.objects.filter(booking__vehicle=vehicle).exclude(booking__in=fixed_bookings)
     critical_issues = inspections.filter(severity="CRITICAL").count()
     warning_issues = inspections.filter(severity="HIGH").count()
 

@@ -264,9 +264,11 @@ class Phase4ServiceBookingTests(TestCase):
         self.assertIn("pickup_longitude", res.data)
 
     def test_calculate_distance_api(self):
-        res = self.client.get(
-            "/api/location/distance/?origin_lat=12.9784&origin_lng=77.6408&dest_lat=12.9352&dest_lng=77.6245"
-        )
+        url = "/api/location/distance/?origin_lat=12.9784&origin_lng=77.6408&dest_lat=12.9352&dest_lng=77.6245"
+        # Requires login, since it can call the paid Google Distance Matrix API
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("distance_km", res.data)
         self.assertIn("duration_minutes", res.data)
@@ -290,7 +292,14 @@ class Phase4ServiceBookingTests(TestCase):
             preferred_date="2026-10-10",
         )
 
+        # A manager not linked to any service center cannot manage bookings
         self.client.force_authenticate(user=manager)
+        unlinked = self.client.patch(f"/api/service-center/bookings/{booking.id}/", {"status": "Confirmed"}, format="json")
+        self.assertEqual(unlinked.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get("/api/service-center/bookings/").status_code, status.HTTP_403_FORBIDDEN)
+
+        self.service_center.user = manager
+        self.service_center.save()
         res = self.client.patch(
             f"/api/service-center/bookings/{booking.id}/",
             {"status": "Confirmed", "assigned_driver_id": driver.id, "assigned_mechanic_id": mechanic.id},
@@ -1390,3 +1399,132 @@ class DriverScopeTests(TestCase):
         self.job.status = BookingStatus.COMPLETED
         self.job.save()
         self.assertEqual(self.as_user(self.drv, f"{base}/location/", {"latitude": 12.9, "longitude": 77.6}).status_code, 400)
+
+
+class SecurityAuditTests(TestCase):
+    """Regression tests for the permission audit fixes."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="sa_cust", email="sa_cust@example.com", role=UserRole.CUSTOMER)
+        self.manager = User.objects.create_user(
+            username="sa_mgr", email="sa_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER, is_staff=True
+        )
+        self.other_mgr = User.objects.create_user(
+            username="sa_mgr2", email="sa_mgr2@example.com", role=UserRole.SERVICE_CENTER_MANAGER
+        )
+        self.mechanic = User.objects.create_user(username="sa_mech", email="sa_mech@example.com", role=UserRole.MECHANIC)
+        brand = CarBrand.objects.create(name="Honda")
+        model = CarModel.objects.create(brand=brand, name="City")
+        self.vehicle = Vehicle.objects.create(
+            customer=self.customer, car_brand=brand, car_model=model, brand="Honda", model="City",
+            registration_number="KA01SA01", year=2024, fuel_type="Petrol",
+        )
+        self.st = ServiceType.objects.create(name="Full Service", base_price=4000, estimated_duration="5 hours")
+        self.center = ServiceCenter.objects.create(user=self.manager, name="SA Hub", address="Jayanagar", phone="+918000000005", email="sa@example.com")
+        self.other_center = ServiceCenter.objects.create(user=self.other_mgr, name="SA Hub 2", address="Hebbal", phone="+918000000006", email="sa2@example.com")
+        self.booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, service_type=self.st, service_center=self.center,
+            pickup_address="Jayanagar 4th Block", status=BookingStatus.PENDING,
+        )
+
+    def test_staff_flag_does_not_make_a_manager_an_admin(self):
+        self.client.force_authenticate(user=self.manager)  # is_staff=True
+        self.assertEqual(self.client.get("/api/admin/dashboard-stats/").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post("/api/car-brands/", {"name": "Hacked"}, format="json").status_code, status.HTTP_403_FORBIDDEN)
+        other = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, service_type=self.st, service_center=self.other_center, pickup_address="x",
+        )
+        ids = [b["id"] for b in self.client.get("/api/service-center/bookings/").data]
+        self.assertIn(self.booking.id, ids)
+        self.assertNotIn(other.id, ids)
+        res = self.client.patch(f"/api/service-center/bookings/{other.id}/", {"status": "Cancelled"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_customer_can_only_edit_pickup_details_or_cancel(self):
+        self.client.force_authenticate(user=self.customer)
+        url = f"/api/bookings/{self.booking.id}/"
+        for body in ({"status": "Completed"}, {"handover_otp_verified": True}, {"estimated_cost": 1}, {"assigned_mechanic": self.mechanic.id}):
+            self.assertEqual(self.client.patch(url, body, format="json").status_code, status.HTTP_400_BAD_REQUEST, body)
+        self.assertEqual(self.client.patch(url, {"customer_notes": "Gate code 1234"}, format="json").status_code, 200)
+        self.booking.status = BookingStatus.IN_SERVICE
+        self.booking.save()
+        self.assertEqual(self.client.patch(url, {"status": "Cancelled"}, format="json").status_code, 400)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, BookingStatus.IN_SERVICE)
+
+    def test_booking_price_comes_from_the_package(self):
+        self.client.force_authenticate(user=self.customer)
+        res = self.client.post("/api/bookings/", {
+            "vehicle": self.vehicle.id, "service_type": self.st.id, "service_center": self.center.id,
+            "pickup_address": "Jayanagar", "estimated_cost": 1,
+        }, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(float(res.data["estimated_cost"]), 4000.0)
+
+    def test_repair_request_can_be_answered_once_at_the_workshop(self):
+        from api.models import RepairRequest
+
+        self.booking.status = "Repair Approval Required"
+        self.booking.estimated_cost = 4000
+        self.booking.save()
+        rr = RepairRequest.objects.create(booking=self.booking, mechanic=self.mechanic, issue_title="Pads", description="Worn", additional_cost=1500)
+        self.client.force_authenticate(user=self.customer)
+        self.assertEqual(self.client.post(f"/api/repair-requests/{rr.id}/approve/").status_code, 200)
+        self.assertEqual(self.client.post(f"/api/repair-requests/{rr.id}/approve/").status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(self.client.post(f"/api/repair-requests/{rr.id}/reject/").status_code, status.HTTP_409_CONFLICT)
+        self.booking.refresh_from_db()
+        self.assertEqual(float(self.booking.estimated_cost), 5500.0)
+
+        self.booking.status = BookingStatus.COMPLETED
+        self.booking.save()
+        late = RepairRequest.objects.create(booking=self.booking, mechanic=self.mechanic, issue_title="Late", description="x", additional_cost=999)
+        self.assertEqual(self.client.post(f"/api/repair-requests/{late.id}/approve/").status_code, 400)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, BookingStatus.COMPLETED)
+
+    def test_vehicle_with_service_history_cannot_be_deleted(self):
+        self.client.force_authenticate(user=self.customer)
+        self.assertEqual(self.client.delete(f"/api/vehicles/{self.vehicle.id}/").status_code, 400)
+        self.assertTrue(Vehicle.objects.filter(pk=self.vehicle.id).exists())
+        spare = Vehicle.objects.create(customer=self.customer, brand="Honda", model="Amaze", registration_number="KA01SA02", year=2020, fuel_type="Petrol")
+        self.assertEqual(self.client.delete(f"/api/vehicles/{spare.id}/").status_code, 200)
+
+    def test_manager_cannot_use_another_centers_staff(self):
+        from api.models import Employee
+
+        theirs = User.objects.create_user(username="sa_drv2", email="sa_drv2@example.com", role=UserRole.DRIVER)
+        Employee.objects.create(user=theirs, service_center=self.other_center, employee_type=Employee.EmployeeType.VALET)
+        pool = User.objects.create_user(username="sa_drv3", email="sa_drv3@example.com", role=UserRole.DRIVER)
+        self.client.force_authenticate(user=self.manager)
+        url = f"/api/service-center/bookings/{self.booking.id}/"
+        self.assertEqual(self.client.patch(url, {"assigned_driver_id": theirs.id}, format="json").status_code, 400)
+        self.assertEqual(self.client.patch(url, {"assigned_driver_id": pool.id}, format="json").status_code, 200)
+        staff = self.client.get("/api/service-center/employees/").data
+        driver_ids = [d["id"] for d in staff["drivers"]]
+        self.assertIn(pool.id, driver_ids)
+        self.assertNotIn(theirs.id, driver_ids)
+        self.assertEqual(self.client.patch(url, {"status": "Teleported"}, format="json").status_code, 400)
+
+    def test_manager_estimates_only_for_own_center_vehicles(self):
+        self.client.force_authenticate(user=self.other_mgr)
+        res = self.client.post("/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "noise"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(user=self.manager)
+        res = self.client.post("/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "noise"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_repaired_critical_fault_stops_lowering_health_score(self):
+        from api.models import RepairRequest, ServiceInspection
+        from api.health_service import recalculate_car_health_score
+
+        ServiceInspection.objects.create(booking=self.booking, mechanic=self.mechanic, issue_description="Brake failure", severity="CRITICAL")
+        self.booking.status = BookingStatus.IN_SERVICE
+        self.booking.save()
+        unfixed = recalculate_car_health_score(self.vehicle).score
+        RepairRequest.objects.create(booking=self.booking, mechanic=self.mechanic, issue_title="Brakes", description="Replace", additional_cost=3000, status="APPROVED")
+        self.booking.status = BookingStatus.COMPLETED
+        self.booking.save()
+        fixed = recalculate_car_health_score(self.vehicle).score
+        self.assertEqual(unfixed, 90 - 25)  # new car, no completed services yet, one open critical issue
+        self.assertEqual(fixed, 90 + 5 + 3)  # completed service + approved repair, fault resolved
