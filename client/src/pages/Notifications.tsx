@@ -3,7 +3,7 @@ import { Empty, Skeleton } from "../components/States";
 import { useApi } from "../hooks/useApi";
 import { api } from "../services/api";
 import { useToast } from "../hooks/useToast";
-import { Bell, CheckCheck, Clock, CheckCircle2, ShieldAlert, Car, Wrench, Receipt } from "lucide-react";
+import { Bell, CheckCheck, Clock, CheckCircle2, ShieldAlert, Car, Wrench, Receipt, CalendarClock } from "lucide-react";
 import type { NotificationItem } from "../types";
 
 export function Notifications() {
@@ -55,6 +55,8 @@ export function Notifications() {
         return <Wrench className="h-4 w-4 text-amber-500" />;
       case "INVOICE_GENERATED":
         return <Receipt className="h-4 w-4 text-purple-500" />;
+      case "SERVICE_REMINDER":
+        return <CalendarClock className="h-4 w-4 text-amber-600" />;
       default:
         return <Bell className="h-4 w-4 text-[#ff4d2e]" />;
     }

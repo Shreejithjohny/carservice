@@ -67,6 +67,7 @@ from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
 from .plate_service import LIKELY, MATCH, check_plate
+from .reminder_service import service_due
 from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
@@ -1978,6 +1979,17 @@ def booking_generate_invoice(request, pk):
         return Response({"error": exc.message}, status=exc.status_code)
     recalculate_car_health_score(booking.vehicle)
     return Response(InvoiceSerializer(invoice).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def service_reminders(request):
+    """
+    GET /api/reminders/
+    Next service due date / kilometres for each of the customer's vehicles.
+    """
+    today = timezone.localdate()
+    return Response([service_due(v, today) for v in Vehicle.objects.filter(customer=request.user)])
 
 
 @api_view(["GET"])

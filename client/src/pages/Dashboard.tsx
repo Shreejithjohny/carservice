@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, Bell, Car, HeartPulse, History, IndianRupee, MapPin, Sparkles, Video, Wrench } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { ServiceReminders } from "../components/ServiceReminders";
 
 const tiles = [
   { to: "/app/book", title: "Book Service", icon: Wrench, hint: "Pickup in under 2 hours" },
@@ -17,6 +18,7 @@ export function Dashboard() {
   const { user } = useAuth();
   return (
     <div className="space-y-6">
+      <ServiceReminders />
       <div className="glass overflow-hidden rounded-3xl p-6">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-zinc-400"><MapPin size={14} className="text-[#ff4d2e]" /> Pickup location</div>
         <h2 className="mt-2 text-3xl font-extrabold">Good to see you, {user?.name.split(" ")[0]}</h2>

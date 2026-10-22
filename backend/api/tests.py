@@ -1779,3 +1779,59 @@ class PlateCheckTests(TestCase):
         self.assertEqual((res.data["result"], res.data["plate_verified"]), ("MATCH", True))
         job.refresh_from_db()
         self.assertTrue(job.plate_verified)
+
+
+class ServiceReminderTests(TestCase):
+    def setUp(self):
+        self.customer = User.objects.create_user(username="sr_c", email="sr_c@example.com", role=UserRole.CUSTOMER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Toyota", model="Glanza", registration_number="KA04SR01")
+        self.today = timezone.localdate()
+
+    def complete_service(self, days_ago, odometer=None):
+        return ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, pickup_address="RT Nagar", status=BookingStatus.COMPLETED,
+            completed_at=timezone.now() - timedelta(days=days_ago), delivery_odometer_km=odometer,
+        )
+
+    def test_due_by_time(self):
+        from api.reminder_service import DUE_SOON, OK, OVERDUE, service_due
+
+        self.complete_service(days_ago=30)
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], OK)
+        ServiceBooking.objects.all().delete()
+        self.complete_service(days_ago=170)
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], DUE_SOON)
+        ServiceBooking.objects.all().delete()
+        self.complete_service(days_ago=200)
+        due = service_due(self.vehicle, self.today)
+        self.assertEqual(due["status"], OVERDUE)
+        self.assertEqual(due["days_left"], -20)
+
+    def test_due_by_kilometres_first(self):
+        from api.reminder_service import DUE_SOON, OVERDUE, service_due
+
+        self.complete_service(days_ago=20, odometer=30000)
+        self.vehicle.odometer_km = 39500
+        self.vehicle.save()
+        due = service_due(self.vehicle, self.today)
+        self.assertEqual((due["status"], due["km_left"]), (DUE_SOON, 500))
+        self.vehicle.odometer_km = 41200
+        self.vehicle.save()
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], OVERDUE)
+
+    def test_open_booking_suppresses_and_command_dedupes(self):
+        from api.reminder_service import BOOKED, send_service_reminders, service_due
+
+        self.complete_service(days_ago=400)
+        self.assertEqual(send_service_reminders(self.today), 1)
+        self.assertEqual(send_service_reminders(self.today), 0)  # not again within a week
+        ServiceBooking.objects.create(customer=self.customer, vehicle=self.vehicle, pickup_address="RT Nagar")
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], BOOKED)
+
+    def test_endpoint_lists_only_own_vehicles(self):
+        other = User.objects.create_user(username="sr_o", email="sr_o@example.com", role=UserRole.CUSTOMER)
+        Vehicle.objects.create(customer=other, brand="Tata", model="Punch", registration_number="KA04SR02")
+        client = APIClient()
+        client.force_authenticate(user=self.customer)
+        res = client.get("/api/reminders/")
+        self.assertEqual([r["registration_number"] for r in res.data], ["KA04SR01"])

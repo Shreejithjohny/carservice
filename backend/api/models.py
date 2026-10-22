@@ -824,6 +824,7 @@ class NotificationType(models.TextChoices):
     DELIVERY_COMPLETED = "DELIVERY_COMPLETED", _("Delivery Completed")
     INVOICE_GENERATED = "INVOICE_GENERATED", _("Invoice Generated")
     PAYMENT_RECEIVED = "PAYMENT_RECEIVED", _("Payment Received")
+    SERVICE_REMINDER = "SERVICE_REMINDER", _("Service Reminder")
     GENERAL = "GENERAL", _("General")
 
 

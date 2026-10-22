@@ -156,6 +156,19 @@ export interface ConditionReport {
   km_driven: number | null;
 }
 
+export interface ServiceDue {
+  vehicle: number;
+  registration_number: string;
+  name: string;
+  status: "OK" | "DUE_SOON" | "OVERDUE" | "BOOKED";
+  last_service_date: string | null;
+  due_date: string;
+  days_left: number;
+  km_left: number | null;
+  odometer_km: number | null;
+  reasons: string[];
+}
+
 export interface InvoiceItem {
   id?: number;
   description: string;

@@ -75,6 +75,7 @@ urlpatterns = [
     path("invoices/<str:pk>/", views.invoice_detail, name="invoice_detail"),
     path("invoices/<int:pk>/pay/", views.invoice_pay, name="invoice_pay"),
     path("bookings/<str:pk>/generate-invoice/", views.booking_generate_invoice, name="booking_generate_invoice"),
+    path("reminders/", views.service_reminders, name="service_reminders"),
     path("vehicles/<int:pk>/health-score/", views.vehicle_health_score, name="vehicle_health_score"),
 
     # Phase 11 Notifications & Admin Dashboard

@@ -33,6 +33,7 @@ export function Vehicles() {
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [year, setYear] = useState<number>(2023);
   const [color, setColor] = useState("");
+  const [odometer, setOdometer] = useState("");
   const [nickname, setNickname] = useState("");
   const [fuelType, setFuelType] = useState("Petrol");
   const [busy, setBusy] = useState(false);
@@ -95,6 +96,7 @@ export function Vehicles() {
     setRegistrationNumber("");
     setYear(2023);
     setColor("");
+    setOdometer("");
     setNickname("");
     setFuelType("Petrol");
     setOpenModal(true);
@@ -105,6 +107,7 @@ export function Vehicles() {
     setRegistrationNumber(v.registration_number || v.registration || "");
     setYear(v.year || 2021);
     setColor(v.color || "");
+    setOdometer(v.odometer_km != null ? String(v.odometer_km) : "");
     setNickname(v.nickname || "");
     setFuelType(v.fuel_type || v.fuelType || "Petrol");
 
@@ -143,6 +146,7 @@ export function Vehicles() {
         registration_number: registrationNumber.trim().toUpperCase(),
         year: Number(year),
         color: color.trim(),
+        odometer_km: odometer.trim() ? Number(odometer) : null,
         nickname: nickname.trim() || (selectedB && selectedM ? `${selectedB.name} ${selectedM.name}` : "My Car"),
         fuel_type: fuelType,
       };
@@ -388,6 +392,21 @@ export function Vehicles() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Current Odometer (km, optional)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                  placeholder="e.g. 32500 — used for service reminders"
+                  value={odometer}
+                  onChange={(e) => setOdometer(e.target.value)}
+                />
+              </div>
+
               {/* Fuel Type & Nickname */}
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
@@ -478,6 +497,10 @@ export function Vehicles() {
               <div className="flex justify-between border-b py-2 dark:border-zinc-800">
                 <span className="text-zinc-500">Manufacturing Year</span>
                 <span className="font-bold">{viewingVehicle.year}</span>
+              </div>
+              <div className="flex justify-between border-b py-2 dark:border-zinc-800">
+                <span className="text-zinc-500">Odometer</span>
+                <span className="font-bold">{viewingVehicle.odometer_km != null ? `${viewingVehicle.odometer_km.toLocaleString("en-IN")} km` : "Not recorded"}</span>
               </div>
               <div className="flex justify-between py-2">
                 <span className="text-zinc-500">Fuel Type</span>
