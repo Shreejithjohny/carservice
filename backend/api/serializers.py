@@ -1,5 +1,6 @@
 import re
 import uuid
+from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
     UserRole,
@@ -23,6 +24,7 @@ from .models import (
     CarHealthScore,
     RepairCostEstimate,
     Notification,
+    ServiceReview,
 )
 
 
@@ -189,6 +191,21 @@ class ServiceTypeSerializer(serializers.ModelSerializer):
 
 
 class ServiceCenterSerializer(serializers.ModelSerializer):
+    review_count = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+
+    def _ratings(self, obj):
+        if not hasattr(obj, "_rating_stats"):
+            obj._rating_stats = obj.reviews.aggregate(n=Count("id"), avg=Avg("center_rating"))
+        return obj._rating_stats
+
+    def get_review_count(self, obj):
+        return self._ratings(obj)["n"]
+
+    def get_average_rating(self, obj):
+        avg = self._ratings(obj)["avg"]
+        return round(avg, 1) if avg is not None else None
+
     class Meta:
         model = ServiceCenter
         fields = [
@@ -200,6 +217,8 @@ class ServiceCenterSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "rating",
+            "review_count",
+            "average_rating",
             "slot_capacity",
             "is_active",
             "active",
@@ -216,6 +235,10 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
     service_center_details = ServiceCenterSerializer(source="service_center", read_only=True)
     assigned_driver_details = UserSerializer(source="assigned_driver", read_only=True)
     assigned_mechanic_details = UserSerializer(source="assigned_mechanic", read_only=True)
+    has_review = serializers.SerializerMethodField()
+
+    def get_has_review(self, obj):
+        return ServiceReview.objects.filter(booking_id=obj.pk).exists()
 
     class Meta:
         model = ServiceBooking
@@ -253,6 +276,7 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "delivery_odometer_km",
             "plate_verified",
             "plate_detected",
+            "has_review",
             "created_at",
             "updated_at",
         ]
@@ -584,6 +608,25 @@ class CarHealthScoreSerializer(serializers.ModelSerializer):
             "calculated_at",
         ]
         read_only_fields = ["id", "calculated_at"]
+
+
+class ServiceReviewSerializer(serializers.ModelSerializer):
+    reviewer = serializers.SerializerMethodField()
+    booking_reference = serializers.CharField(source="booking.booking_reference", read_only=True)
+
+    class Meta:
+        model = ServiceReview
+        fields = [
+            "id", "booking", "booking_reference", "reviewer", "service_center", "driver",
+            "center_rating", "driver_rating", "comment", "created_at",
+        ]
+        read_only_fields = ["id", "booking", "service_center", "driver", "created_at"]
+
+    def get_reviewer(self, obj):
+        # Public reviews show only a first name and last initial
+        user = obj.customer
+        first = (user.first_name or user.username or "Customer").split()[0]
+        return f"{first} {user.last_name[:1]}.".strip() if user.last_name else first
 
 
 class NotificationSerializer(serializers.ModelSerializer):

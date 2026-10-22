@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
@@ -807,6 +808,33 @@ class CarHealthScore(models.Model):
 
     def __str__(self):
         return f"Health Score for {self.vehicle}: {self.score}/100"
+
+
+class ServiceReview(models.Model):
+    """A customer's rating of a completed booking: the service center, and the driver if one was assigned."""
+
+    booking = models.OneToOneField(
+        ServiceBooking, on_delete=models.CASCADE, related_name="review"
+    )
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reviews")
+    service_center = models.ForeignKey(
+        ServiceCenter, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviews"
+    )
+    driver = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="driver_reviews"
+    )
+    center_rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    driver_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    comment = models.TextField(blank=True, default="", max_length=1000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.center_rating}/5 for {self.booking.booking_reference}"
 
 
 class NotificationType(models.TextChoices):

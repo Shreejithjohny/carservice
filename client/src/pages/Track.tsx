@@ -8,6 +8,7 @@ import { Empty, Skeleton } from "../components/States";
 import type { Booking } from "../types";
 import { LiveTrackingMap, type RoutePoint } from "../components/LiveTrackingMap";
 import { ConditionReportView } from "../components/ConditionReportView";
+import { ReviewForm } from "../components/ReviewForm";
 
 const STEPS = [
   "Booking Created",
@@ -268,6 +269,10 @@ export function Track() {
         </div>
       </div>
 
+      {currentStatus === "Completed" && !booking.has_review && (
+        <ReviewForm bookingId={booking.id} hasDriver={!!booking.assigned_driver} onDone={reload} />
+      )}
+
       {bookingId && <ConditionReportView key={String(bookingId)} bookingId={bookingId} />}
 
       {/* Visual Timeline Tracker */}
@@ -313,7 +318,7 @@ export function Track() {
 }
 
 export function History() {
-  const { data, loading } = useApi<Booking[]>("/api/bookings/");
+  const { data, loading, reload } = useApi<Booking[]>("/api/bookings/");
   const done = data?.filter((b) => ["Delivered", "Cancelled", "Completed"].includes(b.status)) ?? [];
 
   if (loading) return <Skeleton className="h-40" />;
@@ -322,7 +327,7 @@ export function History() {
   return (
     <div className="space-y-3">
       {done.map((b) => (
-        <article key={b.id || b._id || b.booking_reference} className="glass rounded-3xl p-5 flex justify-between items-center">
+        <article key={b.id || b._id || b.booking_reference} className="glass rounded-3xl p-5 flex flex-wrap justify-between items-center gap-4">
           <div>
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${b.status === "Cancelled" ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600"}`}>
               {b.status}
@@ -336,7 +341,13 @@ export function History() {
             <p className="text-lg font-black text-zinc-800 dark:text-zinc-100">
               ₹{Number(b.estimated_cost || b.estimatedCost || 0).toLocaleString("en-IN")}
             </p>
+            {b.status === "Completed" && b.has_review && <p className="text-xs font-semibold text-amber-600">★ Reviewed</p>}
           </div>
+          {b.status === "Completed" && !b.has_review && (
+            <div className="w-full sm:w-80">
+              <ReviewForm bookingId={b.id} hasDriver={!!b.assigned_driver} onDone={reload} />
+            </div>
+          )}
         </article>
       ))}
     </div>

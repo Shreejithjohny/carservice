@@ -25,6 +25,7 @@ from .models import (
     ServiceHistory,
     RepairCostEstimate,
     CarHealthScore,
+    ServiceReview,
 )
 
 
@@ -185,3 +186,9 @@ class RepairCostEstimateAdmin(admin.ModelAdmin):
 class CarHealthScoreAdmin(admin.ModelAdmin):
     list_display = ["vehicle", "score", "maintenance_compliance", "critical_issue_count", "calculated_at"]
 
+
+
+@admin.register(ServiceReview)
+class ServiceReviewAdmin(admin.ModelAdmin):
+    list_display = ["booking", "customer", "service_center", "center_rating", "driver_rating", "created_at"]
+    list_filter = ["center_rating", "service_center"]

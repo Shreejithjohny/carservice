@@ -1835,3 +1835,46 @@ class ServiceReminderTests(TestCase):
         client.force_authenticate(user=self.customer)
         res = client.get("/api/reminders/")
         self.assertEqual([r["registration_number"] for r in res.data], ["KA04SR01"])
+
+
+class ServiceReviewTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(
+            username="rv_c", email="rv_c@example.com", role=UserRole.CUSTOMER, first_name="Asha", last_name="Rao"
+        )
+        self.drv = User.objects.create_user(username="rv_d", email="rv_d@example.com", role=UserRole.DRIVER)
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Hyundai", model="Creta", registration_number="KA05RV01")
+        self.center = ServiceCenter.objects.create(name="RV Hub", address="Hebbal", phone="+918000000011", email="rv@example.com")
+        self.job = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_center=self.center, pickup_address="Hebbal",
+            status=BookingStatus.COMPLETED, assigned_driver=self.drv,
+        )
+        self.url = f"/api/bookings/{self.job.id}/review/"
+
+    def test_review_once_and_center_average_is_real(self):
+        res = self.client.get("/api/service-centers/")
+        center = next(c for c in res.data if c["id"] == self.center.id)
+        self.assertEqual((center["review_count"], center["average_rating"]), (0, None))
+
+        self.client.force_authenticate(user=self.customer)
+        res = self.client.post(self.url, {"center_rating": 4, "driver_rating": 5, "comment": "On time"}, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["reviewer"], "Asha R.")
+        self.assertEqual(self.client.post(self.url, {"center_rating": 1}, format="json").status_code, 409)
+
+        public = self.client.get(f"/api/service-centers/{self.center.id}/reviews/").data
+        self.assertEqual(public["service_center"]["average_rating"], 4.0)
+        self.assertEqual(len(public["reviews"]), 1)
+        self.center.refresh_from_db()
+        self.assertEqual(self.center.rating, 4.0)
+
+    def test_rules(self):
+        stranger = User.objects.create_user(username="rv_s", email="rv_s@example.com", role=UserRole.CUSTOMER)
+        self.client.force_authenticate(user=stranger)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 5}, format="json").status_code, 403)
+        self.client.force_authenticate(user=self.customer)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 6}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 0}, format="json").status_code, 400)
+        ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.IN_SERVICE)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 5}, format="json").status_code, 400)

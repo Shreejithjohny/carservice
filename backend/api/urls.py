@@ -30,6 +30,7 @@ urlpatterns = [
     # Phase 4 Service & Booking Endpoints
     path("service-types/", views.service_type_list, name="service_type_list"),
     path("service-centers/", views.service_center_list, name="service_center_list"),
+    path("service-centers/<int:pk>/reviews/", views.service_center_reviews, name="service_center_reviews"),
     path("service-centers/<int:pk>/slots/", views.service_center_slots, name="service_center_slots"),
     path("bookings/", views.booking_list_create, name="booking_list_create"),
     path("bookings/<str:pk>/", views.booking_detail, name="booking_detail"),
@@ -62,6 +63,7 @@ urlpatterns = [
     path("repair-requests/", views.create_repair_request, name="create_repair_request"),
 
     # Customer Tracking & Approvals
+    path("bookings/<str:pk>/review/", views.booking_review, name="booking_review"),
     path("bookings/<str:pk>/condition-report/", views.booking_condition_report, name="booking_condition_report"),
     path("bookings/<str:pk>/tracking/", views.customer_booking_tracking_detail, name="customer_booking_tracking_detail"),
     path("repair-requests/<int:pk>/approve/", views.customer_approve_repair_request, name="customer_approve_repair_request"),

@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Avg, Q
 from django.conf import settings
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -35,6 +35,7 @@ from .models import (
     Notification,
     NotificationType,
     Employee,
+    ServiceReview,
 )
 from .serializers import (
     SendOTPSerializer,
@@ -59,6 +60,7 @@ from .serializers import (
     PaymentSerializer,
     CarHealthScoreSerializer,
     NotificationSerializer,
+    ServiceReviewSerializer,
 )
 from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number
 from .ai_cost_service import estimate_repair_cost
@@ -1979,6 +1981,68 @@ def booking_generate_invoice(request, pk):
         return Response({"error": exc.message}, status=exc.status_code)
     recalculate_car_health_score(booking.vehicle)
     return Response(InvoiceSerializer(invoice).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def booking_review(request, pk):
+    """
+    GET  /api/bookings/<id>/review/ -> the review left for this booking (404 if none)
+    POST /api/bookings/<id>/review/ -> customer rates a completed booking once:
+         {"center_rating": 1-5, "driver_rating": 1-5 (optional), "comment": "..."}
+    """
+    booking = find_booking(pk)
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        if not can_view_booking(request.user, booking):
+            return Response({"error": "You do not have permission to view this booking."}, status=status.HTTP_403_FORBIDDEN)
+        review = ServiceReview.objects.filter(booking=booking).first()
+        if not review:
+            return Response({"error": "No review yet."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ServiceReviewSerializer(review).data)
+
+    if booking.customer_id != request.user.id:
+        return Response({"error": "Only the customer who booked this service can review it."}, status=status.HTTP_403_FORBIDDEN)
+    if booking.status != BookingStatus.COMPLETED:
+        return Response({"error": "You can review a service once it is completed."}, status=status.HTTP_400_BAD_REQUEST)
+    if ServiceReview.objects.filter(booking=booking).exists():
+        return Response({"error": "You have already reviewed this service."}, status=status.HTTP_409_CONFLICT)
+
+    serializer = ServiceReviewSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    driver_rating = serializer.validated_data.get("driver_rating")
+    if driver_rating is not None and not booking.assigned_driver_id:
+        return Response({"error": "This booking had no driver to rate."}, status=status.HTTP_400_BAD_REQUEST)
+
+    review = serializer.save(
+        booking=booking,
+        customer=request.user,
+        service_center=booking.service_center,
+        driver=booking.assigned_driver if driver_rating is not None else None,
+    )
+    center = booking.service_center
+    if center:
+        # Keep the stored rating equal to the real average, so nothing shows a made-up score.
+        center.rating = round(center.reviews.aggregate(avg=Avg("center_rating"))["avg"], 1)
+        center.save(update_fields=["rating", "active"])
+    return Response(ServiceReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def service_center_reviews(request, pk):
+    """GET /api/service-centers/<id>/reviews/ -> recent public reviews of a center"""
+    center = ServiceCenter.objects.filter(pk=pk).first()
+    if not center:
+        return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
+    reviews = center.reviews.select_related("customer", "booking")[:20]
+    return Response({
+        "service_center": ServiceCenterSerializer(center).data,
+        "reviews": ServiceReviewSerializer(reviews, many=True).data,
+    })
 
 
 @api_view(["GET"])

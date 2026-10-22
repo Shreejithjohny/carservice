@@ -261,7 +261,7 @@ export function Book() {
         >
           {serviceCenters?.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} ({c.address})
+              {c.name} ({c.review_count ? `★ ${c.average_rating}, ${c.review_count} review${c.review_count > 1 ? "s" : ""}` : "new, no reviews yet"}) — {c.address}
             </option>
           ))}
         </select>

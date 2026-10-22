@@ -88,6 +88,9 @@ export interface ServiceCenter {
   latitude?: number;
   longitude?: number;
   rating?: number;
+  review_count?: number;
+  average_rating?: number | null;
+  slot_capacity?: number;
   is_active?: boolean;
   active?: boolean;
 }
@@ -122,6 +125,7 @@ export interface Booking {
   delivery_odometer_km?: number | null;
   plate_verified?: boolean;
   plate_detected?: string;
+  has_review?: boolean;
   pickup_address?: string;
   pickup_latitude?: number | null;
   pickup_longitude?: number | null;
