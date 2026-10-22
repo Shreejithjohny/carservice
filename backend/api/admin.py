@@ -77,7 +77,7 @@ class ServiceTypeAdmin(admin.ModelAdmin):
 
 @admin.register(ServiceCenter)
 class ServiceCenterAdmin(admin.ModelAdmin):
-    list_display = ["name", "phone", "email", "rating", "is_active", "active"]
+    list_display = ["name", "phone", "email", "rating", "slot_capacity", "is_active", "active"]
     search_fields = ["name", "email"]
     list_filter = ["is_active"]
 

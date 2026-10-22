@@ -215,6 +215,8 @@ class ServiceCenter(models.Model):
     latitude = models.FloatField(default=12.9716)
     longitude = models.FloatField(default=77.5946)
     rating = models.FloatField(default=4.8)
+    # Pickups the center can handle in each time slot (roughly its number of drivers).
+    slot_capacity = models.PositiveIntegerField(default=3)
     is_active = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -198,6 +198,7 @@ class ServiceCenterSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "rating",
+            "slot_capacity",
             "is_active",
             "active",
             "created_at",

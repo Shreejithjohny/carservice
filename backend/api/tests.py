@@ -1,3 +1,5 @@
+from datetime import timedelta
+from django.utils import timezone
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -18,6 +20,9 @@ from api.models import (
 )
 
 User = get_user_model()
+
+# Bookings can only be made for upcoming dates, so API payloads use a date a few days out.
+FUTURE_DATE = (timezone.localdate() + timedelta(days=3)).isoformat()
 
 
 class Phase4ServiceBookingTests(TestCase):
@@ -96,8 +101,8 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "123 Street",
-            "preferred_date": "2026-10-01",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -109,8 +114,8 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "456 MG Road, Indiranagar, Bengaluru",
-            "preferred_date": "2026-10-01",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
             "customer_notes": "Please check brake squeal.",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
@@ -128,7 +133,7 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "789 Brigade Road",
-            "preferred_date": "2026-10-01",
+            "preferred_date": FUTURE_DATE,
             "preferred_time": "11:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
@@ -208,8 +213,8 @@ class Phase4ServiceBookingTests(TestCase):
             "pickup_address": "100 Feet Road, Indiranagar, Bengaluru",
             "pickup_latitude": 12.9784,
             "pickup_longitude": 77.6408,
-            "preferred_date": "2026-10-05",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
@@ -223,7 +228,7 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "Text address only without map coordinates",
-            "preferred_date": "2026-10-06",
+            "preferred_date": FUTURE_DATE,
             "preferred_time": "11:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
@@ -240,8 +245,8 @@ class Phase4ServiceBookingTests(TestCase):
             "pickup_address": "Invalid latitude test",
             "pickup_latitude": 120.0,  # Invalid: > 90
             "pickup_longitude": 77.6408,
-            "preferred_date": "2026-10-07",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
@@ -256,8 +261,8 @@ class Phase4ServiceBookingTests(TestCase):
             "pickup_address": "Invalid longitude test",
             "pickup_latitude": 12.9784,
             "pickup_longitude": -200.0,  # Invalid: < -180
-            "preferred_date": "2026-10-07",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
@@ -675,8 +680,8 @@ class Phase9To11CompleteOperationsTests(TestCase):
                 "service_type": self.service_type.id,
                 "service_center": self.service_center.id,
                 "pickup_address": "Indiranagar 100ft Rd",
-                "preferred_date": "2026-10-15",
-                "preferred_time": "09:00 AM",
+                "preferred_date": FUTURE_DATE,
+                "preferred_time": "09:00:00",
             },
             format="json",
         )
@@ -1458,6 +1463,7 @@ class SecurityAuditTests(TestCase):
         res = self.client.post("/api/bookings/", {
             "vehicle": self.vehicle.id, "service_type": self.st.id, "service_center": self.center.id,
             "pickup_address": "Jayanagar", "estimated_cost": 1,
+            "preferred_date": FUTURE_DATE, "preferred_time": "09:00:00",
         }, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(float(res.data["estimated_cost"]), 4000.0)
@@ -1528,3 +1534,68 @@ class SecurityAuditTests(TestCase):
         fixed = recalculate_car_health_score(self.vehicle).score
         self.assertEqual(unfixed, 90 - 25)  # new car, no completed services yet, one open critical issue
         self.assertEqual(fixed, 90 + 5 + 3)  # completed service + approved repair, fault resolved
+
+
+class BookingSlotTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="slotc", email="slotc@example.com", role=UserRole.CUSTOMER)
+        self.center = ServiceCenter.objects.create(
+            name="Slot Center", address="MG Road", phone="+918000000001", email="slot@example.com", slot_capacity=2
+        )
+        self.st = ServiceType.objects.create(name="Slot Service", base_price=1000)
+        self.vehicles = [
+            Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number=f"KA05SL{i:04d}")
+            for i in range(4)
+        ]
+        self.client.force_authenticate(user=self.customer)
+
+    def book(self, vehicle, day=FUTURE_DATE, slot="09:00:00"):
+        return self.client.post("/api/bookings/", {
+            "vehicle": vehicle.id, "service_type": self.st.id, "service_center": self.center.id,
+            "pickup_address": "Koramangala", "preferred_date": day, "preferred_time": slot,
+        }, format="json")
+
+    def test_slot_fills_up_at_capacity(self):
+        self.assertEqual(self.book(self.vehicles[0]).status_code, 201)
+        self.assertEqual(self.book(self.vehicles[1]).status_code, 201)
+        res = self.book(self.vehicles[2])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("fully booked", res.data["error"])
+        # Another slot on the same day still has room
+        self.assertEqual(self.book(self.vehicles[2], slot="11:00:00").status_code, 201)
+
+    def test_cancelled_booking_frees_its_place(self):
+        first = self.book(self.vehicles[0]).data
+        self.book(self.vehicles[1])
+        self.client.patch(f"/api/bookings/{first['id']}/", {"status": "Cancelled"}, format="json")
+        self.assertEqual(self.book(self.vehicles[2]).status_code, 201)
+
+    def test_availability_endpoint(self):
+        self.book(self.vehicles[0])
+        res = self.client.get(f"/api/service-centers/{self.center.id}/slots/?date={FUTURE_DATE}")
+        self.assertEqual(res.status_code, 200)
+        nine = next(s for s in res.data["slots"] if s["time"] == "09:00:00")
+        self.assertEqual((nine["booked"], nine["available"], nine["is_full"]), (1, 1, False))
+        self.assertEqual(self.client.get(f"/api/service-centers/{self.center.id}/slots/?date=bad").status_code, 400)
+
+    def test_rejects_past_dates_unknown_slots_and_missing_date(self):
+        yesterday = (timezone.localdate() - timedelta(days=1)).isoformat()
+        self.assertEqual(self.book(self.vehicles[0], day=yesterday).status_code, 400)
+        self.assertEqual(self.book(self.vehicles[0], slot="03:00:00").status_code, 400)
+        too_far = (timezone.localdate() + timedelta(days=45)).isoformat()
+        self.assertEqual(self.book(self.vehicles[0], day=too_far).status_code, 400)
+        res = self.client.post("/api/bookings/", {
+            "vehicle": self.vehicles[0].id, "service_type": self.st.id, "service_center": self.center.id,
+            "pickup_address": "Koramangala", "preferred_time": "09:00:00",
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+
+    def test_reschedule_into_a_full_slot_is_refused(self):
+        self.book(self.vehicles[0], slot="11:00:00")
+        self.book(self.vehicles[1], slot="11:00:00")
+        mine = self.book(self.vehicles[2]).data
+        res = self.client.patch(f"/api/bookings/{mine['id']}/", {"preferred_time": "11:00:00"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        res = self.client.patch(f"/api/bookings/{mine['id']}/", {"preferred_time": "14:00:00"}, format="json")
+        self.assertEqual(res.status_code, 200)

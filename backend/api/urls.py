@@ -30,6 +30,7 @@ urlpatterns = [
     # Phase 4 Service & Booking Endpoints
     path("service-types/", views.service_type_list, name="service_type_list"),
     path("service-centers/", views.service_center_list, name="service_center_list"),
+    path("service-centers/<int:pk>/slots/", views.service_center_slots, name="service_center_slots"),
     path("bookings/", views.booking_list_create, name="booking_list_create"),
     path("bookings/<str:pk>/", views.booking_detail, name="booking_detail"),
 

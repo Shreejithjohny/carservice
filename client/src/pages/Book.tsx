@@ -11,12 +11,16 @@ import type { Vehicle, ServiceType, ServiceCenter, Booking } from "../types";
 const defaultTomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
 const DEFAULT_DATE = defaultTomorrow.toISOString().split("T")[0];
 
-const TIME_SLOTS = [
-  { value: "09:00:00", label: "09:00 AM - 11:00 AM" },
-  { value: "11:00:00", label: "11:00 AM - 01:00 PM" },
-  { value: "14:00:00", label: "02:00 PM - 04:00 PM" },
-  { value: "16:00:00", label: "04:00 PM - 06:00 PM" },
-];
+const MAX_DATE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+interface SlotInfo {
+  time: string;
+  label: string;
+  capacity: number;
+  booked: number;
+  available: number;
+  is_full: boolean;
+}
 
 export function Book() {
   const { data: vehicles, loading: loadingVehicles } = useApi<Vehicle[]>("/api/vehicles/");
@@ -33,7 +37,7 @@ export function Book() {
   const [pickupLatitude, setPickupLatitude] = useState<number | null>(12.9784);
   const [pickupLongitude, setPickupLongitude] = useState<number | null>(77.6408);
   const [preferredDate, setPreferredDate] = useState(DEFAULT_DATE);
-  const [preferredTime, setPreferredTime] = useState(TIME_SLOTS[0].value);
+  const [preferredTime, setPreferredTime] = useState("");
   const [customerNotes, setCustomerNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
@@ -60,6 +64,13 @@ export function Book() {
     return serviceCenters[0];
   }, [selectedServiceCenterId, serviceCenters]);
 
+  const { data: slotData, loading: loadingSlots } = useApi<{ slots: SlotInfo[] }>(
+    effectiveServiceCenter && preferredDate ? `/api/service-centers/${effectiveServiceCenter.id}/slots/?date=${preferredDate}` : null
+  );
+  const slots = slotData?.slots ?? [];
+  // A slot chosen earlier may have filled up or belong to another date; only keep it while it is open.
+  const chosenSlot = slots.find((s) => s.time === preferredTime && !s.is_full);
+
   const selectedVehicleObj = useMemo(() => {
     return vehicles?.find((v) => String(v.id || v._id) === String(effectiveVehicleId));
   }, [effectiveVehicleId, vehicles]);
@@ -70,6 +81,7 @@ export function Book() {
     if (!effectiveServiceType) return push({ title: "Please select a service type", tone: "err" });
     if (!effectiveServiceCenter) return push({ title: "Please select a service center", tone: "err" });
     if (!pickupAddress.trim()) return push({ title: "Pickup address is required", tone: "err" });
+    if (!chosenSlot) return push({ title: "Please pick an available time slot", tone: "err" });
 
     setSubmitting(true);
     try {
@@ -79,7 +91,7 @@ export function Book() {
         service_center: effectiveServiceCenter.id,
         pickup_address: pickupAddress,
         preferred_date: preferredDate,
-        preferred_time: preferredTime,
+        preferred_time: chosenSlot.time,
         customer_notes: customerNotes,
         estimated_cost: effectiveServiceType.base_price,
       };
@@ -152,7 +164,7 @@ export function Book() {
           <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
             <span className="text-zinc-500">Pickup Date & Time</span>
             <span className="font-semibold">
-              {confirmedBooking.preferred_date} at {confirmedBooking.preferred_time}
+              {confirmedBooking.preferred_date} · {chosenSlot?.label || confirmedBooking.preferred_time}
             </span>
           </div>
           <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
@@ -274,8 +286,8 @@ export function Book() {
         />
       </div>
 
-      {/* Preferred Date & Time */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Preferred Date & Time Slot */}
+      <div className="space-y-3">
         <label className="block text-xs font-semibold text-zinc-500">
           <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
             <Calendar size={16} className="text-[#ff4d2e]" /> Pickup Date
@@ -286,26 +298,45 @@ export function Book() {
             value={preferredDate}
             onChange={(e) => setPreferredDate(e.target.value)}
             min={new Date().toISOString().split("T")[0]}
+            max={MAX_DATE}
             required
           />
         </label>
 
-        <label className="block text-xs font-semibold text-zinc-500">
+        <div className="text-xs font-semibold text-zinc-500">
           <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
             <Clock size={16} className="text-[#ff4d2e]" /> Time Slot
           </span>
-          <select
-            className="w-full rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            value={preferredTime}
-            onChange={(e) => setPreferredTime(e.target.value)}
-          >
-            {TIME_SLOTS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          {loadingSlots ? (
+            <Skeleton className="h-20" />
+          ) : !slots.length ? (
+            <p className="rounded-2xl bg-zinc-100 p-3 dark:bg-zinc-800/60">Pick a date to see open slots.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {slots.map((s) => {
+                const selected = chosenSlot?.time === s.time;
+                return (
+                  <button
+                    key={s.time}
+                    type="button"
+                    disabled={s.is_full}
+                    onClick={() => setPreferredTime(s.time)}
+                    className={`rounded-2xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                      selected
+                        ? "border-[#ff4d2e] bg-[#ff4d2e]/10 text-[#ff4d2e]"
+                        : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-700"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold">{s.label}</span>
+                    <span className={`text-[11px] ${s.is_full ? "text-red-500" : s.available === 1 ? "text-amber-600" : "text-emerald-600"}`}>
+                      {s.is_full ? "Fully booked" : `${s.available} of ${s.capacity} places left`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Customer Notes */}

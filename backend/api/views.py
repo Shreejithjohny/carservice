@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Q
 from django.conf import settings
@@ -64,6 +64,7 @@ from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
+from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
 # Permissions come from the app role. is_staff only controls access to the Django admin site,
@@ -709,6 +710,27 @@ def service_center_list(request):
     return Response(serializer.data)
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def service_center_slots(request, pk):
+    """
+    GET /api/service-centers/<id>/slots/?date=YYYY-MM-DD -> pickup slots with remaining capacity
+    """
+
+    center = ServiceCenter.objects.filter(pk=pk, is_active=True).first()
+    if not center:
+        return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        day = date.fromisoformat(request.query_params.get("date", ""))
+    except ValueError:
+        return Response({"error": "Pass the date as YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({
+        "service_center": center.id,
+        "date": day.isoformat(),
+        "slots": slot_availability(center, day),
+    })
+
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def booking_list_create(request):
@@ -744,11 +766,20 @@ def booking_list_create(request):
                 return Response({"error": "Choose an available service center."}, status=status.HTTP_400_BAD_REQUEST)
             est_cost = service_type.base_price
 
-            booking = serializer.save(
-                customer=request.user,
-                estimated_cost=est_cost,
-                status=BookingStatus.PENDING
-            )
+            try:
+                booking = reserve_slot(
+                    service_center,
+                    serializer.validated_data.get("preferred_date"),
+                    serializer.validated_data.get("preferred_time", ""),
+                    timezone.localdate(),
+                    lambda: serializer.save(
+                        customer=request.user,
+                        estimated_cost=est_cost,
+                        status=BookingStatus.PENDING,
+                    ),
+                )
+            except SlotError as exc:
+                return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
             send_notification(
                 user=booking.customer,
                 booking=booking,
@@ -803,6 +834,21 @@ def booking_detail(request, pk):
                     {"error": f"Bookings can only be changed or cancelled while Pending or Confirmed. Current status is '{booking.status}'."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            new_date = request.data.get("preferred_date")
+            new_time = request.data.get("preferred_time")
+            if new_date is not None or new_time is not None:
+                # Rescheduling must land in a slot that still has room.
+
+                try:
+                    day = date.fromisoformat(str(new_date)) if new_date is not None else booking.preferred_date
+                except ValueError:
+                    return Response({"error": "Enter the pickup date as YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+                slot = str(new_time) if new_time is not None else booking.preferred_time
+                if (day, slot) != (booking.preferred_date, booking.preferred_time):
+                    try:
+                        validate_slot_choice(booking.service_center, day, slot, timezone.localdate())
+                    except SlotError as exc:
+                        return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = ServiceBookingSerializer(booking, data=request.data, partial=(request.method == "PATCH"), context={"request": request})
         if serializer.is_valid():
