@@ -39,6 +39,22 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+/** Downloads an authenticated file (e.g. an invoice PDF) and hands it to the browser as a download. */
+export async function downloadFile(path: string, filename: string) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, (data as { error?: string }).error || "Download failed");
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function saveSession(token: string, user: User, refreshToken?: string) {
   localStorage.setItem(TOKEN_KEY, token);
   if (refreshToken) {

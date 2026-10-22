@@ -74,7 +74,9 @@ urlpatterns = [
 
     # Phase 10 Invoices & Car Health Score
     path("invoices/", views.invoices_list, name="invoices_list"),
+    path("invoices/verify/<str:token>/", views.invoice_verify, name="invoice_verify"),
     path("invoices/<str:pk>/", views.invoice_detail, name="invoice_detail"),
+    path("invoices/<str:pk>/pdf/", views.invoice_pdf, name="invoice_pdf"),
     path("invoices/<int:pk>/pay/", views.invoice_pay, name="invoice_pay"),
     path("bookings/<str:pk>/generate-invoice/", views.booking_generate_invoice, name="booking_generate_invoice"),
     path("reminders/", views.service_reminders, name="service_reminders"),

@@ -19,6 +19,7 @@ import { ServiceCenterDashboard } from "./pages/ServiceCenterDashboard";
 import { DriverDashboard } from "./pages/DriverDashboard";
 import { MechanicDashboard } from "./pages/MechanicDashboard";
 import { Invoices } from "./pages/Invoices";
+import { VerifyInvoice } from "./pages/VerifyInvoice";
 import { Guard } from "./layouts/Guard";
 import { AppShell } from "./layouts/AppShell";
 
@@ -40,6 +41,7 @@ export function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/verify-otp" element={<VerifyOtp />} />
+      <Route path="/verify/:token" element={<VerifyInvoice />} />
 
       {/* Protected Customer Routes */}
       <Route element={<Guard roles={["customer"]} />}>

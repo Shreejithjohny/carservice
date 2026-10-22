@@ -1878,3 +1878,46 @@ class ServiceReviewTests(TestCase):
         self.assertEqual(self.client.post(self.url, {"center_rating": 0}, format="json").status_code, 400)
         ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.IN_SERVICE)
         self.assertEqual(self.client.post(self.url, {"center_rating": 5}, format="json").status_code, 400)
+
+
+class InvoicePdfTests(TestCase):
+    def setUp(self):
+        from api.invoice_service import generate_invoice_for_booking
+
+        self.client = APIClient()
+        self.customer = User.objects.create_user(
+            username="pdf_c", email="pdf_c@example.com", role=UserRole.CUSTOMER, first_name="Ravi & Sons <Ltd>"
+        )
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Altroz", registration_number="KA06PD1234")
+        st = ServiceType.objects.create(name="PDF Service", base_price=1800)
+        center = ServiceCenter.objects.create(name="PDF Hub", address="Yeshwanthpur", phone="+918000000012", email="pdf@example.com")
+        booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=st, service_center=center,
+            pickup_address="Yeshwanthpur", status=BookingStatus.COMPLETED,
+        )
+        self.invoice = generate_invoice_for_booking(booking)
+
+    def test_customer_downloads_pdf_and_stranger_cannot(self):
+        self.client.force_authenticate(user=self.customer)
+        res = self.client.get(f"/api/invoices/{self.invoice.id}/pdf/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res["Content-Type"], "application/pdf")
+        self.assertTrue(res.content.startswith(b"%PDF"))
+        stranger = User.objects.create_user(username="pdf_s", email="pdf_s@example.com", role=UserRole.CUSTOMER)
+        self.client.force_authenticate(user=stranger)
+        self.assertEqual(self.client.get(f"/api/invoices/{self.invoice.id}/pdf/").status_code, 403)
+
+    def test_qr_token_verifies_and_rejects_forgery(self):
+        from api.invoice_pdf import verification_token
+
+        token = verification_token(self.invoice)
+        res = self.client.get(f"/api/invoices/verify/{token}/")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data["valid"])
+        self.assertEqual(res.data["invoice_number"], self.invoice.invoice_number)
+        self.assertEqual(res.data["vehicle"], "KA06****34")
+        self.assertNotIn("customer", res.data)
+        # Changing the invoice number in the token breaks the signature
+        number, sig = token.rsplit(":", 1)
+        forged = number[:-1] + ("2" if number[-1] != "2" else "3") + ":" + sig
+        self.assertEqual(self.client.get(f"/api/invoices/verify/{forged}/").status_code, 404)

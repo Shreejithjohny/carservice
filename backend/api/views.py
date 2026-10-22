@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Avg, Q
 from django.conf import settings
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
@@ -65,6 +66,7 @@ from .serializers import (
 from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number
 from .ai_cost_service import estimate_repair_cost
 from .invoice_service import InvoiceError, generate_invoice_for_booking
+from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
@@ -1920,15 +1922,58 @@ def invoice_detail(request, pk):
 
     if not invoice:
         return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    # Permissions
-    if invoice.customer != request.user and not is_admin(request.user):
-        center = manager_center(request.user) if request.user.role == UserRole.SERVICE_CENTER_MANAGER else None
-        if not center or invoice.service_center_id != center.id:
-            return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
+    if not can_view_invoice(request.user, invoice):
+        return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
 
     serializer = InvoiceSerializer(invoice)
     return Response(serializer.data)
+
+
+def can_view_invoice(user, invoice):
+    """The customer billed, an admin, or the manager of the center that issued it."""
+    if invoice.customer_id == user.id or is_admin(user):
+        return True
+    center = manager_center(user) if user.role == UserRole.SERVICE_CENTER_MANAGER else None
+    return bool(center) and invoice.service_center_id == center.id
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def invoice_pdf(request, pk):
+    """GET /api/invoices/<id>/pdf/ -> downloadable PDF with a verification QR code"""
+    invoice = Invoice.objects.filter(pk=pk).first() if str(pk).isdigit() else Invoice.objects.filter(invoice_number=pk).first()
+    if not invoice:
+        return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+    if not can_view_invoice(request.user, invoice):
+        return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
+
+    response = HttpResponse(build_invoice_pdf(invoice), content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{invoice.invoice_number}.pdf"'
+    return response
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def invoice_verify(request, token):
+    """
+    GET /api/invoices/verify/<token>/  (public; the token comes from the QR code on the PDF)
+    Confirms an invoice is genuine. Shows only what is printed on it anyway, minus customer contact details.
+    """
+    invoice = invoice_from_token(token)
+    if not invoice:
+        return Response({"valid": False, "error": "This code does not match any invoice we issued."}, status=status.HTTP_404_NOT_FOUND)
+    reg = invoice.vehicle.registration_number if invoice.vehicle else ""
+    return Response({
+        "valid": True,
+        "invoice_number": invoice.invoice_number,
+        "issued_at": invoice.issued_at,
+        "service_center": invoice.service_center.name if invoice.service_center else None,
+        # Partly hidden so a lost invoice does not reveal the full registration
+        "vehicle": f"{reg[:4]}{'*' * max(0, len(reg) - 6)}{reg[-2:]}" if len(reg) > 6 else reg,
+        "grand_total": invoice.grand_total,
+        "payment_status": invoice.payment_status,
+        "invoice_status": invoice.invoice_status,
+    })
 
 
 @api_view(["POST"])

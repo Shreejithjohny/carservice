@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { Skeleton, Empty } from "../components/States";
-import { Receipt, Printer, X, Wallet } from "lucide-react";
+import { Receipt, Printer, X, Wallet, FileDown } from "lucide-react";
+import { downloadFile } from "../services/api";
+import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { PaymentModal } from "../components/PaymentModal";
 import type { Invoice } from "../types";
@@ -18,6 +20,19 @@ export function Invoices() {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
+  const [downloading, setDownloading] = useState(false);
+  const { push } = useToast();
+
+  async function downloadPdf(inv: Invoice) {
+    setDownloading(true);
+    try {
+      await downloadFile(`/api/invoices/${inv.id}/pdf/`, `${inv.invoice_number}.pdf`);
+    } catch (err) {
+      push({ title: err instanceof Error ? err.message : "Could not download the invoice", tone: "err" });
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   if (loading && !invoices) return <Skeleton className="h-80" />;
 
@@ -117,7 +132,7 @@ export function Invoices() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="relative max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-8 text-zinc-900 shadow-2xl dark:bg-zinc-900 dark:text-white print:m-0 print:p-0">
             <div className="flex items-center justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800 print:hidden">
-              <span className="text-xs font-bold uppercase tracking-widest text-[#ff4d2e]">Official Tax Invoice</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-[#ff4d2e]">Service Invoice</span>
               <div className="flex items-center gap-2">
                 {canPay(selectedInvoice) && (
                   <button
@@ -128,10 +143,17 @@ export function Invoices() {
                   </button>
                 )}
                 <button
+                  onClick={() => downloadPdf(selectedInvoice)}
+                  disabled={downloading}
+                  className="flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  <FileDown className="h-3.5 w-3.5" /> {downloading ? "Preparing..." : "Download PDF"}
+                </button>
+                <button
                   onClick={() => window.print()}
                   className="flex items-center gap-1.5 rounded-xl bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
                 >
-                  <Printer className="h-3.5 w-3.5" /> Print / PDF
+                  <Printer className="h-3.5 w-3.5" /> Print
                 </button>
                 <button
                   onClick={() => setSelectedInvoice(null)}
