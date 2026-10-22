@@ -2,6 +2,7 @@ import re
 import uuid
 from rest_framework import serializers
 from .models import (
+    UserRole,
     User,
     CustomerProfile,
     CarBrand,
@@ -250,13 +251,14 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "booking_reference",
             "booking_id",
             "customer",
+            "handover_otp_verified",
             "created_at",
             "updated_at",
         ]
 
     def validate_vehicle(self, value):
         request = self.context.get("request")
-        if request and request.user and not request.user.is_staff:
+        if request and request.user and request.user.role != UserRole.ADMIN and not request.user.is_superuser:
             if value.customer != request.user:
                 raise serializers.ValidationError("Selected vehicle does not belong to you.")
         return value

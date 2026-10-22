@@ -66,24 +66,59 @@ from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
 
 
+# Permissions come from the app role. is_staff only controls access to the Django admin site,
+# so a staff flag on a manager or mechanic must not grant platform-wide admin powers.
 def is_admin(user):
-    return user and (user.is_staff or user.role == UserRole.ADMIN)
+    return bool(user and user.is_authenticated and (user.is_superuser or user.role == UserRole.ADMIN))
 
 
 def is_manager(user):
-    return user and (user.is_staff or user.role in [UserRole.ADMIN, UserRole.SERVICE_CENTER_MANAGER])
+    return bool(user and (is_admin(user) or user.role == UserRole.SERVICE_CENTER_MANAGER))
 
 
 def is_driver(user):
-    return user and user.role == UserRole.DRIVER
+    return bool(user and user.role == UserRole.DRIVER)
 
 
 def is_mechanic(user):
-    return user and (user.role == UserRole.MECHANIC or user.is_staff)
+    return bool(user and (user.role == UserRole.MECHANIC or is_admin(user)))
 
 
 def is_customer(user):
-    return user and user.role == UserRole.CUSTOMER and not user.is_staff
+    return bool(user and user.role == UserRole.CUSTOMER and not is_admin(user))
+
+
+def manager_center(user):
+    """The service center a manager runs (or works at); None if not linked to one."""
+    center = getattr(user, "service_center_profile", None)
+    if center:
+        return center
+    employee = getattr(user, "employee_profile", None)
+    return employee.service_center if employee else None
+
+
+def manager_scope_error(user, booking=None):
+    """403 unless the user is an admin, or a manager linked to a center that owns this booking."""
+    if is_admin(user):
+        return None
+    if user.role != UserRole.SERVICE_CENTER_MANAGER:
+        return Response({"error": "Manager permissions required."}, status=status.HTTP_403_FORBIDDEN)
+    center = manager_center(user)
+    if not center:
+        return Response({"error": "Your account is not linked to a service center."}, status=status.HTTP_403_FORBIDDEN)
+    if booking is not None and booking.service_center_id != center.id:
+        return Response({"error": "This booking belongs to another service center."}, status=status.HTTP_403_FORBIDDEN)
+    return None
+
+
+CUSTOMER_EDITABLE_BOOKING_FIELDS = {
+    "pickup_address", "pickup_latitude", "pickup_longitude", "preferred_date", "preferred_time", "customer_notes", "status",
+}
+
+# Every status the workflow uses (model choices plus the intermediate pickup/workshop steps).
+KNOWN_BOOKING_STATUSES = set(BookingStatus.values) | {
+    "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Inspection", "Repair Approval Required",
+}
 
 
 # Statuses while the car is at the workshop, and the ones a mechanic may set.
@@ -107,6 +142,15 @@ def driver_job_error(user, booking, allowed_statuses):
         return Response({"error": "This pickup is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
     if booking.status not in allowed_statuses:
         return Response({"error": f"Not available while the booking is '{booking.status}'."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+def repair_response_error(repair_req):
+    """A repair request can be answered once, while the car is still at the workshop."""
+    if repair_req.status != RepairRequestStatus.PENDING:
+        return Response({"error": f"This repair request was already {repair_req.status.lower()}."}, status=status.HTTP_409_CONFLICT)
+    if repair_req.booking.status not in WORKSHOP_STATUSES:
+        return Response({"error": "The vehicle is no longer at the workshop."}, status=status.HTTP_400_BAD_REQUEST)
     return None
 
 
@@ -629,6 +673,12 @@ def vehicle_detail(request, pk):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == "DELETE":
+        # Deleting a vehicle cascades to its bookings, invoices and payments, so keep that history.
+        if vehicle.bookings.exclude(status=BookingStatus.CANCELLED).exists():
+            return Response(
+                {"error": "This vehicle has service bookings and invoices on record, so it cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         vehicle.delete()
         return Response({"message": "Vehicle deleted successfully."}, status=status.HTTP_200_OK)
 
@@ -685,11 +735,14 @@ def booking_list_create(request):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Auto-populate estimated_cost from service_type.base_price if not provided
+            # The price always comes from the chosen package, never from the client.
             service_type = serializer.validated_data.get("service_type")
-            est_cost = serializer.validated_data.get("estimated_cost", 0)
-            if service_type and (not est_cost or est_cost == 0):
-                est_cost = service_type.base_price
+            service_center = serializer.validated_data.get("service_center")
+            if not service_type or not service_type.active:
+                return Response({"error": "Choose an available service package."}, status=status.HTTP_400_BAD_REQUEST)
+            if not service_center or not service_center.is_active:
+                return Response({"error": "Choose an available service center."}, status=status.HTTP_400_BAD_REQUEST)
+            est_cost = service_type.base_price
 
             booking = serializer.save(
                 customer=request.user,
@@ -736,11 +789,18 @@ def booking_detail(request, pk):
     elif request.method in ["PUT", "PATCH"]:
         new_status = request.data.get("status")
 
-        # Cancellation validation rule: Customers can only cancel if status is Pending or Confirmed
-        if new_status == BookingStatus.CANCELLED and not is_admin(request.user):
+        if not is_admin(request.user):
+            # Customers may only edit pickup details/notes or cancel, and only before pickup is underway.
+            disallowed = sorted(set(request.data.keys()) - CUSTOMER_EDITABLE_BOOKING_FIELDS)
+            if disallowed:
+                return Response(
+                    {"error": f"You cannot change: {', '.join(disallowed)}."}, status=status.HTTP_400_BAD_REQUEST
+                )
+            if new_status is not None and new_status != BookingStatus.CANCELLED:
+                return Response({"error": "You can only cancel a booking."}, status=status.HTTP_400_BAD_REQUEST)
             if booking.status not in [BookingStatus.PENDING, BookingStatus.CONFIRMED]:
                 return Response(
-                    {"error": f"Bookings can only be cancelled when status is Pending or Confirmed. Current status is '{booking.status}'."},
+                    {"error": f"Bookings can only be changed or cancelled while Pending or Confirmed. Current status is '{booking.status}'."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -770,7 +830,7 @@ def booking_detail(request, pk):
 # ==========================================
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # may call the paid Google Distance Matrix API
 def calculate_distance_view(request):
     """
     GET /api/location/distance/?origin_lat=12.9716&origin_lng=77.5946&dest_lat=12.9784&dest_lng=77.6408
@@ -809,15 +869,13 @@ def service_center_bookings_list(request):
     Lists bookings assigned to the manager's service center.
     Managers cannot view bookings of another service center.
     """
-    if not is_manager(request.user):
-        return Response({"error": "Manager permissions required."}, status=status.HTTP_403_FORBIDDEN)
+    error = manager_scope_error(request.user)
+    if error:
+        return error
 
     qs = ServiceBooking.objects.all().order_by("-created_at")
-
-    if hasattr(request.user, "service_center_profile") and request.user.service_center_profile:
-        qs = qs.filter(service_center=request.user.service_center_profile)
-    elif hasattr(request.user, "employee_profile") and request.user.employee_profile and request.user.employee_profile.service_center:
-        qs = qs.filter(service_center=request.user.employee_profile.service_center)
+    if not is_admin(request.user):
+        qs = qs.filter(service_center=manager_center(request.user))
 
     serializer = ServiceBookingSerializer(qs, many=True)
     return Response(serializer.data)
@@ -830,8 +888,9 @@ def service_center_booking_update(request, pk):
     PATCH /api/service-center/bookings/<id>/
     Managers can confirm/reject bookings, update status, assign drivers, or assign mechanics.
     """
-    if not is_manager(request.user):
-        return Response({"error": "Manager permissions required."}, status=status.HTTP_403_FORBIDDEN)
+    error = manager_scope_error(request.user)
+    if error:
+        return error
 
     if str(pk).isdigit():
         booking = ServiceBooking.objects.filter(pk=pk).first()
@@ -841,13 +900,22 @@ def service_center_booking_update(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if hasattr(request.user, "service_center_profile") and request.user.service_center_profile:
-        if booking.service_center and booking.service_center != request.user.service_center_profile:
-            return Response({"error": "Cannot modify booking belonging to another service center."}, status=status.HTTP_403_FORBIDDEN)
+    error = manager_scope_error(request.user, booking)
+    if error:
+        return error
 
     new_status = request.data.get("status")
     assigned_driver_id = request.data.get("assigned_driver_id") or request.data.get("assigned_driver")
     assigned_mechanic_id = request.data.get("assigned_mechanic_id") or request.data.get("assigned_mechanic")
+
+    if new_status and new_status not in KNOWN_BOOKING_STATUSES:
+        return Response({"error": f"Unknown booking status '{new_status}'."}, status=status.HTTP_400_BAD_REQUEST)
+
+    def works_at_this_center(staff):
+        # Staff not yet attached to any center form a shared pool; staff of another center are off limits.
+        employee = getattr(staff, "employee_profile", None)
+        center_id = employee.service_center_id if employee else None
+        return is_admin(request.user) or center_id in (None, booking.service_center_id)
 
     if new_status:
         booking.status = new_status
@@ -888,6 +956,8 @@ def service_center_booking_update(request, pk):
         driver = User.objects.filter(pk=assigned_driver_id).first()
         if not driver or not is_driver(driver):
             return Response({"error": "Invalid driver selection."}, status=status.HTTP_400_BAD_REQUEST)
+        if not works_at_this_center(driver):
+            return Response({"error": "That driver does not work at this service center."}, status=status.HTTP_400_BAD_REQUEST)
         booking.assigned_driver = driver
         send_notification(
             user=booking.customer,
@@ -906,8 +976,10 @@ def service_center_booking_update(request, pk):
 
     if assigned_mechanic_id:
         mechanic = User.objects.filter(pk=assigned_mechanic_id).first()
-        if not mechanic or not is_mechanic(mechanic):
+        if not mechanic or mechanic.role != UserRole.MECHANIC:
             return Response({"error": "Invalid mechanic selection."}, status=status.HTTP_400_BAD_REQUEST)
+        if not works_at_this_center(mechanic):
+            return Response({"error": "That mechanic does not work at this service center."}, status=status.HTTP_400_BAD_REQUEST)
         booking.assigned_mechanic = mechanic
 
     booking.save()
@@ -921,11 +993,19 @@ def service_center_employees_list(request):
     GET /api/service-center/employees/
     Lists available drivers and mechanics for manager dropdown assignment.
     """
-    if not is_manager(request.user):
-        return Response({"error": "Manager permissions required."}, status=status.HTTP_403_FORBIDDEN)
+    error = manager_scope_error(request.user)
+    if error:
+        return error
 
     drivers = User.objects.filter(role=UserRole.DRIVER)
     mechanics = User.objects.filter(role=UserRole.MECHANIC)
+    if not is_admin(request.user):
+        center = manager_center(request.user)
+        in_scope = Q(employee_profile__service_center=center) | Q(employee_profile__isnull=True) | Q(
+            employee_profile__service_center__isnull=True
+        )
+        drivers = drivers.filter(in_scope)
+        mechanics = mechanics.filter(in_scope)
 
     return Response({
         "drivers": UserSerializer(drivers, many=True).data,
@@ -1339,6 +1419,10 @@ def customer_approve_repair_request(request, pk):
     if repair_req.booking.customer != request.user and not is_admin(request.user):
         return Response({"error": "Cannot approve repair request belonging to another customer."}, status=status.HTTP_403_FORBIDDEN)
 
+    error = repair_response_error(repair_req)
+    if error:
+        return error
+
     repair_req.status = RepairRequestStatus.APPROVED
     repair_req.responded_at = timezone.now()
     repair_req.customer_response = request.data.get("notes", "Approved by customer")
@@ -1346,7 +1430,8 @@ def customer_approve_repair_request(request, pk):
 
     booking = repair_req.booking
     booking.estimated_cost = float(booking.estimated_cost) + float(repair_req.estimated_cost or repair_req.additional_cost or 0)
-    booking.status = BookingStatus.IN_SERVICE
+    if not booking.repair_requests.filter(status=RepairRequestStatus.PENDING).exists():
+        booking.status = BookingStatus.IN_SERVICE
     booking.save()
 
     if repair_req.mechanic:
@@ -1379,14 +1464,19 @@ def customer_reject_repair_request(request, pk):
     if repair_req.booking.customer != request.user and not is_admin(request.user):
         return Response({"error": "Cannot reject repair request belonging to another customer."}, status=status.HTTP_403_FORBIDDEN)
 
+    error = repair_response_error(repair_req)
+    if error:
+        return error
+
     repair_req.status = RepairRequestStatus.REJECTED
     repair_req.responded_at = timezone.now()
     repair_req.customer_response = request.data.get("reason", "Declined by customer")
     repair_req.save()
 
     booking = repair_req.booking
-    booking.status = BookingStatus.IN_SERVICE
-    booking.save()
+    if not booking.repair_requests.filter(status=RepairRequestStatus.PENDING).exists():
+        booking.status = BookingStatus.IN_SERVICE
+        booking.save()
 
     if repair_req.mechanic:
         send_notification(
@@ -1432,7 +1522,9 @@ def repair_cost_estimate(request):
         .exclude(status__in=[BookingStatus.COMPLETED, BookingStatus.CANCELLED])
         .exists()
     )
-    if vehicle.customer != request.user and not (assigned_mechanic or is_manager(request.user) or is_admin(request.user)):
+    center = manager_center(request.user) if request.user.role == UserRole.SERVICE_CENTER_MANAGER else None
+    center_manager = bool(center) and ServiceBooking.objects.filter(vehicle=vehicle, service_center=center).exists()
+    if vehicle.customer != request.user and not (assigned_mechanic or center_manager or is_admin(request.user)):
         return Response({"error": "Unauthorized: You do not have permission to estimate for this vehicle."}, status=status.HTTP_403_FORBIDDEN)
 
     service_type = None
@@ -1478,17 +1570,15 @@ def invoices_list(request):
     GET /api/invoices/
     List invoices isolated by role (Customer sees own, Manager sees service center, Admin sees all).
     """
-    if is_customer(request.user):
-        qs = Invoice.objects.filter(customer=request.user)
-    elif is_manager(request.user):
-        if hasattr(request.user, "service_center_profile") and request.user.service_center_profile:
-            qs = Invoice.objects.filter(service_center=request.user.service_center_profile)
-        elif hasattr(request.user, "employee_profile") and request.user.employee_profile:
-            qs = Invoice.objects.filter(service_center=request.user.employee_profile.service_center)
-        else:
-            qs = Invoice.objects.all()
-    elif is_admin(request.user):
+    if is_admin(request.user):
         qs = Invoice.objects.all()
+    elif is_customer(request.user):
+        qs = Invoice.objects.filter(customer=request.user)
+    elif request.user.role == UserRole.SERVICE_CENTER_MANAGER:
+        error = manager_scope_error(request.user)
+        if error:
+            return error
+        qs = Invoice.objects.filter(service_center=manager_center(request.user))
     else:
         return Response({"error": "Unauthorized to view invoices."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -1512,14 +1602,9 @@ def invoice_detail(request, pk):
         return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
 
     # Permissions
-    if invoice.customer != request.user and not is_manager(request.user):
-        return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
-
-    if is_manager(request.user):
-        mgr_sc = getattr(request.user, "service_center_profile", None) or (
-            request.user.employee_profile.service_center if hasattr(request.user, "employee_profile") else None
-        )
-        if mgr_sc and invoice.service_center != mgr_sc and not is_admin(request.user):
+    if invoice.customer != request.user and not is_admin(request.user):
+        center = manager_center(request.user) if request.user.role == UserRole.SERVICE_CENTER_MANAGER else None
+        if not center or invoice.service_center_id != center.id:
             return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
 
     serializer = InvoiceSerializer(invoice)
@@ -1564,14 +1649,11 @@ def booking_generate_invoice(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if not is_admin(request.user):
-        employee = getattr(request.user, "employee_profile", None)
-        manager_center = getattr(request.user, "service_center_profile", None) or (employee.service_center if employee else None)
-        if not (is_manager(request.user) and manager_center and booking.service_center_id == manager_center.id):
-            return Response(
-                {"error": "Only the service center manager for this booking can generate its invoice."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+    if manager_scope_error(request.user, booking):
+        return Response(
+            {"error": "Only the service center manager for this booking can generate its invoice."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     try:
         invoice = generate_invoice_for_booking(booking)
