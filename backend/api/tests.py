@@ -1921,3 +1921,54 @@ class InvoicePdfTests(TestCase):
         number, sig = token.rsplit(":", 1)
         forged = number[:-1] + ("2" if number[-1] != "2" else "3") + ":" + sig
         self.assertEqual(self.client.get(f"/api/invoices/verify/{forged}/").status_code, 404)
+
+
+class AnalyticsTests(TestCase):
+    def setUp(self):
+        from api.models import Employee, RepairRequest, ServiceReview
+
+        self.client = APIClient()
+        self.center = ServiceCenter.objects.create(name="AN Hub", address="Malleshwaram", phone="+918000000013", email="an@example.com")
+        other_center = ServiceCenter.objects.create(name="AN Other", address="Vijayanagar", phone="+918000000014", email="an2@example.com")
+        self.manager = User.objects.create_user(username="an_m", email="an_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        customer = User.objects.create_user(username="an_c", email="an_c@example.com", role=UserRole.CUSTOMER)
+        mech = User.objects.create_user(username="an_k", email="an_k@example.com", role=UserRole.MECHANIC)
+        vehicle = Vehicle.objects.create(customer=customer, brand="Maruti", model="Baleno", registration_number="KA07AN01")
+        now = timezone.now()
+
+        def booking(center, status_, hours=None):
+            b = ServiceBooking.objects.create(customer=customer, vehicle=vehicle, service_center=center, pickup_address="x", status=status_)
+            if hours is not None:
+                b.completed_at = b.created_at + timedelta(hours=hours)
+                b.save()
+            return b
+
+        done1 = booking(self.center, BookingStatus.COMPLETED, hours=10)
+        booking(self.center, BookingStatus.COMPLETED, hours=30)
+        booking(self.center, BookingStatus.CANCELLED)
+        booking(other_center, BookingStatus.COMPLETED, hours=99)  # must not leak into AN Hub's numbers
+
+        Invoice.objects.create(booking=done1, grand_total=1180, payment_status="PAID", issued_at=now)
+        for title, st in [("Brake pads", "APPROVED"), ("brake  PADS", "REJECTED"), ("Wiper blades", "APPROVED")]:
+            RepairRequest.objects.create(booking=done1, mechanic=mech, issue_title=title, description="d", additional_cost=1000, status=st)
+        ServiceReview.objects.create(booking=done1, customer=customer, service_center=self.center, center_rating=4, comment="Good")
+
+    def test_manager_sees_own_center_numbers(self):
+        self.client.force_authenticate(user=self.manager)
+        data = self.client.get("/api/service-center/analytics/").data
+        self.assertEqual(data["scope"], "AN Hub")
+        self.assertEqual((data["totals"]["bookings"], data["totals"]["completed"], data["totals"]["cancelled"]), (3, 2, 1))
+        self.assertEqual(data["totals"]["revenue_paid"], 1180.0)
+        self.assertEqual(data["turnaround_hours"], {"count": 2, "average": 20.0, "median": 20.0})
+        self.assertEqual(data["repairs"]["top"][0], {"title": "Brake pads", "count": 2, "average_cost": 1000.0})
+        self.assertAlmostEqual(data["repairs"]["approval_rate"], 66.7)
+        self.assertEqual(data["ratings"]["average"], 4.0)
+        self.assertEqual(len(data["monthly"]), 6)
+        self.assertEqual(data["monthly"][-1]["bookings"], 3)
+        self.assertEqual(data["monthly"][-1]["revenue"], 1180.0)
+
+    def test_customers_cannot_read_analytics(self):
+        customer = User.objects.get(username="an_c")
+        self.client.force_authenticate(user=customer)
+        self.assertEqual(self.client.get("/api/service-center/analytics/").status_code, 403)

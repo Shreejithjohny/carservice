@@ -41,6 +41,7 @@ urlpatterns = [
     # Phase 6 Service Center Manager Endpoints
     path("service-center/bookings/", views.service_center_bookings_list, name="sc_bookings_list"),
     path("service-center/bookings/<str:pk>/", views.service_center_booking_update, name="sc_booking_update"),
+    path("service-center/analytics/", views.service_center_analytics, name="sc_analytics"),
     path("service-center/employees/", views.service_center_employees_list, name="sc_employees_list"),
 
     # Phase 7 Driver / Valet Endpoints

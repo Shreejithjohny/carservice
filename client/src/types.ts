@@ -173,6 +173,27 @@ export interface ServiceDue {
   reasons: string[];
 }
 
+export interface CenterAnalytics {
+  scope: string;
+  monthly: { month: string; label: string; bookings: number; completed: number; revenue: number }[];
+  totals: { bookings: number; completed: number; cancelled: number; revenue_paid: number; outstanding: number };
+  turnaround_hours: { count: number; average: number | null; median: number | null };
+  repairs: {
+    approved: number;
+    rejected: number;
+    pending: number;
+    approval_rate: number | null;
+    top: { title: string; count: number; average_cost: number }[];
+  };
+  ratings: {
+    count: number;
+    average: number | null;
+    distribution: { stars: number; count: number }[];
+    recent: { rating: number; comment: string; created_at: string }[];
+  };
+  status_breakdown: { status: string; count: number }[];
+}
+
 export interface InvoiceItem {
   id?: number;
   description: string;

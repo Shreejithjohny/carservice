@@ -72,6 +72,7 @@ from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
 from .plate_service import LIKELY, MATCH, check_plate
 from .reminder_service import service_due
+from .analytics_service import center_analytics
 from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
@@ -1135,6 +1136,31 @@ def service_center_booking_update(request, pk):
 
     booking.save()
     return Response(ServiceBookingSerializer(booking).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def service_center_analytics(request):
+    """
+    GET /api/service-center/analytics/?months=6
+    Managers see their own center; admins see every center, or one with ?center=<id>.
+    """
+    error = manager_scope_error(request.user)
+    if error:
+        return error
+    try:
+        months = min(24, max(1, int(request.query_params.get("months", 6))))
+    except ValueError:
+        months = 6
+
+    if is_admin(request.user):
+        center_id = request.query_params.get("center")
+        center = ServiceCenter.objects.filter(pk=center_id).first() if center_id else None
+        if center_id and not center:
+            return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
+    else:
+        center = manager_center(request.user)
+    return Response(center_analytics(center, months))
 
 
 @api_view(["GET"])

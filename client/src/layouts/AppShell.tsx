@@ -15,6 +15,7 @@ import {
   Building2,
   ClipboardCheck,
   Receipt,
+  BarChart3,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
@@ -35,6 +36,7 @@ const customer = [
 const admin = [
   { to: "/admin", label: "Overview", icon: LayoutGrid, end: true },
   { to: "/admin/catalog", label: "Car Catalog", icon: Layers },
+  { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/admin/bookings", label: "Bookings", icon: Gauge },
   { to: "/admin/invoices", label: "Invoices", icon: Receipt },
 ];
@@ -42,6 +44,7 @@ const admin = [
 const manager = [
   { to: "/service-center", label: "Center Dashboard", icon: Building2, end: true },
   { to: "/service-center/bookings", label: "Manage Bookings", icon: Gauge },
+  { to: "/service-center/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/service-center/invoices", label: "Invoices", icon: Receipt },
 ];
 
