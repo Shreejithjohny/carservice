@@ -16,6 +16,7 @@ from .models import (
     DriverLocation,
     ServiceInspection,
     RepairEvidence,
+    VehicleConditionPhoto,
     RepairRequest,
     Invoice,
     InvoiceItem,
@@ -134,6 +135,12 @@ class ServiceInspectionAdmin(admin.ModelAdmin):
 @admin.register(RepairEvidence)
 class RepairEvidenceAdmin(admin.ModelAdmin):
     list_display = ["booking", "mechanic", "issue_title", "media_type", "created_at"]
+
+
+@admin.register(VehicleConditionPhoto)
+class VehicleConditionPhotoAdmin(admin.ModelAdmin):
+    list_display = ["booking", "stage", "angle", "uploaded_by", "created_at"]
+    list_filter = ["stage", "angle"]
 
 
 @admin.register(RepairRequest)

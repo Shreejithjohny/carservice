@@ -1673,3 +1673,73 @@ class ReturnDeliveryTests(TestCase):
         res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": self.job.delivery_otp})
         self.assertEqual(res.status_code, 400)
         self.assertIn("Maximum", res.data["error"])
+
+
+class ConditionReportTests(TestCase):
+    def setUp(self):
+        import tempfile
+
+        self.media_dir = tempfile.mkdtemp()
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="cr_cust", email="cr_cust@example.com", role=UserRole.CUSTOMER)
+        self.stranger = User.objects.create_user(username="cr_x", email="cr_x@example.com", role=UserRole.CUSTOMER)
+        self.drv = User.objects.create_user(username="cr_drv", email="cr_drv@example.com", role=UserRole.DRIVER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Honda", model="City", registration_number="KA03CR01")
+        center = ServiceCenter.objects.create(name="CR Hub", address="Whitefield", phone="+918000000010", email="cr@example.com")
+        self.job = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, service_center=center, pickup_address="Whitefield",
+            status="Arrived at Pickup",
+            assigned_driver=self.drv,
+        )
+        self.base = f"/api/driver/pickups/{self.job.id}"
+
+    def photo(self, angle="FRONT", content_type="image/jpeg"):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), "blue").save(buf, format="JPEG")
+        self.client.force_authenticate(user=self.drv)
+        with self.settings(MEDIA_ROOT=self.media_dir):
+            return self.client.post(
+                f"{self.base}/condition-photos/",
+                {"angle": angle, "file": SimpleUploadedFile("x.jpg", buf.getvalue(), content_type)},
+                format="multipart",
+            )
+
+    def odometer(self, km):
+        self.client.force_authenticate(user=self.drv)
+        return self.client.post(f"{self.base}/odometer/", {"reading_km": km}, format="json")
+
+    def test_before_and_after_photos_and_km_driven(self):
+        self.assertEqual(self.photo("FRONT").status_code, 201)
+        self.assertEqual(self.odometer(40210).status_code, 200)
+        # While the car is at the workshop no condition photos are taken
+        ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.IN_SERVICE)
+        self.assertEqual(self.photo("REAR").status_code, 400)
+        ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.OUT_FOR_DELIVERY)
+        self.assertEqual(self.photo("FRONT").status_code, 201)
+        res = self.odometer(40190)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("lower than the pickup", res.data["error"])
+        self.assertEqual(self.odometer(40236).status_code, 200)
+
+        self.client.force_authenticate(user=self.customer)
+        report = self.client.get(f"/api/bookings/{self.job.id}/condition-report/").data
+        self.assertEqual(len(report["pickup_photos"]), 1)
+        self.assertEqual(len(report["delivery_photos"]), 1)
+        self.assertEqual(report["km_driven"], 26)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.odometer_km, 40236)
+
+    def test_non_image_is_rejected(self):
+        res = self.photo(content_type="application/pdf")
+        self.assertEqual(res.status_code, 400)
+
+    def test_report_is_private(self):
+        self.client.force_authenticate(user=self.stranger)
+        self.assertEqual(self.client.get(f"/api/bookings/{self.job.id}/condition-report/").status_code, 403)
+        other_driver = User.objects.create_user(username="cr_d2", email="cr_d2@example.com", role=UserRole.DRIVER)
+        self.client.force_authenticate(user=other_driver)
+        self.assertEqual(self.client.post(f"{self.base}/odometer/", {"reading_km": 5}, format="json").status_code, 403)

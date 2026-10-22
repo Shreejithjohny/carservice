@@ -4,6 +4,7 @@ import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
 import { Skeleton, Empty } from "../components/States";
 import { CarFront, Navigation, KeyRound, CheckCircle2, ShieldCheck, ExternalLink, Truck } from "lucide-react";
+import { ConditionCapture } from "../components/ConditionCapture";
 import type { Booking } from "../types";
 
 // Matches the backend: drivers act only during the pickup stage of their assigned jobs.
@@ -287,6 +288,9 @@ export function DriverDashboard() {
               {PICKUP_STAGE.includes(b.status) ? (
                 <>
                   {gpsToggle}
+
+                  <ConditionCapture bookingId={bId} stage="PICKUP" />
+
                   {/* Workflow Step Actions */}
                   <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                     <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
@@ -327,6 +331,7 @@ export function DriverDashboard() {
               ) : b.status === "Out for Delivery" ? (
                 <>
                   {gpsToggle}
+                  <ConditionCapture bookingId={bId} stage="DELIVERY" />
                   <button
                     onClick={() => handleRequestOtp(b, "delivery")}
                     className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#ff4d2e] py-3 text-sm font-bold text-white hover:bg-[#e03e21]"

@@ -161,6 +161,8 @@ class Vehicle(models.Model):
     )
     registration_number = models.CharField(max_length=20, unique=True)
     color = models.CharField(max_length=30, blank=True, default="")
+    # Latest odometer reading we know of (from the customer or a driver's pickup/delivery reading).
+    odometer_km = models.PositiveIntegerField(null=True, blank=True)
     image = models.ImageField(upload_to="vehicle_images/", null=True, blank=True)
     image_url = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -350,6 +352,9 @@ class ServiceBooking(models.Model):
     delivery_otp_attempts = models.PositiveIntegerField(default=0)
     delivered_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # Odometer readings taken by the driver, so the customer can see how far the car was driven.
+    pickup_odometer_km = models.PositiveIntegerField(null=True, blank=True)
+    delivery_odometer_km = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -476,6 +481,41 @@ class RepairEvidence(models.Model):
 
     def __str__(self):
         return f"Evidence {self.issue_title} for {self.booking.booking_reference}"
+
+
+class VehicleConditionPhoto(models.Model):
+    """Photos the driver takes at pickup and again at delivery, so any new damage is visible."""
+
+    class Stage(models.TextChoices):
+        PICKUP = "PICKUP", _("Pickup")
+        DELIVERY = "DELIVERY", _("Delivery")
+
+    class Angle(models.TextChoices):
+        FRONT = "FRONT", _("Front")
+        REAR = "REAR", _("Rear")
+        LEFT = "LEFT", _("Left side")
+        RIGHT = "RIGHT", _("Right side")
+        INTERIOR = "INTERIOR", _("Interior")
+        ODOMETER = "ODOMETER", _("Odometer")
+        OTHER = "OTHER", _("Other / close-up")
+
+    booking = models.ForeignKey(
+        ServiceBooking, on_delete=models.CASCADE, related_name="condition_photos"
+    )
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="condition_photos"
+    )
+    stage = models.CharField(max_length=10, choices=Stage.choices)
+    angle = models.CharField(max_length=10, choices=Angle.choices, default=Angle.OTHER)
+    file = models.FileField(upload_to="condition_photos/")
+    notes = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.stage} {self.angle} photo for {self.booking.booking_reference}"
 
 
 class RepairRequestStatus(models.TextChoices):

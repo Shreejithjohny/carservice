@@ -63,6 +63,7 @@ export interface Vehicle {
   registration_number: string;
   registration?: string;
   color?: string;
+  odometer_km?: number | null;
   image?: string;
   image_url?: string;
   created_at?: string;
@@ -114,6 +115,11 @@ export interface Booking {
   assigned_mechanic_details?: User | null;
   handover_otp?: string | null;
   handover_otp_verified?: boolean;
+  delivery_otp_verified?: boolean;
+  delivered_at?: string | null;
+  completed_at?: string | null;
+  pickup_odometer_km?: number | null;
+  delivery_odometer_km?: number | null;
   pickup_address?: string;
   pickup_latitude?: number | null;
   pickup_longitude?: number | null;
@@ -130,6 +136,23 @@ export interface Booking {
   pickupAt?: string;
 }
 
+export interface ConditionPhoto {
+  id: number;
+  stage: "PICKUP" | "DELIVERY";
+  angle: string;
+  file: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface ConditionReport {
+  booking: number;
+  pickup_photos: ConditionPhoto[];
+  delivery_photos: ConditionPhoto[];
+  pickup_odometer_km: number | null;
+  delivery_odometer_km: number | null;
+  km_driven: number | null;
+}
 
 export interface InvoiceItem {
   id?: number;

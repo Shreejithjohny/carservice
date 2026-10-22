@@ -7,6 +7,7 @@ import { useToast } from "../hooks/useToast";
 import { Empty, Skeleton } from "../components/States";
 import type { Booking } from "../types";
 import { LiveTrackingMap, type RoutePoint } from "../components/LiveTrackingMap";
+import { ConditionReportView } from "../components/ConditionReportView";
 
 const STEPS = [
   "Booking Created",
@@ -266,6 +267,8 @@ export function Track() {
           )}
         </div>
       </div>
+
+      {bookingId && <ConditionReportView key={String(bookingId)} bookingId={bookingId} />}
 
       {/* Visual Timeline Tracker */}
       <div className="glass rounded-3xl p-6">

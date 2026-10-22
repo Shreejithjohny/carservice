@@ -26,6 +26,7 @@ from .models import (
     RepairEvidence,
     RepairRequest,
     RepairRequestStatus,
+    VehicleConditionPhoto,
     Invoice,
     InvoiceItem,
     InvoiceStatus,
@@ -50,6 +51,7 @@ from .serializers import (
     ServiceInspectionSerializer,
     RepairEvidenceSerializer,
     RepairRequestSerializer,
+    VehicleConditionPhotoSerializer,
     RepairCostEstimateInputSerializer,
     RepairCostEstimateSerializer,
     InvoiceItemSerializer,
@@ -235,6 +237,31 @@ def complete_booking(booking):
         recalculate_car_health_score(booking.vehicle)
     except Exception:
         pass
+
+
+def find_booking(pk):
+    """Looks a booking up by its numeric id or its reference (e.g. SDV-2026-000001)."""
+    if str(pk).isdigit():
+        return ServiceBooking.objects.filter(pk=pk).first()
+    return ServiceBooking.objects.filter(Q(booking_reference=pk) | Q(booking_id=pk)).first()
+
+
+def can_view_booking(user, booking):
+    """The customer, an admin, the assigned driver or mechanic, or the manager of the booking's center."""
+    if booking.customer_id == user.id or is_admin(user):
+        return True
+    if user.id in (booking.assigned_driver_id, booking.assigned_mechanic_id):
+        return True
+    return manager_scope_error(user, booking) is None
+
+
+def condition_stage(booking):
+    """Which set of condition photos the driver is taking right now, or None outside those stages."""
+    if booking.status in PICKUP_STAGE_STATUSES:
+        return VehicleConditionPhoto.Stage.PICKUP
+    if booking.status == BookingStatus.OUT_FOR_DELIVERY:
+        return VehicleConditionPhoto.Stage.DELIVERY
+    return None
 
 
 def repair_response_error(repair_req):
@@ -1322,6 +1349,104 @@ def driver_verify_delivery_otp(request, pk):
     return Response({
         "message": "Delivery OTP verified. The vehicle is handed back and the booking is completed.",
         "booking": ServiceBookingSerializer(booking).data,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_upload_condition_photo(request, pk):
+    """
+    POST /api/driver/pickups/<id>/condition-photos/  (multipart: file, angle, notes)
+    Photos taken before pickup are the "before" set; photos taken at delivery are the "after" set.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES | {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    serializer = VehicleConditionPhotoSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    photo = serializer.save(booking=booking, uploaded_by=request.user, stage=condition_stage(booking))
+    return Response(VehicleConditionPhotoSerializer(photo).data, status=status.HTTP_201_CREATED)
+
+
+MAX_ODOMETER_KM = 2_000_000
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_record_odometer(request, pk):
+    """
+    POST /api/driver/pickups/<id>/odometer/  {"reading_km": 45210}
+    Recorded at pickup and again at delivery; the difference is the distance driven while we had the car.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES | {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    try:
+        reading = int(request.data.get("reading_km"))
+    except (TypeError, ValueError):
+        return Response({"error": "Enter the odometer reading in whole kilometres."}, status=status.HTTP_400_BAD_REQUEST)
+    if not 0 <= reading <= MAX_ODOMETER_KM:
+        return Response({"error": "That odometer reading is out of range."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if condition_stage(booking) == VehicleConditionPhoto.Stage.PICKUP:
+        booking.pickup_odometer_km = reading
+    else:
+        if booking.pickup_odometer_km is not None and reading < booking.pickup_odometer_km:
+            return Response(
+                {"error": f"The delivery reading cannot be lower than the pickup reading ({booking.pickup_odometer_km} km)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        booking.delivery_odometer_km = reading
+    booking.save()
+
+    vehicle = booking.vehicle
+    if vehicle.odometer_km is None or reading > vehicle.odometer_km:
+        vehicle.odometer_km = reading
+        vehicle.save(update_fields=["odometer_km", "updated_at"])
+    return Response(ServiceBookingSerializer(booking).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def booking_condition_report(request, pk):
+    """
+    GET /api/bookings/<id>/condition-report/
+    Before (pickup) and after (delivery) photos and odometer readings for one booking.
+    """
+    booking = find_booking(pk)
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+    if not can_view_booking(request.user, booking):
+        return Response({"error": "You do not have permission to view this booking."}, status=status.HTTP_403_FORBIDDEN)
+
+    photos = booking.condition_photos.all()
+    km_driven = None
+    if booking.pickup_odometer_km is not None and booking.delivery_odometer_km is not None:
+        km_driven = booking.delivery_odometer_km - booking.pickup_odometer_km
+    return Response({
+        "booking": booking.id,
+        "pickup_photos": VehicleConditionPhotoSerializer(photos.filter(stage=VehicleConditionPhoto.Stage.PICKUP), many=True).data,
+        "delivery_photos": VehicleConditionPhotoSerializer(photos.filter(stage=VehicleConditionPhoto.Stage.DELIVERY), many=True).data,
+        "pickup_odometer_km": booking.pickup_odometer_km,
+        "delivery_odometer_km": booking.delivery_odometer_km,
+        "km_driven": km_driven,
     })
 
 

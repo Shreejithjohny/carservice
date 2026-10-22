@@ -49,6 +49,8 @@ urlpatterns = [
     path("driver/pickups/<int:pk>/handover-otp/verify/", views.driver_verify_handover_otp, name="driver_verify_handover_otp"),
     path("driver/pickups/<int:pk>/delivery-otp/request/", views.driver_request_delivery_otp, name="driver_request_delivery_otp"),
     path("driver/pickups/<int:pk>/delivery-otp/verify/", views.driver_verify_delivery_otp, name="driver_verify_delivery_otp"),
+    path("driver/pickups/<int:pk>/condition-photos/", views.driver_upload_condition_photo, name="driver_upload_condition_photo"),
+    path("driver/pickups/<int:pk>/odometer/", views.driver_record_odometer, name="driver_record_odometer"),
     path("driver/pickups/<int:pk>/location/", views.driver_post_location, name="driver_post_location"),
 
     # Phase 8 Mechanic & Repair Endpoints
@@ -59,6 +61,7 @@ urlpatterns = [
     path("repair-requests/", views.create_repair_request, name="create_repair_request"),
 
     # Customer Tracking & Approvals
+    path("bookings/<str:pk>/condition-report/", views.booking_condition_report, name="booking_condition_report"),
     path("bookings/<str:pk>/tracking/", views.customer_booking_tracking_detail, name="customer_booking_tracking_detail"),
     path("repair-requests/<int:pk>/approve/", views.customer_approve_repair_request, name="customer_approve_repair_request"),
     path("repair-requests/<int:pk>/reject/", views.customer_reject_repair_request, name="customer_reject_repair_request"),

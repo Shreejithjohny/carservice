@@ -16,6 +16,7 @@ from .models import (
     ServiceInspection,
     RepairEvidence,
     RepairRequest,
+    VehicleConditionPhoto,
     Invoice,
     InvoiceItem,
     Payment,
@@ -151,6 +152,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             "fuel_type",
             "registration_number",
             "color",
+            "odometer_km",
             "image",
             "image_url",
             "created_at",
@@ -247,6 +249,8 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "delivery_otp_verified",
             "delivered_at",
             "completed_at",
+            "pickup_odometer_km",
+            "delivery_odometer_km",
             "created_at",
             "updated_at",
         ]
@@ -259,6 +263,8 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "delivery_otp_verified",
             "delivered_at",
             "completed_at",
+            "pickup_odometer_km",
+            "delivery_odometer_km",
             "created_at",
             "updated_at",
         ]
@@ -389,6 +395,30 @@ class RepairEvidenceSerializer(serializers.ModelSerializer):
         elif not url.startswith(("https://", "http://")):
             raise serializers.ValidationError({"file_url": "Enter a full http(s) link to the media."})
         return attrs
+
+
+MAX_CONDITION_PHOTO_BYTES = 10 * 1024 * 1024
+PHOTO_CONTENT_TYPES = {k for k, v in EVIDENCE_CONTENT_TYPES.items() if v == "PHOTO"}
+
+
+class VehicleConditionPhotoSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source="uploaded_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = VehicleConditionPhoto
+        fields = ["id", "booking", "uploaded_by", "uploaded_by_name", "stage", "angle", "file", "notes", "created_at"]
+        read_only_fields = ["id", "booking", "uploaded_by", "stage", "created_at"]
+
+    def validate_file(self, upload):
+        content_type = getattr(upload, "content_type", "") or ""
+        if content_type not in PHOTO_CONTENT_TYPES:
+            raise serializers.ValidationError("Upload a JPEG, PNG or WebP photo.")
+        if upload.size > MAX_CONDITION_PHOTO_BYTES:
+            raise serializers.ValidationError("Photo is too large (max 10 MB).")
+        if not _evidence_content_matches(upload, content_type):
+            raise serializers.ValidationError("The file content does not match its type.")
+        upload.name = f"{uuid.uuid4().hex}{EVIDENCE_EXTENSIONS[content_type]}"
+        return upload
 
 
 class RepairRequestSerializer(serializers.ModelSerializer):
