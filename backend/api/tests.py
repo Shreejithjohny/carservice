@@ -1599,3 +1599,77 @@ class BookingSlotTests(TestCase):
         self.assertEqual(res.status_code, 400)
         res = self.client.patch(f"/api/bookings/{mine['id']}/", {"preferred_time": "14:00:00"}, format="json")
         self.assertEqual(res.status_code, 200)
+
+
+@override_settings(OTP_BYPASS=False)
+class ReturnDeliveryTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="rd_cust", email="rd_cust@example.com", role=UserRole.CUSTOMER)
+        self.drv = User.objects.create_user(username="rd_drv", email="rd_drv@example.com", role=UserRole.DRIVER)
+        self.other = User.objects.create_user(username="rd_other", email="rd_other@example.com", role=UserRole.DRIVER)
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Kia", model="Seltos", registration_number="KA02RD01")
+        st = ServiceType.objects.create(name="RD Service", base_price=2000)
+        center = ServiceCenter.objects.create(name="RD Hub", address="HSR", phone="+918000000009", email="rd@example.com")
+        self.job = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=st, service_center=center,
+            pickup_address="HSR Layout", status=BookingStatus.READY_FOR_DELIVERY, assigned_driver=self.drv,
+        )
+        self.base = f"/api/driver/pickups/{self.job.id}"
+
+    def post(self, user, path, body=None):
+        self.client.force_authenticate(user=user)
+        return self.client.post(f"{self.base}/{path}", body or {}, format="json")
+
+    def test_full_return_delivery_completes_and_invoices(self):
+        # Delivery code only exists once the driver is on the way
+        self.assertEqual(self.post(self.drv, "delivery-otp/request/").status_code, 400)
+        self.assertEqual(self.post(self.drv, "status/", {"status": "Out for Delivery"}).status_code, 200)
+        self.assertEqual(self.post(self.drv, "location/", {"latitude": 12.91, "longitude": 77.64}).status_code, 201)
+        self.assertEqual(self.post(self.drv, "delivery-otp/request/").status_code, 200)
+        self.job.refresh_from_db()
+
+        # The customer sees the code on their tracking page
+        self.client.force_authenticate(user=self.customer)
+        tracking = self.client.get(f"/api/bookings/{self.job.id}/tracking/").data
+        self.assertEqual(tracking["delivery_otp_code"], self.job.delivery_otp)
+
+        wrong = "000000" if self.job.delivery_otp != "000000" else "111111"
+        res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": wrong})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("4 attempt(s) remaining", res.data["error"])
+        res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": self.job.delivery_otp})
+        self.assertEqual(res.status_code, 200)
+
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, BookingStatus.COMPLETED)
+        self.assertTrue(self.job.delivery_otp_verified)
+        self.assertIsNotNone(self.job.delivered_at)
+        self.assertIsNotNone(self.job.completed_at)
+        self.assertTrue(Invoice.objects.filter(booking=self.job).exists())
+        self.assertTrue(Notification.objects.filter(user=self.customer, notification_type="DELIVERY_COMPLETED").exists())
+        # Code no longer shown once used
+        self.client.force_authenticate(user=self.customer)
+        self.assertIsNone(self.client.get(f"/api/bookings/{self.job.id}/tracking/").data["delivery_otp_code"])
+
+    def test_other_driver_and_wrong_stage_are_refused(self):
+        self.assertEqual(self.post(self.other, "status/", {"status": "Out for Delivery"}).status_code, 403)
+        # Out for Delivery only follows Ready for Delivery
+        self.job.status = BookingStatus.IN_SERVICE
+        self.job.save()
+        self.assertEqual(self.post(self.drv, "status/", {"status": "Out for Delivery"}).status_code, 400)
+        # Pickup moves are not allowed during the return trip
+        self.job.status = BookingStatus.READY_FOR_DELIVERY
+        self.job.save()
+        self.assertEqual(self.post(self.drv, "status/", {"status": "En Route for Pickup"}).status_code, 400)
+
+    def test_delivery_code_locks_after_five_wrong_tries(self):
+        self.post(self.drv, "status/", {"status": "Out for Delivery"})
+        self.post(self.drv, "delivery-otp/request/")
+        self.job.refresh_from_db()
+        wrong = "000000" if self.job.delivery_otp != "000000" else "111111"
+        for _ in range(5):
+            self.post(self.drv, "delivery-otp/verify/", {"otp_code": wrong})
+        res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": self.job.delivery_otp})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Maximum", res.data["error"])

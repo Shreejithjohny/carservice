@@ -47,6 +47,8 @@ urlpatterns = [
     path("driver/pickups/<int:pk>/status/", views.driver_pickup_status_update, name="driver_pickup_status_update"),
     path("driver/pickups/<int:pk>/handover-otp/request/", views.driver_request_handover_otp, name="driver_request_handover_otp"),
     path("driver/pickups/<int:pk>/handover-otp/verify/", views.driver_verify_handover_otp, name="driver_verify_handover_otp"),
+    path("driver/pickups/<int:pk>/delivery-otp/request/", views.driver_request_delivery_otp, name="driver_request_delivery_otp"),
+    path("driver/pickups/<int:pk>/delivery-otp/verify/", views.driver_verify_delivery_otp, name="driver_verify_delivery_otp"),
     path("driver/pickups/<int:pk>/location/", views.driver_post_location, name="driver_post_location"),
 
     # Phase 8 Mechanic & Repair Endpoints

@@ -14,6 +14,7 @@ const STATUS_TABS = [
   "Vehicle Picked Up",
   "In Service",
   "Ready for Delivery",
+  "Out for Delivery",
   "Completed",
   "Cancelled",
 ];
@@ -215,12 +216,20 @@ export function ServiceCenterDashboard() {
                     )}
 
                     {b.status === "Ready for Delivery" && (
-                      <button
-                        onClick={() => handleAssignAndStatus(b, "Completed")}
-                        className="rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-800"
-                      >
-                        Complete Order
-                      </button>
+                      <>
+                        <span className="self-center text-[11px] text-zinc-500">
+                          {b.assigned_driver ? "Driver notified for return delivery." : "Assign a driver for the return delivery."}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (window.confirm("Mark as collected at the center? Use this only if the customer picked up the car themselves."))
+                              handleAssignAndStatus(b, "Completed");
+                          }}
+                          className="rounded-xl border border-emerald-700 px-3.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                        >
+                          Collected at Center
+                        </button>
+                      </>
                     )}
                   </div>
 

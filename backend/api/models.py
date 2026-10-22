@@ -275,6 +275,7 @@ class BookingStatus(models.TextChoices):
     VEHICLE_PICKED_UP = "Vehicle Picked Up", _("Vehicle Picked Up")
     IN_SERVICE = "In Service", _("In Service")
     READY_FOR_DELIVERY = "Ready for Delivery", _("Ready for Delivery")
+    OUT_FOR_DELIVERY = "Out for Delivery", _("Out for Delivery")
     COMPLETED = "Completed", _("Completed")
     CANCELLED = "Cancelled", _("Cancelled")
 
@@ -342,6 +343,13 @@ class ServiceBooking(models.Model):
     handover_otp_verified = models.BooleanField(default=False)
     handover_otp_expires_at = models.DateTimeField(null=True, blank=True)
     handover_otp_attempts = models.PositiveIntegerField(default=0)
+    # Return trip: the customer gives this code to the driver when the car is handed back.
+    delivery_otp = models.CharField(max_length=6, blank=True, default="")
+    delivery_otp_verified = models.BooleanField(default=False)
+    delivery_otp_expires_at = models.DateTimeField(null=True, blank=True)
+    delivery_otp_attempts = models.PositiveIntegerField(default=0)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

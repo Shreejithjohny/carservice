@@ -131,8 +131,16 @@ MECHANIC_SETTABLE_STATUSES = {BookingStatus.IN_SERVICE, "Inspection", "Repair Ap
 PICKUP_STAGE_STATUSES = {
     BookingStatus.CONFIRMED, BookingStatus.PICKUP_SCHEDULED, "Driver Assigned", "En Route for Pickup", "Arrived at Pickup",
 }
-DRIVER_SETTABLE_STATUSES = {"En Route for Pickup", "Arrived at Pickup"}
-DRIVER_GPS_STATUSES = PICKUP_STAGE_STATUSES | {BookingStatus.VEHICLE_PICKED_UP}
+# Return trip: the car is ready at the workshop, then on its way back to the customer.
+DELIVERY_STAGE_STATUSES = {BookingStatus.READY_FOR_DELIVERY, BookingStatus.OUT_FOR_DELIVERY}
+# Status a driver may set -> the statuses the booking may be in at that moment.
+DRIVER_STATUS_MOVES = {
+    "En Route for Pickup": PICKUP_STAGE_STATUSES,
+    "Arrived at Pickup": PICKUP_STAGE_STATUSES,
+    BookingStatus.OUT_FOR_DELIVERY: {BookingStatus.READY_FOR_DELIVERY},
+}
+DRIVER_SETTABLE_STATUSES = set(DRIVER_STATUS_MOVES)
+DRIVER_GPS_STATUSES = PICKUP_STAGE_STATUSES | {BookingStatus.VEHICLE_PICKED_UP, BookingStatus.OUT_FOR_DELIVERY}
 
 
 def driver_job_error(user, booking, allowed_statuses):
@@ -144,6 +152,89 @@ def driver_job_error(user, booking, allowed_statuses):
     if booking.status not in allowed_statuses:
         return Response({"error": f"Not available while the booking is '{booking.status}'."}, status=status.HTTP_400_BAD_REQUEST)
     return None
+
+
+# The pickup handover and the return delivery each use their own one-time code, stored in
+# fields named handover_otp* and delivery_otp* on the booking.
+
+
+def issue_booking_otp(booking, kind):
+    code = generate_otp_code()
+    setattr(booking, f"{kind}_otp", code)
+    setattr(booking, f"{kind}_otp_verified", False)
+    setattr(booking, f"{kind}_otp_attempts", 0)
+    setattr(booking, f"{kind}_otp_expires_at", timezone.now() + timedelta(minutes=10))
+    booking.save()
+    resp_data = {"booking_reference": booking.booking_reference, "expires_in_minutes": 10}
+    if getattr(settings, "OTP_BYPASS", False):
+        resp_data["bypass_code"] = "123456"
+    return resp_data
+
+
+def booking_otp_error(booking, kind, otp_code):
+    """Checks the code the driver typed in. Returns an error Response, or None when it matches."""
+    if not otp_code:
+        return Response({"error": "OTP code is required."}, status=status.HTTP_400_BAD_REQUEST)
+    expected = getattr(booking, f"{kind}_otp")
+    bypass_active = getattr(settings, "OTP_BYPASS", False)
+    if bypass_active and (otp_code in ["123456", "000000", "999999"] or otp_code.lower() == "bypass" or otp_code == expected):
+        return None
+
+    attempts = getattr(booking, f"{kind}_otp_attempts")
+    if attempts >= 5:
+        return Response({"error": "Maximum OTP verification attempts exceeded. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
+    setattr(booking, f"{kind}_otp_attempts", attempts + 1)
+    booking.save()
+
+    expires_at = getattr(booking, f"{kind}_otp_expires_at")
+    if not expected:
+        return Response({"error": f"No {kind} OTP has been requested yet."}, status=status.HTTP_400_BAD_REQUEST)
+    if expires_at and timezone.now() > expires_at:
+        return Response({"error": f"OTP has expired. Please request a new {kind} OTP."}, status=status.HTTP_400_BAD_REQUEST)
+    if expected != otp_code:
+        remaining = 5 - (attempts + 1)
+        return Response({"error": f"Invalid {kind} OTP code. {remaining} attempt(s) remaining."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+def notify_ready_for_delivery(booking):
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.READY_FOR_DELIVERY,
+        title="Vehicle Ready for Delivery",
+        message=f"Servicing complete! Vehicle {booking.vehicle.registration_number} is ready for doorstep delivery.",
+    )
+    if booking.assigned_driver:
+        send_notification(
+            user=booking.assigned_driver,
+            booking=booking,
+            notification_type=NotificationType.READY_FOR_DELIVERY,
+            title="Return Delivery Ready",
+            message=f"Vehicle {booking.vehicle.registration_number} is ready to be delivered back to {booking.pickup_address}.",
+        )
+
+
+def complete_booking(booking):
+    """Closes a booking: records the time, notifies the customer, issues the invoice, updates car health."""
+    booking.status = BookingStatus.COMPLETED
+    booking.completed_at = booking.completed_at or timezone.now()
+    booking.save()
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.SERVICE_COMPLETED,
+        title="Service Completed Successfully",
+        message=f"All services and repairs for {booking.vehicle.registration_number} have been successfully finalized.",
+    )
+    try:
+        generate_invoice_for_booking(booking)
+    except InvoiceError:
+        pass  # e.g. already paid; completing the booking still succeeds
+    try:
+        recalculate_car_health_score(booking.vehicle)
+    except Exception:
+        pass
 
 
 def repair_response_error(repair_req):
@@ -974,29 +1065,10 @@ def service_center_booking_update(request, pk):
                 message="Your service booking has been accepted and confirmed by the service center.",
             )
         elif new_status == BookingStatus.READY_FOR_DELIVERY:
-            send_notification(
-                user=booking.customer,
-                booking=booking,
-                notification_type=NotificationType.READY_FOR_DELIVERY,
-                title=f"Vehicle Ready for Delivery",
-                message=f"Servicing complete! Vehicle {booking.vehicle.registration_number} is ready for doorstep delivery.",
-            )
+            notify_ready_for_delivery(booking)
         elif new_status == BookingStatus.COMPLETED:
-            send_notification(
-                user=booking.customer,
-                booking=booking,
-                notification_type=NotificationType.SERVICE_COMPLETED,
-                title=f"Service Completed Successfully",
-                message=f"All services and repairs for {booking.vehicle.registration_number} have been successfully finalized.",
-            )
-            try:
-                generate_invoice_for_booking(booking)
-            except InvoiceError:
-                pass  # e.g. already paid; completing the booking still succeeds
-            try:
-                recalculate_car_health_score(booking.vehicle)
-            except Exception:
-                pass
+            # e.g. the customer collected the car at the center instead of a doorstep delivery
+            complete_booking(booking)
 
     if assigned_driver_id:
         driver = User.objects.filter(pk=assigned_driver_id).first()
@@ -1098,21 +1170,35 @@ def driver_pickup_status_update(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES | DELIVERY_STAGE_STATUSES)
     if error:
         return error
 
     new_status = request.data.get("status")
     if not new_status:
         return Response({"error": "Status is required."}, status=status.HTTP_400_BAD_REQUEST)
-    if not is_admin(request.user) and new_status not in DRIVER_SETTABLE_STATUSES:
-        return Response(
-            {"error": f"Drivers cannot set status '{new_status}'. The handover OTP marks the vehicle picked up."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    if not is_admin(request.user):
+        if new_status not in DRIVER_SETTABLE_STATUSES:
+            return Response(
+                {"error": f"Drivers cannot set status '{new_status}'. The handover and delivery OTPs move the job on."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if booking.status not in DRIVER_STATUS_MOVES[new_status]:
+            return Response(
+                {"error": f"Cannot change to '{new_status}' while the booking is '{booking.status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     booking.status = new_status
     booking.save()
+    if new_status == BookingStatus.OUT_FOR_DELIVERY:
+        send_notification(
+            user=booking.customer,
+            booking=booking,
+            notification_type=NotificationType.READY_FOR_DELIVERY,
+            title="Your Car Is On Its Way Back",
+            message=f"Vehicle {booking.vehicle.registration_number} is out for delivery. Keep your delivery OTP ready.",
+        )
     return Response(ServiceBookingSerializer(booking).data)
 
 
@@ -1134,22 +1220,7 @@ def driver_request_handover_otp(request, pk):
     if error:
         return error
 
-    code = generate_otp_code()
-    booking.handover_otp = code
-    booking.handover_otp_verified = False
-    booking.handover_otp_attempts = 0
-    booking.handover_otp_expires_at = timezone.now() + timedelta(minutes=10)
-    booking.save()
-
-    resp_data = {
-        "message": "Handover OTP generated successfully.",
-        "booking_reference": booking.booking_reference,
-        "expires_in_minutes": 10,
-    }
-    if getattr(settings, "OTP_BYPASS", False):
-        resp_data["bypass_code"] = "123456"
-
-    return Response(resp_data)
+    return Response({"message": "Handover OTP generated successfully.", **issue_booking_otp(booking, "handover")})
 
 
 @api_view(["POST"])
@@ -1171,33 +1242,13 @@ def driver_verify_handover_otp(request, pk):
         return error
 
     otp_code = str(request.data.get("otp_code") or request.data.get("code") or "").strip()
-    if not otp_code:
-        return Response({"error": "OTP code is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-    bypass_active = getattr(settings, "OTP_BYPASS", False)
-    is_universal_bypass = bypass_active and (
-        otp_code in ["123456", "000000", "999999"] or otp_code.lower() == "bypass" or otp_code == booking.handover_otp
-    )
-
-    if not is_universal_bypass:
-        if booking.handover_otp_attempts >= 5:
-            return Response({"error": "Maximum OTP verification attempts exceeded. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
-
-        booking.handover_otp_attempts += 1
-
-        if booking.handover_otp_expires_at and timezone.now() > booking.handover_otp_expires_at:
-            booking.save()
-            return Response({"error": "OTP has expired. Please request a new handover OTP."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if booking.handover_otp != otp_code:
-            booking.save()
-            remaining = 5 - booking.handover_otp_attempts
-            return Response({"error": f"Invalid handover OTP code. {remaining} attempt(s) remaining."}, status=status.HTTP_400_BAD_REQUEST)
+    error = booking_otp_error(booking, "handover", otp_code)
+    if error:
+        return error
 
     booking.handover_otp_verified = True
     booking.status = BookingStatus.VEHICLE_PICKED_UP
     booking.save()
-
 
     send_notification(
         user=booking.customer,
@@ -1209,6 +1260,67 @@ def driver_verify_handover_otp(request, pk):
 
     return Response({
         "message": "Vehicle handover OTP verified successfully. Status updated to Vehicle Picked Up.",
+        "booking": ServiceBookingSerializer(booking).data,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_request_delivery_otp(request, pk):
+    """
+    POST /api/driver/pickups/<id>/delivery-otp/request/
+    Driver at the customer's door asks for the return-delivery code, which the customer sees in the app.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    return Response({"message": "Delivery OTP generated successfully.", **issue_booking_otp(booking, "delivery")})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_verify_delivery_otp(request, pk):
+    """
+    POST /api/driver/pickups/<id>/delivery-otp/verify/
+    Driver enters the customer's delivery code. A match hands the car back and completes the booking.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    otp_code = str(request.data.get("otp_code") or request.data.get("code") or "").strip()
+    error = booking_otp_error(booking, "delivery", otp_code)
+    if error:
+        return error
+
+    booking.delivery_otp_verified = True
+    booking.delivered_at = timezone.now()
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.DELIVERY_COMPLETED,
+        title="Vehicle Delivered",
+        message=f"Vehicle {booking.vehicle.registration_number} has been handed back to you. Thank you for choosing DoorStep!",
+    )
+    complete_booking(booking)
+
+    return Response({
+        "message": "Delivery OTP verified. The vehicle is handed back and the booking is completed.",
         "booking": ServiceBookingSerializer(booking).data,
     })
 
@@ -1303,6 +1415,8 @@ def mechanic_job_status_update(request, pk):
     booking.status = new_status
     booking.save()
 
+    if new_status == BookingStatus.READY_FOR_DELIVERY:
+        notify_ready_for_delivery(booking)
     if new_status == BookingStatus.IN_SERVICE:
         send_notification(
             user=booking.customer,
@@ -1445,6 +1559,9 @@ def customer_booking_tracking_detail(request, pk):
         "assigned_driver": UserSerializer(booking.assigned_driver).data if booking.assigned_driver else None,
         "assigned_mechanic": UserSerializer(booking.assigned_mechanic).data if booking.assigned_mechanic else None,
         "handover_otp_code": booking.handover_otp if booking.customer == request.user else None,
+        "delivery_otp_code": (
+            booking.delivery_otp if booking.customer == request.user and not booking.delivery_otp_verified else None
+        ),
         "inspections": ServiceInspectionSerializer(inspections, many=True).data,
         "evidence": RepairEvidenceSerializer(evidence_items, many=True).data,
         "repair_requests": RepairRequestSerializer(repair_requests, many=True).data,
@@ -1795,6 +1912,7 @@ def admin_dashboard_stats(request):
             BookingStatus.IN_SERVICE,
             "Repair Approval Required",
             BookingStatus.READY_FOR_DELIVERY,
+            BookingStatus.OUT_FOR_DELIVERY,
         ]
     ).count()
     completed_services = ServiceBooking.objects.filter(status=BookingStatus.COMPLETED).count()

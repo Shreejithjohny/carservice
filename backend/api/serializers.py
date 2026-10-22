@@ -244,6 +244,9 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "estimated_cost",
             "status",
             "handover_otp_verified",
+            "delivery_otp_verified",
+            "delivered_at",
+            "completed_at",
             "created_at",
             "updated_at",
         ]
@@ -253,6 +256,9 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "booking_id",
             "customer",
             "handover_otp_verified",
+            "delivery_otp_verified",
+            "delivered_at",
+            "completed_at",
             "created_at",
             "updated_at",
         ]

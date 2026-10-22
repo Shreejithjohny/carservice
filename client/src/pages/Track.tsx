@@ -17,6 +17,7 @@ const STEPS = [
   "In Service",
   "Repair Approval Required",
   "Ready for Delivery",
+  "Out for Delivery",
   "Completed",
 ];
 
@@ -69,7 +70,7 @@ export function Track() {
   const currentStatus = booking.status || "Pending";
   const isCancellable = ["Pending", "Confirmed", "PENDING", "CONFIRMED"].includes(currentStatus);
 
-  // Status mapping to 9 timeline steps
+  // Status mapping to the timeline steps
   let currentStepIdx = 0;
   if (currentStatus === "Pending") currentStepIdx = 0;
   else if (currentStatus === "Confirmed") currentStepIdx = 1;
@@ -79,11 +80,13 @@ export function Track() {
   else if (currentStatus === "In Service") currentStepIdx = 5;
   else if (currentStatus === "Repair Approval Required") currentStepIdx = 6;
   else if (currentStatus === "Ready for Delivery") currentStepIdx = 7;
-  else if (currentStatus === "Completed" || currentStatus === "Delivered") currentStepIdx = 8;
+  else if (currentStatus === "Out for Delivery") currentStepIdx = 8;
+  else if (currentStatus === "Completed" || currentStatus === "Delivered") currentStepIdx = 9;
 
   const driver = trackingData?.assigned_driver || booking.assigned_driver_details;
   const mechanic = trackingData?.assigned_mechanic || booking.assigned_mechanic_details;
   const otpCode = trackingData?.handover_otp_code || booking.handover_otp;
+  const deliveryOtp: string | null = trackingData?.delivery_otp_code ?? null;
   const pickupPoint: [number, number] | null =
     booking.pickup_latitude != null && booking.pickup_longitude != null
       ? [Number(booking.pickup_latitude), Number(booking.pickup_longitude)]
@@ -93,7 +96,7 @@ export function Track() {
       ? [Number(booking.service_center_details.latitude), Number(booking.service_center_details.longitude)]
       : null;
 
-  const isOnTheWay = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup"].includes(currentStatus);
+  const isOnTheWay = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"].includes(currentStatus);
 
   async function handleCancelBooking() {
     if (!isCancellable) return;
@@ -143,6 +146,15 @@ export function Track() {
           <span className="text-xs uppercase font-bold tracking-widest text-[#ff4d2e]">Share Handover OTP with Valet</span>
           <p className="font-mono text-4xl font-black tracking-[0.4em]">{otpCode}</p>
           <p className="text-xs text-zinc-400 dark:text-zinc-600">Provide this 6-digit code to your valet when handing over your car keys.</p>
+        </div>
+      )}
+
+      {/* Delivery OTP: the customer gives it to the driver when the car comes back */}
+      {deliveryOtp && currentStatus === "Out for Delivery" && (
+        <div className="rounded-3xl bg-emerald-700 p-6 text-center text-white space-y-2">
+          <span className="text-xs uppercase font-bold tracking-widest text-emerald-200">Share Delivery OTP when you receive your car</span>
+          <p className="font-mono text-4xl font-black tracking-[0.4em]">{deliveryOtp}</p>
+          <p className="text-xs text-emerald-100">Only share it after checking your car. Giving this code confirms the handover.</p>
         </div>
       )}
 
