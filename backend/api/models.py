@@ -355,6 +355,9 @@ class ServiceBooking(models.Model):
     # Odometer readings taken by the driver, so the customer can see how far the car was driven.
     pickup_odometer_km = models.PositiveIntegerField(null=True, blank=True)
     delivery_odometer_km = models.PositiveIntegerField(null=True, blank=True)
+    # Set when the driver's photo of the number plate matched the registration on the booking.
+    plate_verified = models.BooleanField(default=False)
+    plate_detected = models.CharField(max_length=20, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

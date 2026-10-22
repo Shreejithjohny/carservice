@@ -66,6 +66,7 @@ from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
+from .plate_service import LIKELY, MATCH, check_plate
 from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
@@ -1375,6 +1376,34 @@ def driver_upload_condition_photo(request, pk):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     photo = serializer.save(booking=booking, uploaded_by=request.user, stage=condition_stage(booking))
     return Response(VehicleConditionPhotoSerializer(photo).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_plate_check(request, pk):
+    """
+    POST /api/driver/pickups/<id>/plate-check/  {"ocr_text": "KA 01 AB 1234"}
+    The driver's phone reads the number plate (OCR in the browser); the server compares it with the
+    registration on the booking so the driver cannot pick up the wrong car.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    if error:
+        return error
+
+    ocr_text = str(request.data.get("ocr_text") or "")[:500]
+    outcome = check_plate(ocr_text, booking.vehicle.registration_number)
+    if outcome["result"] in (MATCH, LIKELY):
+        booking.plate_verified = True
+        booking.plate_detected = outcome["detected"][:20]
+        booking.save(update_fields=["plate_verified", "plate_detected", "updated_at"])
+    return Response({**outcome, "plate_verified": booking.plate_verified})
 
 
 MAX_ODOMETER_KM = 2_000_000

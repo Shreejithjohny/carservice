@@ -251,6 +251,8 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "completed_at",
             "pickup_odometer_km",
             "delivery_odometer_km",
+            "plate_verified",
+            "plate_detected",
             "created_at",
             "updated_at",
         ]
@@ -265,6 +267,8 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "completed_at",
             "pickup_odometer_km",
             "delivery_odometer_km",
+            "plate_verified",
+            "plate_detected",
             "created_at",
             "updated_at",
         ]

@@ -5,6 +5,7 @@ import { useToast } from "../hooks/useToast";
 import { Skeleton, Empty } from "../components/States";
 import { CarFront, Navigation, KeyRound, CheckCircle2, ShieldCheck, ExternalLink, Truck } from "lucide-react";
 import { ConditionCapture } from "../components/ConditionCapture";
+import { PlateScanner } from "../components/PlateScanner";
 import type { Booking } from "../types";
 
 // Matches the backend: drivers act only during the pickup stage of their assigned jobs.
@@ -288,6 +289,8 @@ export function DriverDashboard() {
               {PICKUP_STAGE.includes(b.status) ? (
                 <>
                   {gpsToggle}
+
+                  <PlateScanner bookingId={bId} verified={b.plate_verified} onVerified={reload} />
 
                   <ConditionCapture bookingId={bId} stage="PICKUP" />
 

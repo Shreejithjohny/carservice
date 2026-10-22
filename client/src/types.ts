@@ -120,6 +120,8 @@ export interface Booking {
   completed_at?: string | null;
   pickup_odometer_km?: number | null;
   delivery_odometer_km?: number | null;
+  plate_verified?: boolean;
+  plate_detected?: string;
   pickup_address?: string;
   pickup_latitude?: number | null;
   pickup_longitude?: number | null;

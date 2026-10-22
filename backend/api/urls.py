@@ -50,6 +50,7 @@ urlpatterns = [
     path("driver/pickups/<int:pk>/delivery-otp/request/", views.driver_request_delivery_otp, name="driver_request_delivery_otp"),
     path("driver/pickups/<int:pk>/delivery-otp/verify/", views.driver_verify_delivery_otp, name="driver_verify_delivery_otp"),
     path("driver/pickups/<int:pk>/condition-photos/", views.driver_upload_condition_photo, name="driver_upload_condition_photo"),
+    path("driver/pickups/<int:pk>/plate-check/", views.driver_plate_check, name="driver_plate_check"),
     path("driver/pickups/<int:pk>/odometer/", views.driver_record_odometer, name="driver_record_odometer"),
     path("driver/pickups/<int:pk>/location/", views.driver_post_location, name="driver_post_location"),
 

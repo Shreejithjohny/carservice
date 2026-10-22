@@ -1743,3 +1743,39 @@ class ConditionReportTests(TestCase):
         other_driver = User.objects.create_user(username="cr_d2", email="cr_d2@example.com", role=UserRole.DRIVER)
         self.client.force_authenticate(user=other_driver)
         self.assertEqual(self.client.post(f"{self.base}/odometer/", {"reading_km": 5}, format="json").status_code, 403)
+
+
+class PlateCheckTests(TestCase):
+    def test_matching_rules(self):
+        from api.plate_service import LIKELY, MATCH, MISMATCH, NO_TEXT, check_plate
+
+        self.assertEqual(check_plate("KA 01 AB 1234", "KA01AB1234")["result"], MATCH)
+        # OCR lookalikes: O for 0, I for 1, 8 for B
+        self.assertEqual(check_plate("KA O1 A8 I234", "KA01AB1234")["result"], MATCH)
+        # Plate text surrounded by other words, over two lines
+        self.assertEqual(check_plate("IND\nKA-01-AB-1234\nSHOWROOM", "KA01AB1234")["result"], MATCH)
+        # One unreadable character
+        self.assertEqual(check_plate("KA01AB12E4", "KA01AB1234")["result"], LIKELY)
+        self.assertEqual(check_plate("KA01AB234", "KA01AB1234")["result"], LIKELY)
+        # A different car
+        res = check_plate("MH12CD5678", "KA01AB1234")
+        self.assertEqual(res["result"], MISMATCH)
+        self.assertEqual(res["detected"], "MH12CD5678")
+        self.assertEqual(check_plate("  --  ", "KA01AB1234")["result"], NO_TEXT)
+        self.assertEqual(check_plate("22 BH 1234 AA", "22BH1234AA")["result"], MATCH)
+
+    def test_endpoint_marks_booking_verified(self):
+        client = APIClient()
+        customer = User.objects.create_user(username="pc_c", email="pc_c@example.com", role=UserRole.CUSTOMER)
+        drv = User.objects.create_user(username="pc_d", email="pc_d@example.com", role=UserRole.DRIVER)
+        vehicle = Vehicle.objects.create(customer=customer, brand="Maruti", model="Swift", registration_number="KA51MX4321")
+        job = ServiceBooking.objects.create(
+            customer=customer, vehicle=vehicle, pickup_address="Jayanagar", status="Arrived at Pickup", assigned_driver=drv,
+        )
+        client.force_authenticate(user=drv)
+        res = client.post(f"/api/driver/pickups/{job.id}/plate-check/", {"ocr_text": "TN09XY0001"}, format="json")
+        self.assertEqual((res.status_code, res.data["result"], res.data["plate_verified"]), (200, "MISMATCH", False))
+        res = client.post(f"/api/driver/pickups/{job.id}/plate-check/", {"ocr_text": "KA 51 MX 4321"}, format="json")
+        self.assertEqual((res.data["result"], res.data["plate_verified"]), ("MATCH", True))
+        job.refresh_from_db()
+        self.assertTrue(job.plate_verified)
