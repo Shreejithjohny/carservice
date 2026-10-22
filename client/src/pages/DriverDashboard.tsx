@@ -6,12 +6,17 @@ import { Skeleton, Empty } from "../components/States";
 import { CarFront, Navigation, KeyRound, CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
 import type { Booking } from "../types";
 
+// Matches the backend: drivers act only during the pickup stage of their assigned jobs.
+const PICKUP_STAGE = ["Confirmed", "Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup"];
+
 export function DriverDashboard() {
   const { data: pickups, loading, reload } = useApi<Booking[]>("/api/driver/pickups/");
   const { push } = useToast();
 
   const [otpModalBooking, setOtpModalBooking] = useState<Booking | null>(null);
   const [otpInput, setOtpInput] = useState("");
+  // Test code returned by the backend only when OTP_BYPASS (demo mode) is on
+  const [demoCode, setDemoCode] = useState<string | null>(null);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [gpsTrackingActive, setGpsTrackingActive] = useState<Record<string | number, boolean>>({});
 
@@ -73,28 +78,29 @@ export function DriverDashboard() {
   async function handleRequestOtp(booking: Booking) {
     const bId = booking.id || booking._id || booking.booking_reference;
     try {
-      const res = await api<{ message?: string; otp_code?: string; bypass_code?: string }>(
+      const res = await api<{ message?: string; bypass_code?: string }>(
         `/api/driver/pickups/${bId}/handover-otp/request/`,
         { method: "POST" }
       );
-      push({ title: "Handover OTP generated (Bypass code: 123456)" });
+      push({ title: "Handover OTP sent to the customer. Ask them for the 6-digit code." });
       setOtpModalBooking(booking);
-      setOtpInput(res.otp_code || res.bypass_code || "123456");
+      setOtpInput("");
+      setDemoCode(res.bypass_code ?? null);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Failed to request OTP";
       push({ title: msg, tone: "err" });
     }
   }
 
-  async function handleVerifyOtp() {
-    if (!otpModalBooking || !otpInput.trim()) return;
+  async function handleVerifyOtp(code: string = otpInput) {
+    if (!otpModalBooking || !code.trim()) return;
     const bId = otpModalBooking.id || otpModalBooking._id || otpModalBooking.booking_reference;
 
     setVerifyingOtp(true);
     try {
       await api(`/api/driver/pickups/${bId}/handover-otp/verify/`, {
         method: "POST",
-        body: JSON.stringify({ otp_code: otpInput.trim() }),
+        body: JSON.stringify({ otp_code: code.trim() }),
       });
       push({ title: "Vehicle handover OTP verified! Status: Vehicle Picked Up" });
       setOtpModalBooking(null);
@@ -109,18 +115,17 @@ export function DriverDashboard() {
   }
 
   const toggleGps = (bookingId: string | number) => {
-    setGpsTrackingActive((prev) => {
-      const next = !prev[bookingId];
-      if (next && "geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition((pos) => {
-          sendLocationUpdate(bookingId, pos.coords.latitude, pos.coords.longitude);
-        });
-        push({ title: "GPS location tracking enabled" });
-      } else {
-        push({ title: "GPS location tracking disabled" });
-      }
-      return { ...prev, [bookingId]: next };
-    });
+    // Side effects stay outside the state updater: React may run updaters twice in development.
+    const next = !gpsTrackingActive[bookingId];
+    setGpsTrackingActive((prev) => ({ ...prev, [bookingId]: next }));
+    if (next && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        sendLocationUpdate(bookingId, pos.coords.latitude, pos.coords.longitude);
+      });
+      push({ title: "GPS location tracking enabled" });
+    } else {
+      push({ title: "GPS location tracking disabled" });
+    }
   };
 
   if (loading) return <Skeleton className="h-96" />;
@@ -164,23 +169,22 @@ export function DriverDashboard() {
               </button>
               <button
                 disabled={verifyingOtp}
-                onClick={handleVerifyOtp}
+                onClick={() => handleVerifyOtp()}
                 className="w-full rounded-2xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {verifyingOtp ? "Verifying..." : "Verify & Pick Up"}
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setOtpInput("123456");
-                setTimeout(handleVerifyOtp, 50);
-              }}
-              className="w-full rounded-xl bg-zinc-100 dark:bg-zinc-800 py-2 text-[11px] font-bold text-zinc-600 dark:text-zinc-300 hover:bg-emerald-500 hover:text-white transition"
-            >
-              ⚡ Instant Bypass Handover (Code: 123456)
-            </button>
+            {demoCode && (
+              <button
+                type="button"
+                onClick={() => handleVerifyOtp(demoCode)}
+                className="w-full rounded-xl bg-zinc-100 dark:bg-zinc-800 py-2 text-[11px] font-bold text-zinc-600 dark:text-zinc-300 hover:bg-emerald-500 hover:text-white transition"
+              >
+                ⚡ Demo mode: use test code {demoCode}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -249,60 +253,68 @@ export function DriverDashboard() {
                 )}
               </div>
 
-              {/* GPS Tracking Toggle Control */}
-              <div className="flex items-center justify-between rounded-2xl border border-zinc-200 p-3 dark:border-zinc-700 text-xs">
-                <div className="flex items-center gap-2">
-                  <Navigation size={16} className={isTracking ? "text-emerald-500 animate-pulse" : "text-zinc-400"} />
-                  <div>
-                    <span className="font-bold block">Live GPS Location Sharing</span>
-                    <span className="text-[11px] text-zinc-500">
-                      {isTracking ? "Transmitting real-time GPS coordinates to customer map" : "GPS tracking inactive"}
-                    </span>
+              {PICKUP_STAGE.includes(b.status) ? (
+                <>
+                  {/* GPS Tracking Toggle Control */}
+                  <div className="flex items-center justify-between rounded-2xl border border-zinc-200 p-3 dark:border-zinc-700 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Navigation size={16} className={isTracking ? "text-emerald-500 animate-pulse" : "text-zinc-400"} />
+                      <div>
+                        <span className="font-bold block">Live GPS Location Sharing</span>
+                        <span className="text-[11px] text-zinc-500">
+                          {isTracking ? "Transmitting real-time GPS coordinates to customer map" : "GPS tracking inactive"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleGps(bId)}
+                      className={`rounded-xl px-3 py-1.5 font-bold transition ${
+                        isTracking
+                          ? "bg-emerald-600 text-white"
+                          : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {isTracking ? "Tracking Active" : "Enable GPS"}
+                    </button>
                   </div>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => toggleGps(bId)}
-                  className={`rounded-xl px-3 py-1.5 font-bold transition ${
-                    isTracking
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                  }`}
-                >
-                  {isTracking ? "Tracking Active" : "Enable GPS"}
-                </button>
-              </div>
+                  {/* Workflow Step Actions */}
+                  <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                      Pickup Workflow Stage Controls
+                    </span>
 
-              {/* Workflow Step Actions */}
-              <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                  Pickup Workflow Stage Controls
-                </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                      <button
+                        onClick={() => handleStatusUpdate(b, "En Route for Pickup")}
+                        className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
+                      >
+                        En Route
+                      </button>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  <button
-                    onClick={() => handleStatusUpdate(b, "En Route for Pickup")}
-                    className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
-                  >
-                    En Route
-                  </button>
+                      <button
+                        onClick={() => handleStatusUpdate(b, "Arrived at Pickup")}
+                        className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
+                      >
+                        Arrived at Location
+                      </button>
 
-                  <button
-                    onClick={() => handleStatusUpdate(b, "Arrived at Pickup")}
-                    className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
-                  >
-                    Arrived at Location
-                  </button>
-
-                  <button
-                    onClick={() => handleRequestOtp(b)}
-                    className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-[#ff4d2e] py-2 font-bold text-white hover:bg-[#e03e21]"
-                  >
-                    <KeyRound size={14} /> Handover OTP
-                  </button>
-                </div>
-              </div>
+                      <button
+                        onClick={() => handleRequestOtp(b)}
+                        className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-[#ff4d2e] py-2 font-bold text-white hover:bg-[#e03e21]"
+                      >
+                        <KeyRound size={14} /> Handover OTP
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="rounded-2xl bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-800/60">
+                  {b.handover_otp_verified ? "Vehicle handed over — pickup complete." : `No pickup actions while the booking is "${b.status}".`}
+                </p>
+              )}
             </div>
           );
         })}

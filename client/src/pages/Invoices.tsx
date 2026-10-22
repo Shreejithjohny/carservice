@@ -1,19 +1,39 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { Skeleton, Empty } from "../components/States";
-import { Receipt, Printer, X } from "lucide-react";
+import { Receipt, Printer, X, Wallet } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
+import { PaymentModal } from "../components/PaymentModal";
 import type { Invoice } from "../types";
 
+const STATUS_STYLES: Record<string, string> = {
+  PAID: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  FAILED: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+};
+
 export function Invoices() {
-  const { data: invoices, loading } = useApi<Invoice[]>("/api/invoices/");
+  const { user } = useAuth();
+  const { data: invoices, loading, reload } = useApi<Invoice[]>("/api/invoices/");
+  const { data: health } = useApi<{ payment_gateway?: string | null }>("/api/health-check/");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
 
-  if (loading) return <Skeleton className="h-80" />;
+  if (loading && !invoices) return <Skeleton className="h-80" />;
 
+  const gateway = health?.payment_gateway || "";
+  const canPay = (inv: Invoice) =>
+    !!gateway &&
+    user?.role.toLowerCase() === "customer" &&
+    String(inv.customer) === String(user.id) &&
+    inv.payment_status !== "PAID" &&
+    inv.invoice_status !== "CANCELLED";
+
+  // "PENDING" means unpaid, which includes invoices whose last payment attempt failed
   const filtered = (invoices || []).filter((inv) => {
     if (filterStatus === "ALL") return true;
-    return inv.payment_status === filterStatus || inv.invoice_status === filterStatus;
+    if (filterStatus === "PENDING") return inv.payment_status !== "PAID";
+    return inv.payment_status === filterStatus;
   });
 
   return (
@@ -63,9 +83,7 @@ export function Invoices() {
                 </div>
                 <span
                   className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                    inv.payment_status === "PAID"
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    STATUS_STYLES[inv.payment_status] || "bg-amber-500/10 text-amber-600 dark:text-amber-400"
                   }`}
                 >
                   {inv.payment_status}
@@ -76,6 +94,19 @@ export function Invoices() {
                 <span className="text-xs text-zinc-500">Grand Total</span>
                 <span className="text-xl font-black">₹{Number(inv.grand_total).toLocaleString("en-IN")}</span>
               </div>
+
+              {canPay(inv) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPayingInvoice(inv);
+                  }}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff4d2e] py-2.5 text-sm font-bold text-white hover:bg-[#e94529]"
+                >
+                  <Wallet size={16} /> {inv.payment_status === "FAILED" ? "Retry payment" : "Pay now"}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -88,6 +119,14 @@ export function Invoices() {
             <div className="flex items-center justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800 print:hidden">
               <span className="text-xs font-bold uppercase tracking-widest text-[#ff4d2e]">Official Tax Invoice</span>
               <div className="flex items-center gap-2">
+                {canPay(selectedInvoice) && (
+                  <button
+                    onClick={() => setPayingInvoice(selectedInvoice)}
+                    className="flex items-center gap-1.5 rounded-xl bg-[#ff4d2e] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#e94529]"
+                  >
+                    <Wallet className="h-3.5 w-3.5" /> Pay now
+                  </button>
+                )}
                 <button
                   onClick={() => window.print()}
                   className="flex items-center gap-1.5 rounded-xl bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
@@ -191,12 +230,42 @@ export function Invoices() {
                 </div>
               </div>
 
+              {selectedInvoice.payments?.some((p) => p.status === "SUCCESS") && (
+                <div className="rounded-2xl bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+                  {selectedInvoice.payments
+                    .filter((p) => p.status === "SUCCESS")
+                    .map((p) => (
+                      <p key={p.id}>
+                        <strong>Paid ₹{Number(p.amount).toLocaleString("en-IN")}</strong> via {p.method === "UPI" ? `UPI (${p.payer_reference})` : p.payer_reference} on{" "}
+                        {new Date(p.created_at).toLocaleString()} · Transaction <span className="font-mono">{p.transaction_id}</span>
+                        {p.provider === "MOCK" && " (test payment)"}
+                      </p>
+                    ))}
+                </div>
+              )}
+
               <div className="rounded-xl border border-zinc-200/80 bg-zinc-50 p-3 text-center text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/40">
                 This is an electronically generated service invoice. Thank you for choosing Smart Doorstep Vehicle Service.
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {payingInvoice && (
+        <PaymentModal
+          invoice={payingInvoice}
+          gateway={gateway}
+          onClose={() => {
+            setPayingInvoice(null);
+            reload();
+          }}
+          onPaid={(updated) => {
+            setPayingInvoice(null);
+            if (selectedInvoice?.id === updated.id) setSelectedInvoice(updated);
+            reload();
+          }}
+        />
       )}
     </div>
   );

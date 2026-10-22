@@ -1,9 +1,6 @@
-import { FormEvent, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Empty, Skeleton } from "../components/States";
 import { useApi } from "../hooks/useApi";
-import { api } from "../services/api";
-import { useToast } from "../hooks/useToast";
 import type { Booking, AdminStats } from "../types";
 
 export function AdminHome() {
@@ -36,7 +33,7 @@ export function AdminHome() {
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Stat label="Total Customers" value={stats.total_customers} />
         <Stat label="Total Vehicles" value={stats.total_vehicles} />
         <Stat label="Active Services" value={stats.active_services} />
@@ -44,7 +41,8 @@ export function AdminHome() {
         <Stat label="Service Centers" value={stats.service_centers} />
         <Stat label="Valets / Drivers" value={stats.total_drivers} />
         <Stat label="Service Mechanics" value={stats.total_mechanics} />
-        <Stat label="Total Platform Revenue" value={`₹${stats.total_revenue.toLocaleString("en-IN")}`} />
+        <Stat label="Revenue Collected (paid invoices)" value={`₹${stats.total_revenue.toLocaleString("en-IN")}`} />
+        <Stat label="Outstanding (unpaid invoices)" value={`₹${stats.outstanding_amount.toLocaleString("en-IN")}`} />
       </div>
 
       {/* Repair Approval Breakdown */}
@@ -113,104 +111,6 @@ function Stat({ label, value }: { label: string; value: string | number }) {
     <div className="glass rounded-3xl p-4">
       <p className="text-xs text-zinc-500">{label}</p>
       <p className="text-2xl font-extrabold">{value}</p>
-    </div>
-  );
-}
-
-export function AdminBookings() {
-  const { data, loading, reload } = useApi<Booking[]>("/api/bookings");
-  const { push } = useToast();
-  if (loading) return <Skeleton className="h-40" />;
-  if (!data?.length) return <Empty title="No bookings" />;
-  return (
-    <div className="space-y-3">
-      {data.map((b) => (
-        <div key={b._id} className="glass flex flex-wrap items-center justify-between gap-2 rounded-3xl p-4">
-          <div>
-            <p className="font-bold">{b.serviceType}</p>
-            <p className="text-sm text-zinc-500">{b.status}</p>
-          </div>
-          <select
-            className="rounded-2xl border border-zinc-200 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-            value={b.status}
-            onChange={async (e) => {
-              await api(`/api/bookings/${b._id}/status`, { method: "PATCH", body: JSON.stringify({ status: e.target.value }) });
-              push({ title: "Status updated" });
-              reload();
-            }}
-          >
-            {["Requested", "Driver Assigned", "OTP Verified", "Vehicle Picked Up", "In Service", "Waiting for Approval", "Repair Started", "Completed", "Out for Delivery", "Delivered"].map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function AdminVideo() {
-  const bookings = useApi<Booking[]>("/api/bookings");
-  const { push } = useToast();
-  const [bookingId, setBookingId] = useState("");
-  const [title, setTitle] = useState("Front brake pad replacement");
-  const [description, setDescription] = useState("Pads worn below safe limit.");
-  const [extraCost, setExtraCost] = useState(4200);
-  const [extraHours, setExtraHours] = useState(3);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    const id = bookingId || bookings.data?.[0]?._id;
-    if (!id) return;
-    await api("/api/approvals", {
-      method: "POST",
-      body: JSON.stringify({ bookingId: id, title, description, extraCost, extraHours }),
-    });
-    push({ title: "Video approval sent to customer" });
-  }
-
-  return (
-    <form className="glass max-w-xl space-y-3 rounded-3xl p-6" onSubmit={onSubmit}>
-      <select className="w-full rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={bookingId} onChange={(e) => setBookingId(e.target.value)}>
-        {bookings.data?.map((b) => <option key={b._id} value={b._id}>{b.serviceType} · {b.status}</option>)}
-      </select>
-      <input className="w-full rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <textarea className="w-full rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={description} onChange={(e) => setDescription(e.target.value)} />
-      <input type="number" className="w-full rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={extraCost} onChange={(e) => setExtraCost(Number(e.target.value))} />
-      <input type="number" className="w-full rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={extraHours} onChange={(e) => setExtraHours(Number(e.target.value))} />
-      <button className="rounded-2xl bg-[#ff4d2e] px-4 py-2 font-semibold text-white" type="submit">Upload repair video</button>
-    </form>
-  );
-}
-
-export function AdminDiscounts() {
-  const { data, reload } = useApi<{ _id: string; title: string; percent: number; code: string }[]>("/api/discounts");
-  const { push } = useToast();
-  const [title, setTitle] = useState("Weekend 15");
-  const [percent, setPercent] = useState(15);
-  const [code, setCode] = useState("WEEK15");
-  return (
-    <div className="space-y-4">
-      <form
-        className="glass flex flex-wrap gap-2 rounded-3xl p-4"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          await api("/api/discounts", { method: "POST", body: JSON.stringify({ title, percent, code }) });
-          push({ title: "Discount saved" });
-          reload();
-        }}
-      >
-        <input className="rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <input type="number" className="w-24 rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={percent} onChange={(e) => setPercent(Number(e.target.value))} />
-        <input className="rounded-2xl border px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900" value={code} onChange={(e) => setCode(e.target.value)} />
-        <button className="rounded-2xl bg-[#ff4d2e] px-4 py-2 text-white" type="submit">Add</button>
-      </form>
-      {data?.map((d) => (
-        <div key={d._id} className="glass flex justify-between rounded-3xl p-4">
-          <span>{d.title}</span>
-          <span>{d.percent}% · {d.code}</span>
-        </div>
-      ))}
     </div>
   );
 }

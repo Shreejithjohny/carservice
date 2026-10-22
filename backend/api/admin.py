@@ -19,6 +19,7 @@ from .models import (
     RepairRequest,
     Invoice,
     InvoiceItem,
+    Payment,
     Notification,
     ServiceHistory,
     RepairCostEstimate,
@@ -148,6 +149,14 @@ class InvoiceAdmin(admin.ModelAdmin):
 @admin.register(InvoiceItem)
 class InvoiceItemAdmin(admin.ModelAdmin):
     list_display = ["invoice", "description", "item_type", "quantity", "total_price"]
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ["transaction_id", "invoice", "customer", "amount", "method", "status", "created_at"]
+    list_filter = ["status", "method", "provider"]
+    search_fields = ["transaction_id", "invoice__invoice_number", "customer__email"]
+    readonly_fields = ["transaction_id", "amount", "payer_reference", "created_at"]
 
 
 @admin.register(Notification)

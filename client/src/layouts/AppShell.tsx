@@ -9,10 +9,8 @@ import {
   LayoutGrid,
   LogOut,
   Moon,
-  ShieldCheck,
   Sun,
   Video,
-  Wallet,
   Wrench,
   Building2,
   ClipboardCheck,
@@ -20,19 +18,18 @@ import {
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
+import type { Role } from "../types";
 
 const customer = [
   { to: "/app", label: "Home", icon: LayoutGrid, end: true },
   { to: "/app/vehicles", label: "Vehicles", icon: Car },
   { to: "/app/book", label: "Book", icon: Wrench },
   { to: "/app/track", label: "Track", icon: Gauge },
-  { to: "/app/estimate", label: "AI Estimate", icon: IndianRupee },
+  { to: "/app/estimate", label: "Cost Estimate", icon: IndianRupee },
   { to: "/app/health", label: "Car Health", icon: HeartPulse },
   { to: "/app/approvals", label: "Approvals", icon: Video },
-  { to: "/app/otp", label: "OTP Handover", icon: ShieldCheck },
   { to: "/app/invoices", label: "Invoices", icon: Receipt },
   { to: "/app/notifications", label: "Alerts", icon: Bell },
-  { to: "/app/wallet", label: "Wallet", icon: Wallet },
 ];
 
 const admin = [
@@ -40,8 +37,6 @@ const admin = [
   { to: "/admin/catalog", label: "Car Catalog", icon: Layers },
   { to: "/admin/bookings", label: "Bookings", icon: Gauge },
   { to: "/admin/invoices", label: "Invoices", icon: Receipt },
-  { to: "/admin/video", label: "Upload Video", icon: Video },
-  { to: "/admin/discounts", label: "Discounts", icon: IndianRupee },
 ];
 
 const manager = [
@@ -58,25 +53,14 @@ const driver = [
   { to: "/driver", label: "Pickup Jobs", icon: Car, end: true },
 ];
 
-export function AppShell({ variant }: { variant: "customer" | "admin" | "driver" }) {
+const linksByRole = { customer, admin, service_center_manager: manager, mechanic, driver };
+
+export function AppShell() {
   const { user, logout } = useAuth();
   const { dark, toggle } = useTheme();
   const navigate = useNavigate();
 
-  const userRole = (user?.role || "").toLowerCase();
-  let links = customer;
-
-  if (variant === "admin") {
-    if (userRole === "service_center" || userRole === "service_center_manager" || userRole === "manager") {
-      links = manager;
-    } else if (userRole === "mechanic") {
-      links = mechanic;
-    } else {
-      links = admin;
-    }
-  } else if (variant === "driver" || userRole === "driver" || userRole === "valet") {
-    links = driver;
-  }
+  const links = user ? linksByRole[user.role.toLowerCase() as Role] ?? customer : customer;
 
   return (
     <div className="min-h-dvh bg-[#f6f3ee] text-zinc-900 dark:bg-[#07080c] dark:text-zinc-100">
@@ -118,7 +102,7 @@ export function AppShell({ variant }: { variant: "customer" | "admin" | "driver"
         <main className="min-w-0 flex-1 p-4 pb-24 md:p-8">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{user?.role || variant}</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{user?.role.replace(/_/g, " ")}</p>
               <h1 className="text-2xl font-bold">{user?.name}</h1>
             </div>
             <img src={user?.avatarUrl || `https://api.dicebear.com/9.x/adventurer/svg?seed=${user?.name}`} alt="" className="h-11 w-11 rounded-full bg-zinc-200" />

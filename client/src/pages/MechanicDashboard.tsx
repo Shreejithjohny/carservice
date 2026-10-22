@@ -7,12 +7,15 @@ import { Wrench, ClipboardCheck, Camera, PlusCircle, Sparkles } from "lucide-rea
 import { AICostEstimatorModal } from "../components/AICostEstimatorModal";
 import type { Booking } from "../types";
 
+// Matches the backend: mechanics change status only while the car is at the workshop.
+const AT_WORKSHOP = ["Vehicle Picked Up", "In Service", "Inspection", "Repair Approval Required"];
+
 export function MechanicDashboard() {
   const { data: jobs, loading, reload } = useApi<Booking[]>("/api/mechanic/jobs/");
   const { push } = useToast();
 
   const [activeJob, setActiveJob] = useState<Booking | null>(null);
-  const [activeSection, setActiveSection] = useState<"status" | "inspection" | "evidence" | "repair">("status");
+  const [activeSection, setActiveSection] = useState<"inspection" | "evidence" | "repair">("inspection");
   const [showAiModal, setShowAiModal] = useState(false);
 
   // Inspection Form State
@@ -25,8 +28,8 @@ export function MechanicDashboard() {
   // Evidence Upload State
   const [evidenceTitle, setEvidenceTitle] = useState("");
   const [evidenceDesc, setEvidenceDesc] = useState("");
-  const [mediaType, setMediaType] = useState<"PHOTO" | "VIDEO">("PHOTO");
-  const [fileUrl, setFileUrl] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0); // remount to clear the file input after upload
   const [submittingEvidence, setSubmittingEvidence] = useState(false);
 
   // Repair Request State
@@ -82,24 +85,25 @@ export function MechanicDashboard() {
   async function handleSubmitEvidence(e: FormEvent) {
     e.preventDefault();
     if (!activeJob) return;
+    if (!evidenceFile) {
+      push({ title: "Attach the photo or video you took of the fault", tone: "err" });
+      return;
+    }
     const bId = activeJob.id || activeJob._id || activeJob.booking_reference;
-
     setSubmittingEvidence(true);
     try {
-      await api("/api/repair-evidence/", {
-        method: "POST",
-        body: JSON.stringify({
-          booking: bId,
-          issue_title: evidenceTitle,
-          description: evidenceDesc,
-          media_type: mediaType,
-          file_url: fileUrl || "https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=600&q=80",
-        }),
-      });
+      const form = new FormData();
+      form.append("booking", String(bId));
+      form.append("issue_title", evidenceTitle);
+      form.append("description", evidenceDesc);
+      form.append("media_type", evidenceFile.type.startsWith("video/") ? "VIDEO" : "PHOTO");
+      form.append("file", evidenceFile);
+      await api("/api/repair-evidence/", { method: "POST", body: form });
       push({ title: "Repair evidence media uploaded successfully" });
       setEvidenceTitle("");
       setEvidenceDesc("");
-      setFileUrl("");
+      setEvidenceFile(null);
+      setFileInputKey((k) => k + 1);
       reload();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Failed to upload evidence";
@@ -189,32 +193,40 @@ export function MechanicDashboard() {
               )}
 
               {/* Status Action Buttons */}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  onClick={() => handleStatusUpdate(b, "In Service")}
-                  className="rounded-xl bg-purple-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-purple-700"
-                >
-                  Start Service
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate(b, "Inspection")}
-                  className="rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
-                >
-                  Under Inspection
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate(b, "Repair Approval Required")}
-                  className="rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
-                >
-                  Request Approval
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate(b, "Ready for Delivery")}
-                  className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
-                >
-                  Mark Ready
-                </button>
-              </div>
+              {AT_WORKSHOP.includes(b.status) ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    onClick={() => handleStatusUpdate(b, "In Service")}
+                    className="rounded-xl bg-purple-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-purple-700"
+                  >
+                    Start Service
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(b, "Inspection")}
+                    className="rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                  >
+                    Under Inspection
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(b, "Repair Approval Required")}
+                    className="rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
+                  >
+                    Request Approval
+                  </button>
+                  <button
+                    onClick={() => handleStatusUpdate(b, "Ready for Delivery")}
+                    className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
+                  >
+                    Mark Ready
+                  </button>
+                </div>
+              ) : (
+                <p className="pt-1 text-xs text-zinc-500">
+                  {["Completed", "Cancelled", "Ready for Delivery"].includes(b.status)
+                    ? "Workshop work on this job is finished."
+                    : "Status actions unlock once the driver has brought the vehicle to the workshop."}
+                </p>
+              )}
 
               {/* Open Operations Portal Control */}
               <button
@@ -343,30 +355,18 @@ export function MechanicDashboard() {
                         />
                       </label>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="block font-bold">
-                          Media Type
-                          <select
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 p-2.5 dark:border-zinc-700 dark:bg-zinc-800 text-xs font-bold"
-                            value={mediaType}
-                            onChange={(e) => setMediaType(e.target.value as "PHOTO" | "VIDEO")}
-                          >
-                            <option value="PHOTO">Photo Evidence</option>
-                            <option value="VIDEO">Video Evidence</option>
-                          </select>
-                        </label>
-
-                        <label className="block font-bold">
-                          Media Image/Video URL (or Upload)
-                          <input
-                            type="text"
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 p-2.5 dark:border-zinc-700 dark:bg-zinc-800 text-xs"
-                            placeholder="https://..."
-                            value={fileUrl}
-                            onChange={(e) => setFileUrl(e.target.value)}
-                          />
-                        </label>
-                      </div>
+                      <label className="block font-bold">
+                        Photo or video of the fault (max 25 MB)
+                        <input
+                          key={fileInputKey}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                          capture="environment"
+                          required
+                          className="mt-1 block w-full rounded-2xl border border-zinc-200 p-2 text-xs dark:border-zinc-700 dark:bg-zinc-800 file:mr-3 file:rounded-xl file:border-0 file:bg-zinc-200 file:px-3 file:py-1.5 file:font-bold dark:file:bg-zinc-700"
+                          onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)}
+                        />
+                      </label>
 
                       <label className="block font-bold">
                         Description / Caption
@@ -399,7 +399,7 @@ export function MechanicDashboard() {
                           onClick={() => setShowAiModal(true)}
                           className="flex items-center gap-1.5 rounded-xl bg-[#ff4d2e]/10 px-3 py-1.5 text-xs font-bold text-[#ff4d2e] hover:bg-[#ff4d2e]/20"
                         >
-                          <Sparkles className="h-3.5 w-3.5" /> AI Cost Estimator
+                          <Sparkles className="h-3.5 w-3.5" /> Cost Estimator
                         </button>
                       </div>
 

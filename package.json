@@ -6,7 +6,7 @@
     "dev": "concurrently -n api,web -c cyan,magenta \"python backend/manage.py runserver 8000\" \"npm run dev --prefix client\"",
     "dev:django": "python backend/manage.py runserver 8000",
     "migrate:django": "python backend/manage.py migrate",
-    "seed": "npm run seed --prefix server",
+    "seed": "python backend/manage.py seed_vehicle_catalog && python backend/manage.py seed_service_data && python backend/manage.py seed_demo_accounts",
     "build": "npm run build --prefix client"
   },
   "devDependencies": {

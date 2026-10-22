@@ -1,7 +1,8 @@
 import os
 import re
-import random
+import secrets
 import logging
+from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
 
@@ -63,8 +64,8 @@ def normalize_phone_number(raw_phone: str) -> str:
 
 
 def generate_otp_code() -> str:
-    """Generate a secure 6-digit numeric OTP code."""
-    return f"{random.randint(100000, 999999)}"
+    """Generate a cryptographically secure 6-digit numeric OTP code."""
+    return f"{secrets.randbelow(900000) + 100000}"
 
 
 def send_otp_to_identifier(identifier: str, otp_code: str) -> dict:
@@ -107,15 +108,14 @@ def send_otp_to_identifier(identifier: str, otp_code: str) -> dict:
 
     # 2. Email SMTP (if identifier is email and SMTP host is configured)
     if is_email:
-        email_host = os.getenv("EMAIL_HOST", "").strip()
-        if email_host:
+        if settings.EMAIL_HOST:
             try:
                 from django.core.mail import send_mail
 
                 send_mail(
                     subject="Smart Doorstep Vehicle Service - Verification Code",
                     message=OTP_SMS_TEMPLATE.format(otp_code=otp_code),
-                    from_email=os.getenv("DEFAULT_FROM_EMAIL", "noreply@smartdoorstep.com"),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[identifier],
                     fail_silently=False,
                 )
@@ -130,6 +130,14 @@ def send_otp_to_identifier(identifier: str, otp_code: str) -> dict:
                 }
 
     # 3. Development / Console Fallback (When Twilio credentials or SMTP are missing)
+    if not settings.OTP_CONSOLE_FALLBACK:
+        logger.error(f"No OTP delivery provider configured for {'email' if is_email else 'SMS'}; cannot send OTP.")
+        return {
+            "success": False,
+            "error": "OTP delivery is not configured. Please contact support.",
+            "provider": "none",
+        }
+
     expires_at = (timezone.now() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S UTC")
     print("\n==========================================")
     print("[SECURE BACKEND OTP DISPATCH - DEV FALLBACK]")

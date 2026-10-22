@@ -153,7 +153,7 @@ function BookingApprovalCard({ booking, onReload, push }: { booking: Booking; on
                     onClick={() => setSelectedReqForAi(req)}
                     className="flex items-center gap-1 text-[11px] font-bold text-[#ff4d2e] hover:underline"
                   >
-                    <Sparkles className="h-3 w-3" /> Check AI Estimate
+                    <Sparkles className="h-3 w-3" /> Check Estimate
                   </button>
                 </div>
 

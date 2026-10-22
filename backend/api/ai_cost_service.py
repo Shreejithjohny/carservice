@@ -1,9 +1,5 @@
-import os
-import logging
 from decimal import Decimal
 from typing import Dict, Any, Optional
-
-logger = logging.getLogger(__name__)
 
 SEVERITY_MULTIPLIERS = {
     "LOW": Decimal("1.0"),
@@ -24,7 +20,7 @@ DEFAULT_HOURLY_LABOR_RATE = Decimal("500.00")
 
 
 class BaseAIEstimatorProvider:
-    """Base interface for AI Cost Estimator providers."""
+    """Base interface for repair cost estimator providers (rule-based today; an ML/LLM provider can implement this later)."""
 
     def estimate(
         self,
@@ -97,52 +93,6 @@ class FallbackRuleBasedEstimator(BaseAIEstimatorProvider):
         }
 
 
-class ExternalLLMEstimator(BaseAIEstimatorProvider):
-    """
-    External LLM integration (e.g. OpenAI / Google Generative AI).
-    Safely degrades to rule-based fallback if external API is unreachable or unconfigured.
-    """
-
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-
-    def estimate(
-        self,
-        vehicle: Any,
-        service_type: Optional[Any],
-        issue_description: str,
-        severity: str,
-        estimated_labor_hours: Decimal,
-    ) -> Dict[str, Any]:
-        if not self.api_key:
-            logger.info("External AI provider API key not found. Using deterministic fallback estimator.")
-            return FallbackRuleBasedEstimator().estimate(
-                vehicle, service_type, issue_description, severity, estimated_labor_hours
-            )
-
-        try:
-            # When an external LLM SDK is configured in future, call it here.
-            # Currently gracefully delegates to deterministic fallback with AI indicator.
-            result = FallbackRuleBasedEstimator().estimate(
-                vehicle, service_type, issue_description, severity, estimated_labor_hours
-            )
-            result["estimation_source"] = "AI"
-            return result
-        except Exception as exc:
-            logger.warning(f"External AI estimation failed: {exc}. Falling back to rule-based estimation.")
-            return FallbackRuleBasedEstimator().estimate(
-                vehicle, service_type, issue_description, severity, estimated_labor_hours
-            )
-
-
-def get_ai_cost_estimator() -> BaseAIEstimatorProvider:
-    """Factory returns LLM provider if API key present, otherwise deterministic fallback."""
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        return ExternalLLMEstimator(api_key=api_key)
-    return FallbackRuleBasedEstimator()
-
-
 def estimate_repair_cost(
     vehicle: Any,
     service_type: Optional[Any],
@@ -151,7 +101,7 @@ def estimate_repair_cost(
     estimated_labor_hours: Optional[Decimal] = None,
 ) -> Dict[str, Any]:
     """Main helper for estimating vehicle repair costs."""
-    estimator = get_ai_cost_estimator()
+    estimator = FallbackRuleBasedEstimator()
     labor_hours = Decimal(str(estimated_labor_hours)) if estimated_labor_hours is not None else Decimal("1.5")
     return estimator.estimate(
         vehicle=vehicle,

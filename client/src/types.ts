@@ -1,18 +1,4 @@
-export type Role =
-  | "customer"
-  | "admin"
-  | "mechanic"
-  | "driver"
-  | "manager"
-  | "valet"
-  | "CUSTOMER"
-  | "SERVICE_CENTER"
-  | "SERVICE_CENTER_MANAGER"
-  | "EMPLOYEE"
-  | "ADMIN"
-  | "DRIVER"
-  | "MECHANIC";
-
+export type Role = "customer" | "service_center_manager" | "driver" | "mechanic" | "admin";
 
 export interface User {
   id?: string;
@@ -22,7 +8,6 @@ export interface User {
   email?: string;
   role: Role;
   avatarUrl?: string;
-  walletBalance?: number;
   is_verified?: boolean;
 }
 
@@ -179,26 +164,19 @@ export interface Invoice {
   issued_at: string;
   created_at?: string;
   items: InvoiceItem[];
+  payments?: Payment[];
 }
 
-export interface Approval {
-  _id?: string;
-  id?: string | number;
-  bookingId?: string;
-  booking?: string | number;
-  userId?: string;
-  title?: string;
-  issue_title?: string;
-  description: string;
-  videoUrl?: string;
-  extraCost?: number;
-  additional_cost?: number | string;
-  estimated_cost?: number | string;
-  extraHours?: number;
-  estimated_extra_hours?: number;
-  decision?: "pending" | "approved" | "declined";
-  status?: "PENDING" | "APPROVED" | "REJECTED" | string;
-  stage?: string;
+export interface Payment {
+  id: number;
+  amount: number | string;
+  method: "UPI" | "CARD";
+  status: "SUCCESS" | "FAILED";
+  provider: string;
+  transaction_id: string;
+  payer_reference: string;
+  failure_reason: string;
+  created_at: string;
 }
 
 export interface NotificationItem {
@@ -259,45 +237,13 @@ export interface AdminStats {
   total_drivers: number;
   total_mechanics: number;
   total_revenue: number;
+  outstanding_amount: number;
   repair_approvals: {
     total: number;
     approved: number;
     pending: number;
     rejected: number;
   };
-}
-
-export interface HealthScore {
-  _id?: string;
-  vehicleId?: string;
-  overall?: number;
-  engine?: number;
-  battery?: number;
-  brakes?: number;
-  tires?: number;
-  oilLife?: number;
-  ac?: number;
-  nextServiceInDays?: number;
-  monthlyTrend?: { month: string; score: number }[];
-}
-
-export interface Reward {
-  userId: string;
-  points: number;
-  badges: string[];
-  discountEligible: boolean;
-}
-
-export interface EstimateResult {
-  possibleIssue: string;
-  recommendedService: string;
-  estimatedCostMin: number;
-  estimatedCostMax: number;
-  estimatedHoursMin: number;
-  estimatedHoursMax: number;
-  confidence: number;
-  suggestedNextStep: string;
-  imageReceived?: boolean;
 }
 
 export const TOKEN_KEY = "doorstep_token";

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Bell, Car, HeartPulse, History, IndianRupee, MapPin, ShieldCheck, Sparkles, Video, Wallet, Wrench } from "lucide-react";
+import { ArrowRight, Bell, Car, HeartPulse, History, IndianRupee, MapPin, Sparkles, Video, Wrench } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 const tiles = [
@@ -7,13 +7,10 @@ const tiles = [
   { to: "/app/vehicles", title: "My Vehicles", icon: Car, hint: "Garage & RC details" },
   { to: "/app/track", title: "Active Services", icon: Sparkles, hint: "Live job status" },
   { to: "/app/history", title: "Service History", icon: History, hint: "Past jobs" },
-  { to: "/app/estimate", title: "AI Cost Estimator", icon: IndianRupee, hint: "Symptom → price band" },
+  { to: "/app/estimate", title: "Cost Estimator", icon: IndianRupee, hint: "Symptom → price band" },
   { to: "/app/health", title: "Car Health", icon: HeartPulse, hint: "Score, badges, trend" },
   { to: "/app/notifications", title: "Notifications", icon: Bell, hint: "Approvals & valet" },
-  { to: "/app/wallet", title: "Wallet", icon: Wallet, hint: "Points & offers" },
-  { to: "/app/offers", title: "Offers", icon: Sparkles, hint: "Member discounts" },
   { to: "/app/approvals", title: "Video approvals", icon: Video, hint: "Transparent extras" },
-  { to: "/app/otp", title: "OTP handover", icon: ShieldCheck, hint: "Valet verification" },
 ];
 
 export function Dashboard() {

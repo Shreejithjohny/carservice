@@ -1,16 +1,32 @@
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 import dotenv
+from django.core.exceptions import ImproperlyConfigured
 
-# Load environment variables from .env file
 BASE_DIR = Path(__file__).resolve().parent.parent
-dotenv.load_dotenv(BASE_DIR / ".env")
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-smart-doorstep-vehicle-service-management-system-secret-key")
-DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "t")
+# Load environment variables from .env file. Tests skip it so they behave the same on every
+# machine and never use real SMS/email credentials from a developer's .env.
+if not TESTING:
+    dotenv.load_dotenv(BASE_DIR / ".env")
 
-ALLOWED_HOSTS = ["*"] if DEBUG else [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",") if h.strip()]
+# Production-safe defaults: DEBUG is off unless explicitly enabled (backend/.env.example turns it on for local dev).
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
+
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if not (DEBUG or TESTING):
+        raise ImproperlyConfigured(
+            "SECRET_KEY must be set when DEBUG is off. Copy backend/.env.example to backend/.env for local development."
+        )
+    SECRET_KEY = "django-insecure-local-development-only-key"
+elif SECRET_KEY.startswith("django-insecure") and not (DEBUG or TESTING):
+    raise ImproperlyConfigured("Replace the placeholder SECRET_KEY with a long random value before running with DEBUG off.")
+
+ALLOWED_HOSTS = ["*"] if DEBUG else [h.strip() for h in (os.getenv("ALLOWED_HOSTS") or "localhost,127.0.0.1,testserver").split(",") if h.strip()]
 
 # Application definition
 INSTALLED_APPS = [
@@ -114,8 +130,9 @@ MEDIA_ROOT = BASE_DIR / "media"
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS Configuration: any origin in development, only listed origins otherwise.
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 CORS_ALLOW_CREDENTIALS = True
 
 # REST Framework Settings
@@ -137,7 +154,22 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
+# Email delivery for OTPs (used when EMAIL_HOST is set)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL") or "noreply@smartdoorstep.com"
+
 # OTP Verification Mode: disabled by default for secure production behavior.
 # Set OTP_BYPASS=true only in local/dev environments when debug bypass codes are intentionally enabled.
 OTP_BYPASS = os.getenv("OTP_BYPASS", "False").lower() in ("true", "1", "t")
+
+# When no SMS/email provider is configured, print OTPs to the server console instead of failing.
+# On by default only in DEBUG; in production a missing provider is reported as an error.
+OTP_CONSOLE_FALLBACK = os.getenv("OTP_CONSOLE_FALLBACK", str(DEBUG)).lower() in ("true", "1", "t")
+
+# Online invoice payment: "mock" is a test gateway (no real money); empty disables online payment.
+PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "mock" if DEBUG else "").strip().lower()
 

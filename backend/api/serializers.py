@@ -1,6 +1,8 @@
 import re
+import uuid
 from rest_framework import serializers
 from .models import (
+    UserRole,
     User,
     CustomerProfile,
     CarBrand,
@@ -16,6 +18,7 @@ from .models import (
     RepairRequest,
     Invoice,
     InvoiceItem,
+    Payment,
     CarHealthScore,
     RepairCostEstimate,
     Notification,
@@ -35,7 +38,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 class SendOTPSerializer(serializers.Serializer):
     identifier = serializers.CharField(required=True)
-    role = serializers.CharField(required=False, default="CUSTOMER")
 
     def validate_identifier(self, value):
         val = value.strip()
@@ -249,13 +251,14 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "booking_reference",
             "booking_id",
             "customer",
+            "handover_otp_verified",
             "created_at",
             "updated_at",
         ]
 
     def validate_vehicle(self, value):
         request = self.context.get("request")
-        if request and request.user and not request.user.is_staff:
+        if request and request.user and request.user.role != UserRole.ADMIN and not request.user.is_superuser:
             if value.customer != request.user:
                 raise serializers.ValidationError("Selected vehicle does not belong to you.")
         return value
@@ -302,6 +305,45 @@ class ServiceInspectionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "mechanic", "created_at", "updated_at"]
 
 
+MAX_EVIDENCE_BYTES = 25 * 1024 * 1024
+EVIDENCE_CONTENT_TYPES = {
+    "image/jpeg": "PHOTO",
+    "image/png": "PHOTO",
+    "image/webp": "PHOTO",
+    "video/mp4": "VIDEO",
+    "video/quicktime": "VIDEO",
+    "video/webm": "VIDEO",
+}
+
+EVIDENCE_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/webm": ".webm",
+}
+
+
+def _evidence_content_matches(upload, content_type: str) -> bool:
+    """Checks the bytes, not just the browser-supplied content type."""
+    try:
+        if content_type.startswith("image/"):
+            from PIL import Image
+
+            with Image.open(upload) as img:
+                img.verify()
+                return Image.MIME.get(img.format) == content_type
+        head = upload.read(12)
+        if content_type == "video/webm":
+            return head[:4] == b"\x1a\x45\xdf\xa3"
+        return head[4:8] == b"ftyp"  # MP4 / QuickTime
+    except Exception:
+        return False
+    finally:
+        upload.seek(0)
+
+
 class RepairEvidenceSerializer(serializers.ModelSerializer):
     mechanic_name = serializers.CharField(source="mechanic.get_full_name", read_only=True)
 
@@ -320,6 +362,26 @@ class RepairEvidenceSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "mechanic", "created_at"]
+
+    def validate(self, attrs):
+        upload = attrs.get("file")
+        url = (attrs.get("file_url") or "").strip()
+        if not upload and not url:
+            raise serializers.ValidationError({"file": "Attach a photo or video of the fault."})
+        if upload:
+            content_type = getattr(upload, "content_type", "") or ""
+            if content_type not in EVIDENCE_CONTENT_TYPES:
+                raise serializers.ValidationError({"file": "Upload a JPEG, PNG or WebP photo, or an MP4, MOV or WebM video."})
+            if upload.size > MAX_EVIDENCE_BYTES:
+                raise serializers.ValidationError({"file": "File is too large (max 25 MB)."})
+            if not _evidence_content_matches(upload, content_type):
+                raise serializers.ValidationError({"file": "The file content does not match its type."})
+            # Never keep the uploaded name: a fixed extension stops e.g. "x.html" being served as a page.
+            upload.name = f"{uuid.uuid4().hex}{EVIDENCE_EXTENSIONS[content_type]}"
+            attrs["media_type"] = EVIDENCE_CONTENT_TYPES[content_type]
+        elif not url.startswith(("https://", "http://")):
+            raise serializers.ValidationError({"file_url": "Enter a full http(s) link to the media."})
+        return attrs
 
 
 class RepairRequestSerializer(serializers.ModelSerializer):
@@ -391,8 +453,26 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         ]
 
 
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "amount",
+            "method",
+            "status",
+            "provider",
+            "transaction_id",
+            "payer_reference",
+            "failure_reason",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, read_only=True)
+    payments = PaymentSerializer(many=True, read_only=True)
     booking_reference = serializers.CharField(source="booking.booking_reference", read_only=True)
     customer_name = serializers.SerializerMethodField()
     customer_email = serializers.CharField(source="customer.email", read_only=True)
@@ -432,6 +512,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "items",
+            "payments",
         ]
         read_only_fields = ["id", "invoice_number", "issued_at", "created_at", "updated_at"]
 

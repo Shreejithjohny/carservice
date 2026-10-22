@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
+from api.otp_service import generate_otp_code
 from api.models import (
     User,
     UserRole,
@@ -64,12 +65,11 @@ class Command(BaseCommand):
                 "role": UserRole.SERVICE_CENTER_MANAGER,
                 "first_name": "Vikram",
                 "last_name": "Manager",
-                "is_staff": True,
                 "is_verified": True,
             },
         )
         manager.role = UserRole.SERVICE_CENTER_MANAGER
-        manager.is_staff = True
+        manager.is_staff = False  # app permissions come from the role; staff would expose the Django admin site
         manager.is_verified = True
         manager.save()
         center.user = manager
@@ -199,7 +199,7 @@ class Command(BaseCommand):
                 preferred_time="10:30 AM",
                 assigned_driver=driver,
                 assigned_mechanic=mechanic,
-                handover_otp="123456",
+                handover_otp=generate_otp_code(),
                 handover_otp_verified=False,
                 handover_otp_expires_at=timezone.now() + timedelta(days=1),
                 estimated_cost=2999.00,

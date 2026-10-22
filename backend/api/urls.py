@@ -11,12 +11,6 @@ urlpatterns = [
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", views.me, name="auth_me"),
 
-    # Backward compatibility aliases
-    path("auth/register/request-otp", views.send_otp, name="register_request_otp"),
-    path("auth/register/verify-otp", views.verify_otp, name="register_verify_otp"),
-    path("auth/login", views.send_otp, name="login_send_otp"),
-    path("auth/otp", views.send_otp, name="auth_otp"),
-
     # Vehicle Catalog Endpoints
     path("car-brands/", views.car_brand_list_create, name="car_brand_list_create"),
     path("car-brands/<int:pk>/", views.car_brand_detail, name="car_brand_detail"),
@@ -72,6 +66,7 @@ urlpatterns = [
     # Phase 10 Invoices & Car Health Score
     path("invoices/", views.invoices_list, name="invoices_list"),
     path("invoices/<str:pk>/", views.invoice_detail, name="invoice_detail"),
+    path("invoices/<int:pk>/pay/", views.invoice_pay, name="invoice_pay"),
     path("bookings/<str:pk>/generate-invoice/", views.booking_generate_invoice, name="booking_generate_invoice"),
     path("vehicles/<int:pk>/health-score/", views.vehicle_health_score, name="vehicle_health_score"),
 

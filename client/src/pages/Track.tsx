@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
-import { CarFront, Clock3, Crosshair, MapPin, Navigation, Route, Wrench, XCircle, AlertTriangle } from "lucide-react";
+import { Clock3, Navigation, Route, XCircle, AlertTriangle } from "lucide-react";
 import { useApi } from "../hooks/useApi";
 import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
 import { Empty, Skeleton } from "../components/States";
 import type { Booking } from "../types";
+import { LiveTrackingMap, type RoutePoint } from "../components/LiveTrackingMap";
 
 const STEPS = [
   "Booking Created",
@@ -41,7 +42,16 @@ export function Track() {
   const bookingId = booking?.id || booking?._id || booking?.booking_reference;
 
   // Rich tracking detail payload
-  const { data: trackingData } = useApi<any>(bookingId ? `/api/bookings/${bookingId}/tracking/` : null);
+  const { data: trackingData, reload: reloadTracking } = useApi<any>(bookingId ? `/api/bookings/${bookingId}/tracking/` : null);
+
+  // Poll for new driver GPS points while the booking is still in progress
+  const isFinished = !booking || ["Completed", "Delivered", "Cancelled"].includes(booking.status);
+  useEffect(() => {
+    if (!bookingId || isFinished) return;
+    const t = setInterval(reloadTracking, 10000);
+    return () => clearInterval(t);
+    // reloadTracking is recreated every render; the interval only needs to restart when the booking changes
+  }, [bookingId, isFinished]);
 
   if (loading) return <Skeleton className="h-64" />;
   if (!booking) return <Empty title="No bookings found" hint="Book a service to track status." />;
@@ -74,7 +84,14 @@ export function Track() {
   const driver = trackingData?.assigned_driver || booking.assigned_driver_details;
   const mechanic = trackingData?.assigned_mechanic || booking.assigned_mechanic_details;
   const otpCode = trackingData?.handover_otp_code || booking.handover_otp;
-  const driverLocation = trackingData?.latest_driver_location;
+  const pickupPoint: [number, number] | null =
+    booking.pickup_latitude != null && booking.pickup_longitude != null
+      ? [Number(booking.pickup_latitude), Number(booking.pickup_longitude)]
+      : null;
+  const hubPoint: [number, number] | null =
+    booking.service_center_details?.latitude != null && booking.service_center_details?.longitude != null
+      ? [Number(booking.service_center_details.latitude), Number(booking.service_center_details.longitude)]
+      : null;
 
   const isOnTheWay = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup"].includes(currentStatus);
 
@@ -133,39 +150,12 @@ export function Track() {
       <div className="glass overflow-hidden rounded-3xl">
         <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row">
           <div className="min-w-0 flex-1">
-            <div className="track-map" aria-label="Live service route map">
-              <div className="map-water" />
-              <div className="map-road map-road-one" />
-              <div className="map-road map-road-two" />
-              <div className="map-road map-road-three" />
-              <div className="map-road map-road-four" />
-              <div className="map-label map-label-one">RING ROAD</div>
-              <div className="map-label map-label-two">MG ROAD</div>
-              <div className="map-label map-label-three font-bold">DOORSTEP HUB</div>
-              <svg className="map-route" viewBox="0 0 600 320" role="presentation">
-                <path d="M 74 242 C 155 218, 164 132, 266 150 S 389 237, 518 82" />
-                <circle cx="74" cy="242" r="7" />
-                <circle cx="518" cy="82" r="7" />
-              </svg>
-              <div className="map-point map-point-pickup">
-                <MapPin size={17} />
-                <span>Pickup location</span>
-              </div>
-              <div className="map-point map-point-hub">
-                <Wrench size={15} />
-                <span>{centerName}</span>
-              </div>
-              <div className={`map-car ${isOnTheWay ? "map-car-live" : ""}`}>
-                <CarFront size={19} />
-              </div>
-              <button type="button" className="map-recenter" aria-label="Recenter map">
-                <Crosshair size={17} />
-              </button>
-              <div className="map-live-badge">
-                <span className="live-dot" /> Live Route {driverLocation ? `(${driverLocation.latitude.toFixed(3)}, ${driverLocation.longitude.toFixed(3)})` : ""}
-              </div>
-              <div className="map-scale">1 km</div>
-            </div>
+            <LiveTrackingMap
+              pickup={pickupPoint}
+              hub={hubPoint}
+              hubName={centerName}
+              route={(trackingData?.driver_route as RoutePoint[] | undefined) ?? []}
+            />
           </div>
 
           <div className="flex w-full flex-col justify-between lg:w-72 lg:py-1">
@@ -173,9 +163,6 @@ export function Track() {
               <div className="flex items-center justify-between gap-3">
                 <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
                   {currentStatus}
-                </span>
-                <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
-                  <span className="live-dot" /> Live
                 </span>
               </div>
               <h2 className="mt-4 text-2xl font-extrabold">{refCode}</h2>

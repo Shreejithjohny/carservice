@@ -1,13 +1,27 @@
 from decimal import Decimal
 from django.utils import timezone
-from .models import Invoice, InvoiceItem, ServiceBooking, RepairRequestStatus
+from .models import BookingStatus, Invoice, InvoiceItem, ServiceBooking, RepairRequestStatus
+
+
+class InvoiceError(Exception):
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
 
 def generate_invoice_for_booking(booking: ServiceBooking) -> Invoice:
     """
     Generates or recalculates an itemized server-side Invoice for a ServiceBooking.
     Includes base service fee, approved additional repairs, labor hours, and 18% GST tax.
+    Only completed bookings are invoiced, and a paid invoice is never recalculated.
     """
+    if booking.status != BookingStatus.COMPLETED:
+        raise InvoiceError("Invoices can only be generated once the service is completed.", 400)
+    existing = Invoice.objects.filter(booking=booking).first()
+    if existing and existing.payment_status == Invoice.PaymentStatus.PAID:
+        raise InvoiceError("This invoice is already paid and can no longer be changed.", 409)
+
     # 1. Base service charge
     if booking.service_type and hasattr(booking.service_type, "base_price"):
         subtotal = Decimal(str(booking.service_type.base_price))

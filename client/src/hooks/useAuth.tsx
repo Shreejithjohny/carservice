@@ -20,7 +20,9 @@ type VerifyOtpResponse = {
 type AuthCtx = {
   user: User | null;
   loading: boolean;
-  sendOtp: (identifier: string, role?: Role) => Promise<SendOtpResponse>;
+  /** True only when the backend has OTP_BYPASS on (local demo); hides demo logins otherwise. */
+  demoMode: boolean;
+  sendOtp: (identifier: string) => Promise<SendOtpResponse>;
   verifyOtp: (identifier: string, otpCode: string, name?: string) => Promise<User>;
   bypassLogin: (identifier?: string, role?: Role, name?: string) => Promise<User>;
   logout: () => void;
@@ -32,6 +34,13 @@ const Ctx = createContext<AuthCtx | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(readUser());
   const [loading, setLoading] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
+
+  useEffect(() => {
+    api<{ demo_login?: boolean }>("/api/health-check/")
+      .then((res) => setDemoMode(Boolean(res.demo_login)))
+      .catch(() => setDemoMode(false));
+  }, []);
 
   useEffect(() => {
     const boot = async () => {
@@ -60,12 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user,
       loading,
-      async sendOtp(identifier, role = "customer") {
-        const res = await api<SendOtpResponse>("/api/auth/send-otp/", {
+      demoMode,
+      async sendOtp(identifier) {
+        return api<SendOtpResponse>("/api/auth/send-otp/", {
           method: "POST",
-          body: JSON.stringify({ identifier, role: role.toUpperCase() }),
+          body: JSON.stringify({ identifier }),
         });
-        return res;
       },
       async verifyOtp(identifier, otpCode, name) {
         const res = await api<VerifyOtpResponse>("/api/auth/verify-otp/", {
@@ -116,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [user, loading],
+    [user, loading, demoMode],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
