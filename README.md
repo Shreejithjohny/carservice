@@ -18,29 +18,146 @@ A car-service platform where a driver collects the customer's car from their doo
 
 Anyone who signs up gets a **Customer** account. Staff accounts are created by an admin (Django admin at `/admin/` on the backend) or by the seed script.
 
-## Run it locally
+## Run it locally (step by step, VS Code)
 
-Requires Python 3.12+ (current Django releases need it) and Node.js 20.19+ (Vite 7).
+You need **Python 3.12+**, **Node.js 20.19+** and **Git**. Check with:
 
 ```bash
-# 1. Install dependencies
+python --version      # Windows: if this fails, try  py --version
+node --version
+git --version
+```
+
+Open the project folder in VS Code (**File → Open Folder…**) and open a terminal with **Ctrl + `** (the key under Esc).
+Every command below is run from the **project root folder** (the one containing `README.md`), unless a step says otherwise.
+
+> **Using GitHub Copilot?** In Copilot Chat choose **Agent** mode and ask, for example:
+> *"Follow the README section 'First-time setup' for Windows and run each command in the terminal."*
+> Copilot will propose each command; read it and click **Continue** to run it.
+
+### First-time setup (do this once)
+
+**Step 1: create and activate a Python virtual environment.** It keeps this project's packages separate, and makes the `python` command work the same on every computer.
+
+Windows (PowerShell, the VS Code default):
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+If PowerShell says *"running scripts is disabled on this system"*, run this once, then the activate line again:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+macOS / Linux:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+When it is active, the terminal prompt starts with `(.venv)`. **Activate it again every time you open a new terminal.**
+VS Code tip: **Ctrl + Shift + P → "Python: Select Interpreter" →** choose the one inside `.venv`, and new terminals activate it automatically.
+
+**Step 2: install the packages**
+```bash
 pip install -r backend/requirements.txt
 npm install
 npm install --prefix client
+```
 
-# 2. Local settings (turns on DEBUG and demo login)
+**Step 3: create your settings files.** These files are never committed to Git.
+
+Windows (PowerShell):
+```powershell
+Copy-Item backend\.env.example backend\.env
+Copy-Item client\.env.example client\.env
+```
+macOS / Linux:
+```bash
 cp backend/.env.example backend/.env
-cp client/.env.example client/.env      # optional: Google Maps key
+cp client/.env.example client/.env
+```
+Optional: open `backend/.env` and set `DEMO_ACCOUNT_PASSWORD=` to a password of your choice, so the demo accounts can also sign in with email + password (do this before Step 4).
 
-# 3. Database and demo data
+**Step 4: create the database and the demo data**
+```bash
 npm run migrate:django
 npm run seed
+```
 
-# 4. Start backend (port 8000) and frontend (port 5173)
+**Step 5: start the app**
+```bash
+npm run dev
+```
+This starts the backend at http://127.0.0.1:8000 and the website at **http://localhost:5173**. Open the website in your browser.
+Stop it with **Ctrl + C** in the terminal.
+
+### Every time after that
+```bash
+# Windows:  .venv\Scripts\Activate.ps1     macOS/Linux:  source .venv/bin/activate
 npm run dev
 ```
 
-Open http://localhost:5173. The scripts call `python`; if your system only has `python3`, run the commands in `package.json` with `python3` instead.
+### After `git pull` (when the code has changed)
+```bash
+git pull
+pip install -r backend/requirements.txt
+npm install
+npm install --prefix client
+npm run migrate:django
+npm run dev
+```
+
+### Run the backend and frontend in separate terminals (optional)
+Useful to see each one's messages separately. Use the **split terminal** button in VS Code.
+```bash
+# Terminal 1: backend (activate .venv first)
+python backend/manage.py runserver 8000
+
+# Terminal 2: frontend
+npm run dev --prefix client
+```
+
+### Tests and checks
+```bash
+python backend/manage.py test api     # all backend tests (should end with "OK")
+python backend/manage.py check        # Django configuration check
+npm run build                         # type-checks and builds the frontend
+```
+
+### Useful extra commands
+| What | Command |
+|---|---|
+| Create your own admin login for the Django admin site (http://127.0.0.1:8000/admin/) | `python backend/manage.py createsuperuser` |
+| Send service reminders (run once a day) | `python backend/manage.py send_service_reminders` |
+| Generate **synthetic** repair history to demo the learned cost estimator | `python backend/manage.py seed_repair_history --count 200` |
+| Train the repair-cost model (needs 30+ completed repairs) | `python backend/manage.py train_cost_model` |
+| See which database migrations are applied | `python backend/manage.py showmigrations api` |
+| Re-run only the demo accounts seed | `python backend/manage.py seed_demo_accounts` |
+| Preview the production build of the website | `npm run build` then `npm run preview --prefix client` |
+
+### Start again with an empty database
+This **deletes all local data** (bookings, accounts, invoices). Stop the app first (Ctrl + C).
+```powershell
+# Windows
+Remove-Item backend\db.sqlite3
+```
+```bash
+# macOS / Linux
+rm backend/db.sqlite3
+```
+Then run `npm run migrate:django` and `npm run seed` again.
+
+### Common problems
+| Problem | Fix |
+|---|---|
+| `python` is not recognised / not found | Activate `.venv` (Step 1). On Windows, also try `py` instead of `python` |
+| `ModuleNotFoundError: No module named 'django'` | The virtual environment is not active, or Step 2 was skipped. Activate `.venv` and run `pip install -r backend/requirements.txt` |
+| `SECRET_KEY must be set when DEBUG is off` | `backend/.env` is missing. Do Step 3 |
+| `Port 5173 is already in use` or `port 8000 is already in use` | The app is already running in another terminal. Close it with Ctrl + C, or close that terminal |
+| `no such table` or `no such column` errors | Run `npm run migrate:django` |
+| The login page has no demo buttons | `OTP_BYPASS=True` is missing from `backend/.env` |
+| Number plate scanning fails | Run `npm install --prefix client` again, then restart `npm run dev` (it copies the OCR files into `client/public/ocr/`) |
+| Booking page shows "Google Maps Configuration Required" | Normal without a Google Maps key. Type the address or pick a preset area instead |
 
 ### Demo accounts
 
@@ -81,13 +198,6 @@ cross-validated comparison with the rule formula. With real repair history, that
 evidence. `python manage.py seed_repair_history --count 200` creates **synthetic** history only so the
 pipeline can be demonstrated; a model trained on it only learns that made-up generator. The admin panel
 and every estimate state the synthetic share, and synthetic jobs are hidden from analytics and booking lists.
-
-## Tests
-
-```bash
-cd backend && python manage.py test api     # backend tests
-npm run build                               # type-checks and builds the frontend
-```
 
 ## Deploying to production
 
