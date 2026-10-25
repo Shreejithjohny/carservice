@@ -145,7 +145,7 @@ export function DriverDashboard() {
     <div className="space-y-6 max-w-2xl mx-auto">
       <div>
         <h1 className="text-2xl font-extrabold flex items-center gap-2">
-          <CarFront className="text-[#ff4d2e]" /> Driver / Valet Pickup Portal
+          <CarFront className="text-brand-fg" /> Driver / Valet Pickup Portal
         </h1>
         <p className="text-sm text-zinc-500">Manage vehicle pickups, customer handovers, and GPS route updates.</p>
       </div>
@@ -232,7 +232,7 @@ export function DriverDashboard() {
             <div key={bId} className="glass rounded-3xl p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
                 <div>
-                  <span className="text-xs font-mono font-bold text-[#ff4d2e] bg-[#ff4d2e]/10 px-2.5 py-0.5 rounded-full">
+                  <span className="text-xs font-mono font-bold text-brand-fg bg-brand/10 px-2.5 py-0.5 rounded-full">
                     {b.booking_reference || b.booking_id}
                   </span>
                   <h3 className="text-xl font-extrabold mt-1">
@@ -244,7 +244,7 @@ export function DriverDashboard() {
                 </div>
 
                 <div className="text-right">
-                  <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
+                  <span className="rounded-full bg-brand/15 px-3 py-1 text-xs font-bold text-brand-fg">
                     {b.status}
                   </span>
                   {b.handover_otp_verified && (
@@ -278,7 +278,7 @@ export function DriverDashboard() {
                       href={`https://www.google.com/maps/search/?api=1&query=${b.pickup_latitude},${b.pickup_longitude}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1 font-bold text-[#ff4d2e] underline"
+                      className="flex items-center gap-1 font-bold text-brand-fg underline"
                     >
                       <ExternalLink size={13} /> Open Google Maps
                     </a>
@@ -317,7 +317,7 @@ export function DriverDashboard() {
 
                       <button
                         onClick={() => handleRequestOtp(b, "handover")}
-                        className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-[#ff4d2e] py-2 font-bold text-white hover:bg-[#e03e21]"
+                        className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-brand py-2 font-bold text-white hover:bg-brand-hover"
                       >
                         <KeyRound size={14} /> Handover OTP
                       </button>
@@ -337,7 +337,7 @@ export function DriverDashboard() {
                   <ConditionCapture bookingId={bId} stage="DELIVERY" />
                   <button
                     onClick={() => handleRequestOtp(b, "delivery")}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-[#ff4d2e] py-3 text-sm font-bold text-white hover:bg-[#e03e21]"
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-brand py-3 text-sm font-bold text-white hover:bg-brand-hover"
                   >
                     <KeyRound size={16} /> Hand Back Car (Delivery OTP)
                   </button>

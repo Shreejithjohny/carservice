@@ -62,7 +62,7 @@ export function ReviewForm({ bookingId, hasDriver, onDone }: { bookingId: string
         type="button"
         disabled={busy}
         onClick={submit}
-        className="w-full rounded-xl bg-[#ff4d2e] py-2 text-sm font-bold text-white disabled:opacity-50"
+        className="w-full rounded-xl bg-brand py-2 text-sm font-bold text-white disabled:opacity-50"
       >
         {busy ? t("review.saving") : t("review.submit")}
       </button>

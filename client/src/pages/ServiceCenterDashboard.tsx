@@ -73,7 +73,7 @@ export function ServiceCenterDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold flex items-center gap-2">
-          <Building2 className="text-[#ff4d2e]" /> Service Center Dashboard
+          <Building2 className="text-brand-fg" /> Service Center Dashboard
         </h1>
         <p className="text-sm text-zinc-500">Manage incoming service bookings, assign valets and mechanics.</p>
       </div>
@@ -106,7 +106,7 @@ export function ServiceCenterDashboard() {
             onClick={() => setActiveTab(tab)}
             className={`rounded-2xl px-3.5 py-1.5 text-xs font-bold transition ${
               activeTab === tab
-                ? "bg-[#ff4d2e] text-white"
+                ? "bg-brand text-white"
                 : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300"
             }`}
           >
@@ -128,7 +128,7 @@ export function ServiceCenterDashboard() {
               <div key={bId} className="glass rounded-3xl p-5 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-[#ff4d2e] bg-[#ff4d2e]/10 px-2.5 py-0.5 rounded-full">
+                    <span className="text-xs font-mono font-bold text-brand-fg bg-brand/10 px-2.5 py-0.5 rounded-full">
                       {b.booking_reference || b.booking_id}
                     </span>
                     <h3 className="text-lg font-bold mt-1">
@@ -139,7 +139,7 @@ export function ServiceCenterDashboard() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
+                    <span className="rounded-full bg-brand/15 px-3 py-1 text-xs font-bold text-brand-fg">
                       {b.status}
                     </span>
                     <p className="text-sm font-extrabold text-emerald-600 mt-1">
@@ -290,7 +290,7 @@ export function ServiceCenterDashboard() {
                     <button
                       disabled={updating}
                       onClick={() => handleAssignAndStatus(b)}
-                      className="w-full rounded-xl bg-[#ff4d2e] py-2 text-xs font-bold text-white hover:bg-[#e03e21]"
+                      className="w-full rounded-xl bg-brand py-2 text-xs font-bold text-white hover:bg-brand-hover"
                     >
                       {updating ? "Saving Assignments..." : "Save Staff Assignments"}
                     </button>

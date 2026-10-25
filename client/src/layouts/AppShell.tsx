@@ -85,11 +85,11 @@ export function AppShell() {
   const links = user ? linksByRole[user.role.toLowerCase() as Role] ?? customer : customer;
 
   return (
-    <div className="min-h-dvh bg-[#f6f3ee] text-zinc-900 dark:bg-[#07080c] dark:text-zinc-100">
+    <div className="min-h-dvh bg-canvas text-zinc-900 dark:bg-canvas-dark dark:text-zinc-100">
       <div className="mx-auto flex max-w-7xl">
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-1 border-r border-zinc-200/70 p-4 dark:border-zinc-800 md:flex">
           <div className="mb-4 px-2 text-xl font-extrabold tracking-tight">
-            Door<span className="text-[#ff4d2e]">Step</span>
+            Door<span className="text-brand-fg">Step</span>
           </div>
           {links.map((l) => (
             <NavLink
@@ -98,7 +98,7 @@ export function AppShell() {
               end={l.end}
               className={({ isActive }) =>
                 `flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-medium ${
-                  isActive ? "bg-[#ff4d2e] text-white" : "hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                  isActive ? "bg-brand text-white" : "hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
                 }`
               }
             >
@@ -163,7 +163,7 @@ export function AppShell() {
       {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
       <nav className="fixed bottom-0 left-0 right-0 z-30 flex justify-around border-t border-zinc-200 bg-white/90 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 md:hidden">
         {links.slice(0, 5).map((l) => (
-          <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `flex flex-col items-center text-[10px] ${isActive ? "text-[#ff4d2e]" : "text-zinc-500"}`}>
+          <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `flex flex-col items-center text-[10px] ${isActive ? "text-brand-fg" : "text-zinc-500"}`}>
             <l.icon size={18} />
             {label(l)}
           </NavLink>

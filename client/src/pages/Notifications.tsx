@@ -49,7 +49,7 @@ export function Notifications() {
       case "VEHICLE_PICKED_UP":
         return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
       case "REPAIR_APPROVAL_REQUIRED":
-        return <ShieldAlert className="h-4 w-4 text-[#ff4d2e]" />;
+        return <ShieldAlert className="h-4 w-4 text-brand-fg" />;
       case "SERVICE_STARTED":
       case "SERVICE_COMPLETED":
         return <Wrench className="h-4 w-4 text-amber-500" />;
@@ -58,7 +58,7 @@ export function Notifications() {
       case "SERVICE_REMINDER":
         return <CalendarClock className="h-4 w-4 text-amber-600" />;
       default:
-        return <Bell className="h-4 w-4 text-[#ff4d2e]" />;
+        return <Bell className="h-4 w-4 text-brand-fg" />;
     }
   };
 
@@ -67,9 +67,9 @@ export function Notifications() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold flex items-center gap-2">
-            <Bell className="text-[#ff4d2e]" /> Notifications
+            <Bell className="text-brand-fg" /> Notifications
             {unreadCount > 0 && (
-              <span className="rounded-full bg-[#ff4d2e] px-2.5 py-0.5 text-xs text-white">
+              <span className="rounded-full bg-brand px-2.5 py-0.5 text-xs text-white">
                 {unreadCount} new
               </span>
             )}
@@ -98,7 +98,7 @@ export function Notifications() {
               key={nid}
               onClick={() => !isRead && markRead(nid)}
               className={`glass flex items-start gap-4 rounded-3xl p-5 transition cursor-pointer ${
-                !isRead ? "border-l-4 border-l-[#ff4d2e] bg-[#ff4d2e]/5" : "opacity-80"
+                !isRead ? "border-l-4 border-l-brand bg-brand/5" : "opacity-80"
               }`}
             >
               <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm dark:bg-zinc-800">
@@ -107,7 +107,7 @@ export function Notifications() {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff4d2e]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-brand-fg">
                     {(n.notification_type || n.type || "ALERT").replace(/_/g, " ")}
                   </span>
                   <span className="flex items-center gap-1 text-[11px] text-zinc-400">

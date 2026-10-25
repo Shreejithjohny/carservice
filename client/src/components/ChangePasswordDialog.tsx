@@ -46,7 +46,7 @@ export function ChangePasswordDialog({ onClose }: Readonly<{ onClose: () => void
         {hasPassword && <PasswordField label="Current password" value={current} onChange={setCurrent} autoComplete="current-password" />}
         <PasswordField label="New password" value={password} onChange={setPassword} autoComplete="new-password" hint={PASSWORD_HINT} />
         <PasswordField label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
-        <button disabled={busy} type="submit" className="w-full rounded-2xl bg-[#ff4d2e] py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+        <button disabled={busy} type="submit" className="w-full rounded-2xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50">
           {busy ? "Saving..." : "Save password"}
         </button>
       </form>

@@ -36,14 +36,14 @@ export function ConditionReportView({ bookingId }: { bookingId: string | number 
     <div className="glass rounded-3xl p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-zinc-400">
-          <Camera size={16} className="text-[#ff4d2e]" /> {t("cr.title")}
+          <Camera size={16} className="text-brand-fg" /> {t("cr.title")}
         </h3>
         <div className="flex items-center gap-2 text-xs font-semibold">
-          <Gauge size={14} className="text-[#ff4d2e]" />
+          <Gauge size={14} className="text-brand-fg" />
           <span>{t("cr.pickup")}: {data.pickup_odometer_km != null ? `${data.pickup_odometer_km.toLocaleString("en-IN")} km` : "—"}</span>
           <span>· {t("cr.delivery")}: {data.delivery_odometer_km != null ? `${data.delivery_odometer_km.toLocaleString("en-IN")} km` : "—"}</span>
           {data.km_driven != null && (
-            <span className="rounded-full bg-[#ff4d2e]/10 px-2 py-0.5 text-[#ff4d2e]">{t("cr.kmDriven", { n: data.km_driven })}</span>
+            <span className="rounded-full bg-brand/10 px-2 py-0.5 text-brand-fg">{t("cr.kmDriven", { n: data.km_driven })}</span>
           )}
         </div>
       </div>

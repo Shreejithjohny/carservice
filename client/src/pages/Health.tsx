@@ -74,7 +74,7 @@ export function Health() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold flex items-center gap-2">
-            <Activity className="text-[#ff4d2e]" /> Car Health Score
+            <Activity className="text-brand-fg" /> Car Health Score
           </h1>
           <p className="text-sm text-zinc-500">Algorithmic vehicle health monitoring based on service history and inspections</p>
         </div>
@@ -120,7 +120,7 @@ export function Health() {
             <div className="glass col-span-2 flex flex-col justify-between rounded-3xl p-6">
               <div>
                 <h3 className="text-base font-bold flex items-center gap-2">
-                  <Car className="text-[#ff4d2e] h-5 w-5" />
+                  <Car className="text-brand-fg h-5 w-5" />
                   {selectedVehicle.brand} {selectedVehicle.model} ({selectedVehicle.registration_number})
                 </h3>
                 <p className="text-xs text-zinc-500 mt-1">
@@ -149,7 +149,7 @@ export function Health() {
 
               <div className="mt-5 rounded-2xl border border-zinc-200/80 bg-zinc-50/50 p-4 text-xs dark:border-zinc-800 dark:bg-zinc-800/40">
                 <p className="font-bold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1.5">
-                  <Info className="h-3.5 w-3.5 text-[#ff4d2e]" /> Algorithm Explanation & Contributing Factors:
+                  <Info className="h-3.5 w-3.5 text-brand-fg" /> Algorithm Explanation & Contributing Factors:
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed">
                   {healthScore.explanation}
@@ -161,7 +161,7 @@ export function Health() {
           {/* Service History Summary */}
           <div className="glass rounded-3xl p-6">
             <h3 className="text-base font-bold flex items-center gap-2 mb-4">
-              <Wrench className="h-5 w-5 text-[#ff4d2e]" /> Service History Log
+              <Wrench className="h-5 w-5 text-brand-fg" /> Service History Log
             </h3>
             {!vehicleHistory.length ? (
               <p className="text-xs text-zinc-500 py-3">No completed services recorded yet for this vehicle.</p>

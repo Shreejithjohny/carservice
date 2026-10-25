@@ -6,7 +6,7 @@ import { ApiError } from "../services/api";
 import { PasswordField, PASSWORD_HINT } from "../components/PasswordField";
 
 const INPUT =
-  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]";
+  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand";
 
 export function Register() {
   const { register, sendOtp } = useAuth();
@@ -55,7 +55,7 @@ export function Register() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f6f3ee] px-4 py-10 dark:bg-[#07080c] dark:text-white flex items-center justify-center">
+    <div className="min-h-dvh bg-canvas px-4 py-10 dark:bg-canvas-dark dark:text-white flex items-center justify-center">
       <div className="w-full max-w-md">
         <Link to="/" className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300">
           ← Back to DoorStep
@@ -96,7 +96,7 @@ export function Register() {
 
           <button
             disabled={busy}
-            className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white transition hover:bg-[#e94529] disabled:opacity-50 shadow-md shadow-[#ff4d2e]/20"
+            className="w-full rounded-2xl bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50 shadow-md shadow-brand/20"
             type="submit"
           >
             {busy ? "Please wait..." : "Create account"}
@@ -115,7 +115,7 @@ export function Register() {
 
         <p className="mt-4 text-center text-sm text-zinc-500">
           Already registered?{" "}
-          <Link to="/login" className="font-semibold text-[#ff4d2e] hover:underline">
+          <Link to="/login" className="font-semibold text-brand-fg hover:underline">
             Sign in
           </Link>
         </p>

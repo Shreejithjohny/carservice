@@ -20,10 +20,10 @@ export function VerifyInvoice() {
   const { data, error, loading } = useApi<Verification>(`/api/invoices/verify/${encodeURIComponent(token)}/`);
 
   return (
-    <div className="min-h-dvh bg-[#f6f3ee] px-4 py-12 text-zinc-900 dark:bg-[#07080c] dark:text-zinc-100">
+    <div className="min-h-dvh bg-canvas px-4 py-12 text-zinc-900 dark:bg-canvas-dark dark:text-zinc-100">
       <div className="glass mx-auto max-w-md rounded-3xl p-8 space-y-5">
         <p className="text-center text-xl font-extrabold">
-          Door<span className="text-[#ff4d2e]">Step</span> invoice check
+          Door<span className="text-brand-fg">Step</span> invoice check
         </p>
         {loading ? (
           <Skeleton className="h-40" />
@@ -59,7 +59,7 @@ export function VerifyInvoice() {
             )}
           </div>
         )}
-        <Link to="/" className="block text-center text-sm font-semibold text-[#ff4d2e]">
+        <Link to="/" className="block text-center text-sm font-semibold text-brand-fg">
           Go to DoorStep
         </Link>
       </div>

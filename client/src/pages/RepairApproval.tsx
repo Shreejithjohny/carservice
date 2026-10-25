@@ -22,7 +22,7 @@ export function RepairApproval() {
     <div className="space-y-6 max-w-3xl mx-auto">
       <div>
         <h1 className="text-2xl font-extrabold flex items-center gap-2">
-          <ShieldAlert className="text-[#ff4d2e]" /> Additional Repair Approvals
+          <ShieldAlert className="text-brand-fg" /> Additional Repair Approvals
         </h1>
         <p className="text-sm text-zinc-500">Inspect mechanic photo/video evidence and approve or decline additional repairs.</p>
       </div>
@@ -83,7 +83,7 @@ function BookingApprovalCard({ booking, onReload, push }: { booking: Booking; on
     <div className="glass rounded-3xl p-6 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
         <div>
-          <span className="text-xs font-mono font-bold text-[#ff4d2e] bg-[#ff4d2e]/10 px-2.5 py-0.5 rounded-full">
+          <span className="text-xs font-mono font-bold text-brand-fg bg-brand/10 px-2.5 py-0.5 rounded-full">
             {booking.booking_reference || booking.booking_id}
           </span>
           <h3 className="text-lg font-extrabold mt-1">
@@ -91,7 +91,7 @@ function BookingApprovalCard({ booking, onReload, push }: { booking: Booking; on
           </h3>
           <p className="text-xs text-zinc-500">Service: {booking.service_type_details?.name || booking.serviceType}</p>
         </div>
-        <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
+        <span className="rounded-full bg-brand/15 px-3 py-1 text-xs font-bold text-brand-fg">
           {booking.status}
         </span>
       </div>
@@ -100,7 +100,7 @@ function BookingApprovalCard({ booking, onReload, push }: { booking: Booking; on
       {evidenceItems.length > 0 && (
         <div className="space-y-3">
           <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-            <Camera size={15} className="text-[#ff4d2e]" /> Photo & Video Inspection Evidence
+            <Camera size={15} className="text-brand-fg" /> Photo & Video Inspection Evidence
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {evidenceItems.map((item: any) => (
@@ -137,7 +137,7 @@ function BookingApprovalCard({ booking, onReload, push }: { booking: Booking; on
                 </div>
                 <div className="text-right shrink-0">
                   <span className="text-xs text-zinc-400 font-bold block uppercase">Additional Cost</span>
-                  <span className="text-lg font-black text-[#ff4d2e]">
+                  <span className="text-lg font-black text-brand-fg">
                     ₹{Number(req.estimated_cost || req.additional_cost || 0).toLocaleString("en-IN")}
                   </span>
                 </div>
@@ -151,7 +151,7 @@ function BookingApprovalCard({ booking, onReload, push }: { booking: Booking; on
                   <button
                     type="button"
                     onClick={() => setSelectedReqForAi(req)}
-                    className="flex items-center gap-1 text-[11px] font-bold text-[#ff4d2e] hover:underline"
+                    className="flex items-center gap-1 text-[11px] font-bold text-brand-fg hover:underline"
                   >
                     <Sparkles className="h-3 w-3" /> Check Estimate
                   </button>

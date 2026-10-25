@@ -56,7 +56,7 @@ export function Invoices() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold flex items-center gap-2">
-            <Receipt className="text-[#ff4d2e]" /> Service Invoices
+            <Receipt className="text-brand-fg" /> Service Invoices
           </h1>
           <p className="text-sm text-zinc-500">View and download your official itemized service bills.</p>
         </div>
@@ -68,7 +68,7 @@ export function Invoices() {
               onClick={() => setFilterStatus(st)}
               className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
                 filterStatus === st
-                  ? "bg-[#ff4d2e] text-white"
+                  ? "bg-brand text-white"
                   : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
               }`}
             >
@@ -90,7 +90,7 @@ export function Invoices() {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-xs font-mono font-bold text-[#ff4d2e]">{inv.invoice_number}</span>
+                  <span className="text-xs font-mono font-bold text-brand-fg">{inv.invoice_number}</span>
                   <h3 className="text-base font-bold mt-1">
                     {inv.vehicle_details ? `${inv.vehicle_details.brand} ${inv.vehicle_details.model}` : "Vehicle Service"}
                   </h3>
@@ -117,7 +117,7 @@ export function Invoices() {
                     e.stopPropagation();
                     setPayingInvoice(inv);
                   }}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff4d2e] py-2.5 text-sm font-bold text-white hover:bg-[#e94529]"
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand py-2.5 text-sm font-bold text-white hover:bg-brand-hover"
                 >
                   <Wallet size={16} /> {inv.payment_status === "FAILED" ? "Retry payment" : "Pay now"}
                 </button>
@@ -132,12 +132,12 @@ export function Invoices() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="relative max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-8 text-zinc-900 shadow-2xl dark:bg-zinc-900 dark:text-white print:m-0 print:p-0">
             <div className="flex items-center justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800 print:hidden">
-              <span className="text-xs font-bold uppercase tracking-widest text-[#ff4d2e]">Service Invoice</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-brand-fg">Service Invoice</span>
               <div className="flex items-center gap-2">
                 {canPay(selectedInvoice) && (
                   <button
                     onClick={() => setPayingInvoice(selectedInvoice)}
-                    className="flex items-center gap-1.5 rounded-xl bg-[#ff4d2e] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#e94529]"
+                    className="flex items-center gap-1.5 rounded-xl bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-hover"
                   >
                     <Wallet className="h-3.5 w-3.5" /> Pay now
                   </button>
@@ -168,7 +168,7 @@ export function Invoices() {
             <div className="space-y-6 pt-4">
               <div className="flex justify-between">
                 <div>
-                  <h2 className="text-2xl font-black text-[#ff4d2e]">SMART DOORSTEP</h2>
+                  <h2 className="text-2xl font-black text-brand-fg">SMART DOORSTEP</h2>
                   <p className="text-xs text-zinc-500">Vehicle Service & Maintenance Platform</p>
                 </div>
                 <div className="text-right">
@@ -194,7 +194,7 @@ export function Invoices() {
                   <p className="font-bold text-zinc-500 uppercase tracking-wider mb-1">Service Provider</p>
                   <p className="font-semibold">{selectedInvoice.service_center_name || "Smart Doorstep Hub"}</p>
                   <p className="text-zinc-500">Booking: {selectedInvoice.booking_reference}</p>
-                  <p className="mt-2 font-bold uppercase text-[#ff4d2e]">Status: {selectedInvoice.payment_status}</p>
+                  <p className="mt-2 font-bold uppercase text-brand-fg">Status: {selectedInvoice.payment_status}</p>
                 </div>
               </div>
 
@@ -248,7 +248,7 @@ export function Invoices() {
                 </div>
                 <div className="flex justify-between border-t border-zinc-200 pt-2 text-base font-black text-zinc-900 dark:border-zinc-800 dark:text-white">
                   <span>Grand Total:</span>
-                  <span className="font-mono text-[#ff4d2e]">₹{Number(selectedInvoice.grand_total).toLocaleString("en-IN")}</span>
+                  <span className="font-mono text-brand-fg">₹{Number(selectedInvoice.grand_total).toLocaleString("en-IN")}</span>
                 </div>
               </div>
 

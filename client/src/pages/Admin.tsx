@@ -3,6 +3,7 @@ import { Empty, Skeleton } from "../components/States";
 import { useApi } from "../hooks/useApi";
 import { CostModelPanel } from "../components/CostModelPanel";
 import type { Booking, AdminStats } from "../types";
+import { BRAND } from "../utils/theme";
 
 export function AdminHome() {
   const { data: stats, loading, error, reload } = useApi<AdminStats>("/api/admin/dashboard-stats/");
@@ -77,7 +78,7 @@ export function AdminHome() {
           <BarChart data={chart}>
             <XAxis dataKey="name" stroke="#888888" fontSize={12} />
             <Tooltip />
-            <Bar dataKey="v" fill="#ff4d2e" radius={8} />
+            <Bar dataKey="v" fill={BRAND} radius={8} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -94,7 +95,7 @@ export function AdminHome() {
             {bookings.slice(0, 5).map((b) => (
               <div key={b.id} className="py-2.5 flex items-center justify-between text-xs">
                 <div>
-                  <span className="font-mono font-bold text-[#ff4d2e] mr-2">{b.booking_reference}</span>
+                  <span className="font-mono font-bold text-brand-fg mr-2">{b.booking_reference}</span>
                   <span className="font-medium">{b.service_type_details?.name || "Service"}</span>
                 </div>
                 <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 font-semibold">

@@ -43,7 +43,7 @@ export function ServiceReminders() {
               <p className="text-xs text-zinc-600 dark:text-zinc-400">{reasons(d)}</p>
             </div>
           </div>
-          <Link to={`/app/book?vehicle=${d.vehicle}`} className="rounded-2xl bg-[#ff4d2e] px-4 py-2 text-sm font-bold text-white">
+          <Link to={`/app/book?vehicle=${d.vehicle}`} className="rounded-2xl bg-brand px-4 py-2 text-sm font-bold text-white">
             {t("rem.bookNow")}
           </Link>
         </div>

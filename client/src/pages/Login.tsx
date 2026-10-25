@@ -18,7 +18,7 @@ const SIGN_IN_TABS = [
 ] as const satisfies readonly { slug: string; role: Role; label: string; icon: typeof Car; blurb: string; demo: string }[];
 
 const INPUT =
-  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]";
+  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand";
 
 export function Login() {
   const { slug = "customer" } = useParams();
@@ -81,11 +81,11 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
   const other = otherRole ? SIGN_IN_TABS.find((t) => t.role === otherRole.toLowerCase()) : undefined;
 
   return (
-    <div className="min-h-dvh bg-[#f6f3ee] px-4 py-10 text-zinc-900 dark:bg-[#07080c] dark:text-white">
+    <div className="min-h-dvh bg-canvas px-4 py-10 text-zinc-900 dark:bg-canvas-dark dark:text-white">
       <div className="mx-auto w-full max-w-md">
         <div className="flex items-center justify-between">
           <Link to="/" className="text-xl font-extrabold">
-            Door<span className="text-[#ff4d2e]">Step</span>
+            Door<span className="text-brand-fg">Step</span>
           </Link>
           <Link to="/" className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300">
             ← Home
@@ -102,7 +102,7 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
                 to={`/login/${t.slug}`}
                 aria-current={active ? "page" : undefined}
                 className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] font-bold transition ${
-                  active ? "bg-white text-[#ff4d2e] shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  active ? "bg-white text-brand-fg shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                 }`}
               >
                 <t.icon size={18} />
@@ -142,13 +142,13 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
             <button
               disabled={busy}
               type="submit"
-              className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white shadow-md shadow-[#ff4d2e]/20 transition hover:bg-[#e94529] disabled:opacity-50"
+              className="w-full rounded-2xl bg-brand py-3 text-sm font-semibold text-white shadow-md shadow-brand/20 transition hover:bg-brand-hover disabled:opacity-50"
             >
               {busy ? "Please wait..." : "Sign in"}
             </button>
 
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
-              <Link to="/forgot-password" state={{ identifier }} className="text-[#ff4d2e] hover:underline">
+              <Link to="/forgot-password" state={{ identifier }} className="text-brand-fg hover:underline">
                 Forgot password?
               </Link>
               {isCustomer && (
@@ -164,7 +164,7 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
               type="button"
               disabled={busy}
               onClick={onDemo}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#ff4d2e]/50 py-2.5 text-xs font-semibold text-[#ff4d2e] hover:bg-[#ff4d2e]/5 disabled:opacity-50"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-brand/50 py-2.5 text-xs font-semibold text-brand-fg hover:bg-brand/5 disabled:opacity-50"
             >
               <Sparkles size={14} /> Try the demo {tab.label.toLowerCase()} account
             </button>
@@ -175,7 +175,7 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
           {isCustomer ? (
             <>
               New to DoorStep?{" "}
-              <Link to="/register" className="font-semibold text-[#ff4d2e] hover:underline">
+              <Link to="/register" className="font-semibold text-brand-fg hover:underline">
                 Create an account
               </Link>
             </>

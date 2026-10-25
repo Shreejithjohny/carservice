@@ -26,7 +26,7 @@ export function PasswordField({
           required
           type={visible ? "text" : "password"}
           autoComplete={autoComplete}
-          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 pr-10 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]"
+          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 pr-10 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />

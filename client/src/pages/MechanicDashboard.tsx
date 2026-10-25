@@ -149,7 +149,7 @@ export function MechanicDashboard() {
     <div className="space-y-6 max-w-4xl mx-auto">
       <div>
         <h1 className="text-2xl font-extrabold flex items-center gap-2">
-          <Wrench className="text-[#ff4d2e]" /> Mechanic Operations Bay
+          <Wrench className="text-brand-fg" /> Mechanic Operations Bay
         </h1>
         <p className="text-sm text-zinc-500">Perform digital vehicle inspections, upload repair evidence, and request additional repair approvals.</p>
       </div>
@@ -164,7 +164,7 @@ export function MechanicDashboard() {
             <div key={bId} className="glass rounded-3xl p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
                 <div>
-                  <span className="text-xs font-mono font-bold text-[#ff4d2e] bg-[#ff4d2e]/10 px-2.5 py-0.5 rounded-full">
+                  <span className="text-xs font-mono font-bold text-brand-fg bg-brand/10 px-2.5 py-0.5 rounded-full">
                     {b.booking_reference || b.booking_id}
                   </span>
                   <h3 className="text-xl font-extrabold mt-1">
@@ -176,7 +176,7 @@ export function MechanicDashboard() {
                 </div>
 
                 <div className="text-right">
-                  <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
+                  <span className="rounded-full bg-brand/15 px-3 py-1 text-xs font-bold text-brand-fg">
                     {b.status}
                   </span>
                   <p className="text-sm font-extrabold text-emerald-600 mt-1">
@@ -251,7 +251,7 @@ export function MechanicDashboard() {
                     <button
                       onClick={() => setActiveSection("inspection")}
                       className={`rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1 ${
-                        activeSection === "inspection" ? "bg-[#ff4d2e] text-white" : "bg-zinc-200 dark:bg-zinc-800"
+                        activeSection === "inspection" ? "bg-brand text-white" : "bg-zinc-200 dark:bg-zinc-800"
                       }`}
                     >
                       <ClipboardCheck size={14} /> Digital Inspection
@@ -259,7 +259,7 @@ export function MechanicDashboard() {
                     <button
                       onClick={() => setActiveSection("evidence")}
                       className={`rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1 ${
-                        activeSection === "evidence" ? "bg-[#ff4d2e] text-white" : "bg-zinc-200 dark:bg-zinc-800"
+                        activeSection === "evidence" ? "bg-brand text-white" : "bg-zinc-200 dark:bg-zinc-800"
                       }`}
                     >
                       <Camera size={14} /> Photo / Video Evidence
@@ -267,7 +267,7 @@ export function MechanicDashboard() {
                     <button
                       onClick={() => setActiveSection("repair")}
                       className={`rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1 ${
-                        activeSection === "repair" ? "bg-[#ff4d2e] text-white" : "bg-zinc-200 dark:bg-zinc-800"
+                        activeSection === "repair" ? "bg-brand text-white" : "bg-zinc-200 dark:bg-zinc-800"
                       }`}
                     >
                       <PlusCircle size={14} /> Additional Repair Request
@@ -331,7 +331,7 @@ export function MechanicDashboard() {
                       <button
                         disabled={submittingInspection}
                         type="submit"
-                        className="w-full rounded-2xl bg-[#ff4d2e] py-2.5 font-bold text-white hover:bg-[#e03e21]"
+                        className="w-full rounded-2xl bg-brand py-2.5 font-bold text-white hover:bg-brand-hover"
                       >
                         {submittingInspection ? "Submitting..." : "Save Digital Inspection"}
                       </button>
@@ -397,7 +397,7 @@ export function MechanicDashboard() {
                         <button
                           type="button"
                           onClick={() => setShowAiModal(true)}
-                          className="flex items-center gap-1.5 rounded-xl bg-[#ff4d2e]/10 px-3 py-1.5 text-xs font-bold text-[#ff4d2e] hover:bg-[#ff4d2e]/20"
+                          className="flex items-center gap-1.5 rounded-xl bg-brand/10 px-3 py-1.5 text-xs font-bold text-brand-fg hover:bg-brand/20"
                         >
                           <Sparkles className="h-3.5 w-3.5" /> Cost Estimator
                         </button>

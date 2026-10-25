@@ -79,7 +79,7 @@ export function AICostEstimatorModal({
         )}
 
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#ff4d2e]/10 text-[#ff4d2e]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand/10 text-brand-fg">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
@@ -177,7 +177,7 @@ export function AICostEstimatorModal({
           <button
             type="submit"
             disabled={loading}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff4d2e] py-3 text-sm font-bold text-white shadow-lg shadow-[#ff4d2e]/20 transition hover:bg-[#ff3514] disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-brand py-3 text-sm font-bold text-white shadow-lg shadow-brand/20 transition hover:bg-brand-hover disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4" />
             {loading ? "Calculating..." : "Calculate Cost Estimate"}
@@ -187,7 +187,7 @@ export function AICostEstimatorModal({
         {estimate && (
           <div className="mt-5 space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/60">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#ff4d2e]">
+              <span className="text-xs font-bold uppercase tracking-wider text-brand-fg">
                 {estimate.estimation_source === "ML" ? "Learned from past repairs" : estimate.estimation_source === "AI" ? "AI Estimate" : "Rule-based estimate"}
               </span>
               <span className="flex items-center gap-1 text-xs text-zinc-500">

@@ -199,7 +199,7 @@ export function Vehicles() {
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="flex items-center gap-2 rounded-2xl bg-[#ff4d2e] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#e94529] shadow-lg shadow-[#ff4d2e]/20"
+          className="flex items-center gap-2 rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-hover shadow-lg shadow-brand/20"
         >
           <Plus size={18} /> Add Vehicle
         </button>
@@ -226,7 +226,7 @@ export function Vehicles() {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff4d2e]/10 text-[#ff4d2e]">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10 text-brand-fg">
                       <Car size={24} />
                     </div>
                     <div>
@@ -247,7 +247,7 @@ export function Vehicles() {
                     </div>
                   )}
                   <div className="flex items-center justify-between border-b border-zinc-200/50 py-1.5 dark:border-zinc-800">
-                    <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-[#ff4d2e]" /> Reg. Number</span>
+                    <span className="flex items-center gap-1.5"><ShieldCheck size={14} className="text-brand-fg" /> Reg. Number</span>
                     <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">{reg}</span>
                   </div>
                   <div className="flex items-center justify-between border-b border-zinc-200/50 py-1.5 dark:border-zinc-800">
@@ -277,7 +277,7 @@ export function Vehicles() {
                   </button>
                   <Link
                     to={`/app/book?vehicle=${v.id || v._id}`}
-                    className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-[#ff4d2e] py-2 text-xs font-bold text-white transition hover:bg-[#e94529]"
+                    className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-brand py-2 text-xs font-bold text-white transition hover:bg-brand-hover"
                   >
                     <Wrench size={13} /> Book
                   </Link>
@@ -451,7 +451,7 @@ export function Vehicles() {
                 <button
                   disabled={busy}
                   type="submit"
-                  className="rounded-2xl bg-[#ff4d2e] px-6 py-2.5 text-xs font-bold text-white transition hover:bg-[#e94529] disabled:opacity-50"
+                  className="rounded-2xl bg-brand px-6 py-2.5 text-xs font-bold text-white transition hover:bg-brand-hover disabled:opacity-50"
                 >
                   {busy ? "Saving..." : editingVehicle ? "Save Changes" : "Save Vehicle"}
                 </button>

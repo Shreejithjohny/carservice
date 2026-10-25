@@ -22,15 +22,15 @@ export function Dashboard() {
     <div className="space-y-6">
       <ServiceReminders />
       <div className="glass overflow-hidden rounded-3xl p-6">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-zinc-400"><MapPin size={14} className="text-[#ff4d2e]" /> {t("dash.pickupLocation")}</div>
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-zinc-400"><MapPin size={14} className="text-brand-fg" /> {t("dash.pickupLocation")}</div>
         <h2 className="mt-2 text-3xl font-extrabold">{t("dash.greeting", { name: user?.name.split(" ")[0] ?? "" })}</h2>
         <p className="mt-1 text-sm text-zinc-500">{t("dash.question")}</p>
-        <Link to="/app/book" className="mt-5 flex items-center justify-between rounded-2xl bg-[#ff4d2e] px-4 py-3 font-bold text-white transition hover:bg-[#e94529]"><span>{t("dash.bookCta")}</span><ArrowRight size={18} /></Link>
+        <Link to="/app/book" className="mt-5 flex items-center justify-between rounded-2xl bg-brand px-4 py-3 font-bold text-white transition hover:bg-brand-hover"><span>{t("dash.bookCta")}</span><ArrowRight size={18} /></Link>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((tile) => (
           <Link key={tile.to} to={tile.to} className="glass group rounded-3xl p-5 transition hover:-translate-y-0.5">
-            <tile.icon className="text-[#ff4d2e]" size={22} />
+            <tile.icon className="text-brand-fg" size={22} />
             <h3 className="mt-3 text-lg font-bold">{t(`dash.tile.${tile.key}`)}</h3>
             <p className="text-sm text-zinc-500">{t(`dash.tile.${tile.key}Hint`)}</p>
           </Link>

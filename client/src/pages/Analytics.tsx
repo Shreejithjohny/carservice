@@ -5,9 +5,10 @@ import { useApi } from "../hooks/useApi";
 import { useAuth } from "../hooks/useAuth";
 import { Empty, Skeleton } from "../components/States";
 import type { CenterAnalytics, ServiceCenter } from "../types";
+import { BRAND } from "../utils/theme";
 
 // Every chart here shows a single series, so it uses the one brand accent (validated >= 3:1 on both themes).
-const ACCENT = "#ff4d2e";
+const ACCENT = BRAND;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
 function Tile({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
@@ -123,7 +124,7 @@ export function Analytics() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold">
-            <BarChart3 className="text-[#ff4d2e]" /> Analytics
+            <BarChart3 className="text-brand-fg" /> Analytics
           </h1>
           <p className="text-sm text-zinc-500">{data?.scope ?? "Loading..."}</p>
         </div>

@@ -168,7 +168,7 @@ export function AdminCatalog() {
           onClick={() => setActiveTab("brands")}
           className={`pb-3 px-4 text-sm font-bold transition border-b-2 ${
             activeTab === "brands"
-              ? "border-[#ff4d2e] text-[#ff4d2e]"
+              ? "border-brand text-brand-fg"
               : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
           }`}
         >
@@ -179,7 +179,7 @@ export function AdminCatalog() {
           onClick={() => setActiveTab("models")}
           className={`pb-3 px-4 text-sm font-bold transition border-b-2 ${
             activeTab === "models"
-              ? "border-[#ff4d2e] text-[#ff4d2e]"
+              ? "border-brand text-brand-fg"
               : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
           }`}
         >
@@ -190,7 +190,7 @@ export function AdminCatalog() {
           onClick={() => setActiveTab("variants")}
           className={`pb-3 px-4 text-sm font-bold transition border-b-2 ${
             activeTab === "variants"
-              ? "border-[#ff4d2e] text-[#ff4d2e]"
+              ? "border-brand text-brand-fg"
               : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
           }`}
         >
@@ -223,7 +223,7 @@ export function AdminCatalog() {
             <button
               disabled={busy}
               type="submit"
-              className="flex items-center gap-1.5 rounded-2xl bg-[#ff4d2e] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#e94529] disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-2xl bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-hover disabled:opacity-50"
             >
               <Plus size={16} /> Add Brand
             </button>
@@ -293,7 +293,7 @@ export function AdminCatalog() {
             <button
               disabled={busy}
               type="submit"
-              className="flex items-center justify-center gap-1.5 rounded-2xl bg-[#ff4d2e] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#e94529] disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 rounded-2xl bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-hover disabled:opacity-50"
             >
               <Plus size={16} /> Add Model
             </button>
@@ -369,7 +369,7 @@ export function AdminCatalog() {
             <button
               disabled={busy}
               type="submit"
-              className="flex items-center justify-center gap-1.5 rounded-2xl bg-[#ff4d2e] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#e94529] disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 rounded-2xl bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-hover disabled:opacity-50"
             >
               <Plus size={16} /> Add Variant
             </button>

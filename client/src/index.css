@@ -5,8 +5,19 @@
 @theme {
   /* Outfit has no Indian scripts; Hindi and Kannada text falls through to the Noto fonts */
   --font-sans: "Outfit", "Noto Sans Devanagari", "Noto Sans Kannada", ui-sans-serif, system-ui, sans-serif;
-  --color-brand: #ff4d2e;
-  --color-ink: #0b0d12;
+  /* Colour scheme: Tailwind blue-600 on white/slate. Change these to re-theme the whole app.
+     brand    = filled things (buttons, badges); white text on it is 5.2:1
+     brand-fg = blue text and icons; lighter in dark mode so it stays readable (see .dark below) */
+  --color-brand: #2563eb;
+  --color-brand-hover: #1d4ed8;
+  --color-brand-fg: #2563eb;
+  --color-canvas: #f8fafc;
+  --color-canvas-dark: #0f172a;
+  --color-ink: #0f172a;
+}
+
+.dark {
+  --color-brand-fg: #60a5fa;
 }
 
 html, body, #root { min-height: 100%; }
@@ -18,14 +29,14 @@ body { font-family: var(--font-sans); }
   border: 1px solid rgb(255 255 255 / 0.4);
 }
 .dark .glass {
-  background: color-mix(in srgb, #12141c 78%, transparent);
+  background: color-mix(in srgb, #1e293b 78%, transparent);
   border-color: rgb(255 255 255 / 0.08);
 }
 
 .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #1da56a; box-shadow: 0 0 0 3px rgb(29 165 106 / .13); }
 .map-pin { display: grid; width: 30px; height: 30px; place-items: center; border: 3px solid #fff; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 800; box-shadow: 0 4px 12px rgb(21 25 35 / .3); }
 .map-pin-sm { width: 18px; height: 18px; border-width: 2px; font-size: 9px; box-shadow: none; }
-.map-pin-pickup { background: #ff4d2e; }
+.map-pin-pickup { background: var(--color-brand); }
 .map-pin-hub { background: #151923; }
 .map-pin-driver { background: #1da56a; }
 @media (max-width: 640px) { .track-map { min-height: 300px; } .map-point span { display: none; } }
