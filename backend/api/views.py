@@ -74,6 +74,7 @@ from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
+from .geocoding_service import GeocodingError, reverse_geocode, search_address
 from .plate_service import LIKELY, MATCH, check_plate
 from .reminder_service import service_due
 from .analytics_service import center_analytics
@@ -1246,6 +1247,39 @@ def calculate_distance_view(request):
     from .location_service import get_route_info
     route_info = get_route_info(origin_lat, origin_lng, dest_lat, dest_lng)
     return Response(route_info)
+
+
+GEOCODING_DOWN = "Address search is unavailable right now. Tap the map or pick a preset area instead."
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def location_search(request):
+    """GET /api/location/search/?q=koramangala -> up to 5 matching places (OpenStreetMap)"""
+    query = str(request.query_params.get("q", "")).strip()
+    if len(query) < 3:
+        return Response({"error": "Type at least 3 characters to search."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        return Response({"results": search_address(query)})
+    except GeocodingError:
+        return Response({"error": GEOCODING_DOWN}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def location_reverse(request):
+    """GET /api/location/reverse/?lat=12.97&lng=77.64 -> readable address for a map pin"""
+    try:
+        lat = float(request.query_params.get("lat"))
+        lng = float(request.query_params.get("lng"))
+    except (TypeError, ValueError):
+        return Response({"error": "Valid lat and lng are required."}, status=status.HTTP_400_BAD_REQUEST)
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return Response({"error": "Coordinates are out of range."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        return Response({"address": reverse_geocode(lat, lng)})
+    except GeocodingError:
+        return Response({"error": GEOCODING_DOWN}, status=status.HTTP_502_BAD_GATEWAY)
 
 
 # ==========================================

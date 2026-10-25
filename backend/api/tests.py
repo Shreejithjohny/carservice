@@ -2172,3 +2172,66 @@ class RoleSignInTabTests(TestCase):
     def test_superuser_counts_as_admin(self):
         self.assertEqual(self.login("tab_s@example.com", "Root#Power42", "ADMIN").status_code, 200)
         self.assertEqual(self.login("tab_s@example.com", "Root#Power42", "CUSTOMER").data["account_role"], UserRole.ADMIN)
+
+
+class GeocodingTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.client = APIClient()
+        self.client.force_authenticate(user=User.objects.create_user(username="geo_c", email="geo_c@example.com"))
+
+    def fake_urlopen(self, payload, calls):
+        from io import BytesIO
+        import json
+
+        class Resp(BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def opener(request, timeout=None):
+            calls.append(request.full_url)
+            return Resp(json.dumps(payload).encode())
+
+        return opener
+
+    def test_search_returns_places_and_caches(self):
+        from unittest import mock
+
+        calls = []
+        payload = [{"display_name": "Koramangala, Bengaluru, Karnataka, India", "lat": "12.9352", "lon": "77.6245"}]
+        with mock.patch("api.geocoding_service.urllib.request.urlopen", self.fake_urlopen(payload, calls)):
+            res = self.client.get("/api/location/search/?q=Koramangala")
+            again = self.client.get("/api/location/search/?q=koramangala")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["results"][0], {"label": payload[0]["display_name"], "latitude": 12.9352, "longitude": 77.6245})
+        self.assertEqual(again.data, res.data)
+        self.assertEqual(len(calls), 1)  # second search served from the cache
+        self.assertIn("countrycodes=in", calls[0])
+
+    def test_reverse_and_validation(self):
+        from unittest import mock
+
+        calls = []
+        with mock.patch("api.geocoding_service.urllib.request.urlopen", self.fake_urlopen({"display_name": "100 Feet Road, Indiranagar"}, calls)):
+            res = self.client.get("/api/location/reverse/?lat=12.97841&lng=77.64081")
+        self.assertEqual(res.data["address"], "100 Feet Road, Indiranagar")
+        self.assertEqual(self.client.get("/api/location/reverse/?lat=abc&lng=1").status_code, 400)
+        self.assertEqual(self.client.get("/api/location/reverse/?lat=95&lng=1").status_code, 400)
+        self.assertEqual(self.client.get("/api/location/search/?q=ab").status_code, 400)
+
+    def test_service_down_gives_a_friendly_502(self):
+        from unittest import mock
+
+        with mock.patch("api.geocoding_service.urllib.request.urlopen", side_effect=OSError("no network")):
+            res = self.client.get("/api/location/search/?q=Whitefield")
+        self.assertEqual(res.status_code, 502)
+        self.assertIn("Tap the map", res.data["error"])
+
+    def test_requires_sign_in(self):
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get("/api/location/search/?q=Whitefield").status_code, 401)
