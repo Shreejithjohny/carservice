@@ -393,10 +393,11 @@ export function Vehicles() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                <label htmlFor="vehicle-odometer" className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
                   Current Odometer (km, optional)
                 </label>
                 <input
+                  id="vehicle-odometer"
                   type="number"
                   min={0}
                   inputMode="numeric"

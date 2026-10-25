@@ -107,7 +107,7 @@ export function PlateScanner({ bookingId, verified, onVerified }: { bookingId: s
               className="hidden"
               disabled={stage !== "idle"}
               onChange={(e) => {
-                scan(e.target.files?.[0]);
+                void scan(e.target.files?.[0]);
                 e.target.value = "";
               }}
             />

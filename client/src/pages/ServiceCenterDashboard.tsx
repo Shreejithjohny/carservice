@@ -223,7 +223,7 @@ export function ServiceCenterDashboard() {
                         <button
                           onClick={() => {
                             if (window.confirm("Mark as collected at the center? Use this only if the customer picked up the car themselves."))
-                              handleAssignAndStatus(b, "Completed");
+                              void handleAssignAndStatus(b, "Completed");
                           }}
                           className="rounded-xl border border-emerald-700 px-3.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
                         >

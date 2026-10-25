@@ -86,7 +86,7 @@ export function ConditionCapture({ bookingId, stage }: { bookingId: string | num
               className="hidden"
               disabled={uploading !== null}
               onChange={(e) => {
-                upload(a.value, e.target.files?.[0]);
+                void upload(a.value, e.target.files?.[0]);
                 e.target.value = "";
               }}
             />

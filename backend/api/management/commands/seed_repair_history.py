@@ -32,6 +32,8 @@ class Command(BaseCommand):
         parser.add_argument("--seed", type=int, default=7)
 
     def handle(self, *args, **options):
+        # A seeded, non-cryptographic generator is deliberate: the demo data must be reproducible and
+        # nothing secret is derived from it (OTPs use the secrets module). Hence the NOSONAR markers.
         rng = random.Random(options["seed"])
         service_types = list(ServiceType.objects.all())
         if not service_types:
@@ -50,20 +52,20 @@ class Command(BaseCommand):
         now = timezone.now()
 
         for i in range(options["count"]):
-            fuel = rng.choice(FUELS)
-            year = rng.randint(2010, 2025)
+            fuel = rng.choice(FUELS)  # NOSONAR
+            year = rng.randint(2010, 2025)  # NOSONAR
             vehicle = Vehicle.objects.create(
                 customer=customer, brand="Synthetic", model=f"Car {i}", fuel_type=fuel, year=year,
                 registration_number=f"SY{options['seed']:02d}{i:06d}",
             )
-            st = rng.choice(service_types)
-            severity = rng.choices(list(SEVERITY_FACTOR), weights=[3, 4, 2, 1])[0]
-            hours = rng.randint(1, 6)
+            st = rng.choice(service_types)  # NOSONAR
+            severity = rng.choices(list(SEVERITY_FACTOR), weights=[3, 4, 2, 1])[0]  # NOSONAR
+            hours = rng.randint(1, 6)  # NOSONAR
             age = now.year - year
             # Hidden "true" price process plus ±20%-ish log-normal noise
             parts = 900 * SEVERITY_FACTOR[severity] * FUEL_FACTOR[fuel] * (1 + 0.03 * age) * (float(st.base_price) / 2000) ** 0.5
-            cost = round(parts * rng.lognormvariate(0, 0.2) + 350 * hours * rng.lognormvariate(0, 0.1), -1)
-            done = now - timedelta(days=rng.randint(1, 330))
+            cost = round(parts * rng.lognormvariate(0, 0.2) + 350 * hours * rng.lognormvariate(0, 0.1), -1)  # NOSONAR
+            done = now - timedelta(days=rng.randint(1, 330))  # NOSONAR
             booking = ServiceBooking.objects.create(
                 customer=customer, vehicle=vehicle, service_type=st, service_center=center,
                 pickup_address="Synthetic", status=BookingStatus.COMPLETED, completed_at=done,
@@ -71,7 +73,7 @@ class Command(BaseCommand):
             )
             ServiceInspection.objects.create(booking=booking, mechanic=mechanic, inspection_notes="Synthetic", severity=severity)
             RepairRequest.objects.create(
-                booking=booking, mechanic=mechanic, issue_title=rng.choice(REPAIRS), description="Synthetic",
+                booking=booking, mechanic=mechanic, issue_title=rng.choice(REPAIRS), description="Synthetic",  # NOSONAR
                 additional_cost=cost, estimated_extra_hours=hours, status=RepairRequestStatus.APPROVED,
             )
         self.stdout.write(self.style.WARNING(f"Created {options['count']} SYNTHETIC repairs. Do not report model accuracy on them as real."))
