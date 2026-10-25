@@ -54,6 +54,8 @@ Open http://localhost:5173. The scripts call `python`; if your system only has `
 | Mechanic | mechanic@smartdoorstep.com |
 | Customer | customer@smartdoorstep.com |
 
+To also sign in to the demo accounts with email + password, set `DEMO_ACCOUNT_PASSWORD` in `backend/.env` to a password of your choice **before** running `npm run seed`. The seed gives each demo account that password, but only if the account has none yet, so a password that was changed is never reset. The password lives only in your `.env`, never in the code.
+
 With `OTP_BYPASS=True` (set in `.env.example`) the login page shows one-click demo buttons for these accounts. With it off, sign-in always uses a one-time code. Without SMS/email configured, the code is printed in the backend console (development only).
 
 ## Features at a glance
@@ -69,6 +71,7 @@ With `OTP_BYPASS=True` (set in `.env.example`) the login page shows one-click de
 | PDF invoice + QR | Invoices → *Download PDF*; QR opens `/verify/<code>` | Code is signed with `SECRET_KEY`. Titled INVOICE, not TAX INVOICE: the app stores no GSTIN. |
 | Analytics | Manager and admin → Analytics | Revenue, bookings, turnaround, top repairs, approval rate, ratings. |
 | Learned cost estimator | Admin overview → *Repair cost model*; `python manage.py train_cost_model` | Used once 30+ completed, approved repairs exist; otherwise the rule formula. See below. |
+| Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. "Forgot password" sends a 6-digit code by email/SMS. Sign-in with a one-time code still works. |
 | Hindi / Kannada | Language menu (customer screens) | Navigation, home, booking, tracking, reminders, reviews. Staff screens stay in English. Translations need a native speaker's review. |
 
 ### The learned cost estimator, honestly

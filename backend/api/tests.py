@@ -2045,3 +2045,95 @@ class SyntheticHistoryHiddenTests(TestCase):
         client.force_authenticate(user=admin)
         for url in ["/api/bookings/", "/api/service-center/bookings/", "/api/driver/pickups/", "/api/mechanic/jobs/"]:
             self.assertEqual(client.get(url).data, [], url)
+
+
+@override_settings(OTP_BYPASS=False)
+class PasswordAuthTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def register(self, **overrides):
+        body = {"name": "Meera Iyer", "email": "meera@example.com", "phone": "9845012345", "password": "Garage#Blue77"}
+        body.update(overrides)
+        return self.client.post("/api/auth/register/", body, format="json")
+
+    def login(self, identifier, password):
+        return self.client.post("/api/auth/login/", {"identifier": identifier, "password": password}, format="json")
+
+    def test_register_then_login_by_email_or_phone(self):
+        res = self.register()
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["user"]["role"], UserRole.CUSTOMER)
+        self.assertTrue(res.data["user"]["has_password"])
+        self.assertIn("access", res.data)
+        user = User.objects.get(email="meera@example.com")
+        self.assertNotEqual(user.password, "Garage#Blue77")  # stored hashed
+        self.assertTrue(hasattr(user, "customer_profile"))
+
+        self.assertEqual(self.login("MEERA@example.com", "Garage#Blue77").status_code, 200)
+        self.assertEqual(self.login("+91 98450 12345", "Garage#Blue77").status_code, 200)
+
+    def test_weak_password_and_duplicate_email_are_refused(self):
+        res = self.register(password="12345678")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("password", res.data)
+        self.assertEqual(self.register(password="password").status_code, 400)
+        self.assertEqual(self.register().status_code, 201)
+        # Registering again must not take over the existing account
+        res = self.register(phone="", password="Another#Pass91")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("already exists", res.data["error"])
+        self.assertEqual(self.login("meera@example.com", "Another#Pass91").status_code, 400)
+
+    def test_same_message_for_unknown_account_and_wrong_password(self):
+        self.register()
+        wrong = self.login("meera@example.com", "nope-nope")
+        unknown = self.login("nobody@example.com", "nope-nope")
+        self.assertEqual((wrong.status_code, unknown.status_code), (400, 400))
+        self.assertEqual(wrong.data["error"], unknown.data["error"])
+
+    def test_lockout_after_five_wrong_passwords(self):
+        self.register()
+        for _ in range(5):
+            self.login("meera@example.com", "wrong-guess")
+        res = self.login("meera@example.com", "Garage#Blue77")
+        self.assertEqual(res.status_code, 429)
+        user = User.objects.get(email="meera@example.com")
+        user.password_locked_until = timezone.now() - timedelta(seconds=1)
+        user.save()
+        self.assertEqual(self.login("meera@example.com", "Garage#Blue77").status_code, 200)
+
+    def test_otp_only_account_has_no_password_and_can_set_one(self):
+        otp_user = User.objects.create(email="otp@example.com", username="otp_user", role=UserRole.CUSTOMER)
+        self.assertEqual(self.login("otp@example.com", "").status_code, 400)
+        self.client.force_authenticate(user=otp_user)
+        self.assertFalse(self.client.get("/api/auth/me/").data["has_password"])
+        res = self.client.post("/api/auth/change-password/", {"new_password": "Fresh#Start42"}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        # Now a current password is required
+        res = self.client.post("/api/auth/change-password/", {"current_password": "bad", "new_password": "Other#Pass55"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.login("otp@example.com", "Fresh#Start42").status_code, 200)
+
+    def test_password_reset_with_emailed_code(self):
+        self.register()
+        res = self.client.post("/api/auth/password-reset/request/", {"identifier": "meera@example.com"}, format="json")
+        unknown = self.client.post("/api/auth/password-reset/request/", {"identifier": "ghost@example.com"}, format="json")
+        self.assertEqual(res.data["message"], unknown.data["message"])  # no account discovery
+        self.assertNotIn("otp_code", res.data)  # never returned outside demo mode
+        code = User.objects.get(email="meera@example.com").otp_code
+
+        wrong = "000000" if code != "000000" else "111111"
+        body = {"identifier": "meera@example.com", "otp_code": wrong, "new_password": "Brand#New2026"}
+        self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)
+        body["otp_code"] = code
+        body["new_password"] = "123"
+        self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)
+        body["new_password"] = "Brand#New2026"
+        res = self.client.post("/api/auth/password-reset/confirm/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.login("meera@example.com", "Brand#New2026").status_code, 200)
+        self.assertEqual(self.login("meera@example.com", "Garage#Blue77").status_code, 400)
+        # The code works only once
+        self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)

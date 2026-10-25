@@ -18,6 +18,7 @@ export const en = {
   "shell.dark": "Dark mode",
   "shell.signOut": "Sign out",
   "shell.language": "Language",
+  "shell.password": "Change password",
 
   "dash.pickupLocation": "Pickup location",
   "dash.greeting": "Good to see you, {name}",
@@ -169,6 +170,7 @@ export const hi: Dictionary = {
   "shell.dark": "डार्क मोड",
   "shell.signOut": "साइन आउट",
   "shell.language": "भाषा",
+  "shell.password": "पासवर्ड बदलें",
 
   "dash.pickupLocation": "पिकअप स्थान",
   "dash.greeting": "आपका स्वागत है, {name}",
@@ -317,6 +319,7 @@ export const kn: Dictionary = {
   "shell.dark": "ಡಾರ್ಕ್ ಮೋಡ್",
   "shell.signOut": "ಸೈನ್ ಔಟ್",
   "shell.language": "ಭಾಷೆ",
+  "shell.password": "ಪಾಸ್‌ವರ್ಡ್ ಬದಲಿಸಿ",
 
   "dash.pickupLocation": "ಪಿಕಪ್ ಸ್ಥಳ",
   "dash.greeting": "ಸ್ವಾಗತ, {name}",

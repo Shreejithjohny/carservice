@@ -2,6 +2,8 @@ from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Avg, Q
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -42,6 +44,7 @@ from .models import (
 from .serializers import (
     SendOTPSerializer,
     VerifyOTPSerializer,
+    PasswordRegisterSerializer,
     UserSerializer,
     CarBrandSerializer,
     CarModelSerializer,
@@ -570,6 +573,207 @@ def verify_otp(request):
         "user": user_data
     }, status=status.HTTP_200_OK)
 
+
+
+# ==========================================
+# EMAIL + PASSWORD SIGN-IN
+# ==========================================
+
+MAX_PASSWORD_ATTEMPTS = 5
+PASSWORD_LOCK_MINUTES = 15
+
+
+def auth_tokens_response(user, message, status_code=status.HTTP_200_OK):
+    refresh = RefreshToken.for_user(user)
+    access_token = str(refresh.access_token)
+    return Response({
+        "message": message,
+        "token": access_token,
+        "access": access_token,
+        "refresh": str(refresh),
+        "user": UserSerializer(user).data,
+    }, status=status_code)
+
+
+def find_user_by_identifier(identifier):
+    """An email address or a mobile number, in any common format."""
+    identifier = (identifier or "").strip()
+    if not identifier:
+        return None
+    if "@" in identifier:
+        return User.objects.filter(email__iexact=identifier).first()
+    clean_phone = identifier.replace(" ", "").replace("-", "")
+    return User.objects.filter(phone=normalize_phone_number(identifier)).first() or User.objects.filter(phone=clean_phone).first()
+
+
+def password_error(password, user):
+    """Django's password rules (length, common passwords, all-numeric, too close to the name/email)."""
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        return Response({"error": " ".join(exc.messages), "password": list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def register_with_password(request):
+    """
+    POST /api/auth/register/  {"name", "email", "phone" (optional), "password"}
+    Creates a customer account and signs it in. Staff accounts are still created by an admin.
+    """
+    serializer = PasswordRegisterSerializer(data=request.data)
+    if not serializer.is_valid():
+        errors = serializer.errors
+        first = next(iter(errors.values()))[0] if errors else "Invalid details."
+        return Response({"error": str(first), **errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+    first_name, _, last_name = data["name"].strip().partition(" ")
+    user = User(
+        email=data["email"],
+        username=f"{data['email'].split('@')[0]}_{timezone.now().strftime('%M%S%f')[:8]}",
+        phone=data.get("phone") or None,
+        first_name=first_name,
+        last_name=last_name,
+        role=UserRole.CUSTOMER,
+    )
+    user.set_password(data["password"])
+    user.save()
+    CustomerProfile.objects.create(user=user)
+    return auth_tokens_response(user, "Account created.", status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_login(request):
+    """
+    POST /api/auth/login/  {"identifier": email or mobile, "password"}
+    Five wrong passwords in a row lock the account for 15 minutes.
+    """
+    identifier = str(request.data.get("identifier") or request.data.get("email") or "").strip()
+    password = str(request.data.get("password") or "")
+    if not identifier or not password:
+        return Response({"error": "Enter your email (or mobile number) and password."}, status=status.HTTP_400_BAD_REQUEST)
+
+    invalid = Response({"error": "Invalid email or password."}, status=status.HTTP_400_BAD_REQUEST)
+    user = find_user_by_identifier(identifier)
+    if user is None or not user.has_password():
+        # Hash anyway, so a missing account answers as slowly as a wrong password
+        User().set_password(password)
+        return invalid
+
+    now = timezone.now()
+    if user.password_locked_until and user.password_locked_until > now:
+        minutes = max(1, int((user.password_locked_until - now).total_seconds() // 60) + 1)
+        return Response(
+            {"error": f"Too many failed attempts. Try again in {minutes} minute(s), or reset your password."},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    if not user.check_password(password) or not user.is_active:
+        user.password_attempts += 1
+        if user.password_attempts >= MAX_PASSWORD_ATTEMPTS:
+            user.password_attempts = 0
+            user.password_locked_until = now + timedelta(minutes=PASSWORD_LOCK_MINUTES)
+        user.save(update_fields=["password_attempts", "password_locked_until"])
+        return invalid
+
+    user.password_attempts = 0
+    user.password_locked_until = None
+    user.save(update_fields=["password_attempts", "password_locked_until"])
+    if user.role == UserRole.CUSTOMER and not hasattr(user, "customer_profile"):
+        CustomerProfile.objects.create(user=user)
+    return auth_tokens_response(user, "Signed in successfully.")
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_reset_request(request):
+    """
+    POST /api/auth/password-reset/request/  {"identifier"}
+    Sends a 6-digit reset code by SMS/email. The reply is the same whether or not the account
+    exists, so this cannot be used to find out who is registered.
+    """
+    identifier = str(request.data.get("identifier") or "").strip()
+    if not identifier:
+        return Response({"error": "Enter your email or mobile number."}, status=status.HTTP_400_BAD_REQUEST)
+
+    reply = {"message": "If an account exists for that email or number, a reset code has been sent.", "expires_in_minutes": 10}
+    user = find_user_by_identifier(identifier)
+    if user is None:
+        return Response(reply)
+
+    bypass_active = getattr(settings, "OTP_BYPASS", False)
+    if not bypass_active and user.otp_last_sent_at and (timezone.now() - user.otp_last_sent_at).total_seconds() < 60:
+        return Response(reply)  # cooldown: don't resend, but don't reveal that either
+
+    code = generate_otp_code()
+    user.otp_code = code
+    user.otp_expires_at = timezone.now() + timedelta(minutes=10)
+    user.otp_attempts = 0
+    user.otp_last_sent_at = timezone.now()
+    user.save(update_fields=["otp_code", "otp_expires_at", "otp_attempts", "otp_last_sent_at"])
+    target = identifier if "@" in identifier else (user.phone or identifier)
+    send_otp_to_identifier(target, code)
+    if bypass_active:
+        reply["otp_code"] = code  # local demo only, same as the OTP sign-in flow
+    return Response(reply)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_reset_confirm(request):
+    """
+    POST /api/auth/password-reset/confirm/  {"identifier", "otp_code", "new_password"}
+    A correct, unexpired code sets the new password and signs the user in.
+    """
+    identifier = str(request.data.get("identifier") or "").strip()
+    code = str(request.data.get("otp_code") or "").strip()
+    new_password = str(request.data.get("new_password") or "")
+    invalid = Response({"error": "Invalid or expired reset code."}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = find_user_by_identifier(identifier)
+    if user is None or not user.otp_code or not user.otp_expires_at or timezone.now() > user.otp_expires_at:
+        return invalid
+    if user.otp_attempts >= 5:
+        return Response({"error": "Too many wrong codes. Request a new reset code."}, status=status.HTTP_400_BAD_REQUEST)
+    if code != user.otp_code:
+        user.otp_attempts += 1
+        user.save(update_fields=["otp_attempts"])
+        return invalid
+
+    error = password_error(new_password, user)
+    if error:
+        return error
+
+    user.set_password(new_password)
+    user.otp_code = None
+    user.otp_expires_at = None
+    user.otp_attempts = 0
+    user.password_attempts = 0
+    user.password_locked_until = None
+    user.save()
+    return auth_tokens_response(user, "Password updated.")
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    """
+    POST /api/auth/change-password/  {"current_password", "new_password"}
+    Accounts created by OTP have no password yet and may set one without a current password.
+    """
+    user = request.user
+    new_password = str(request.data.get("new_password") or "")
+    if user.has_password() and not user.check_password(str(request.data.get("current_password") or "")):
+        return Response({"error": "Your current password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
+    error = password_error(new_password, user)
+    if error:
+        return error
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    return Response({"message": "Password updated.", "user": UserSerializer(user).data})
 
 
 @api_view(["GET"])

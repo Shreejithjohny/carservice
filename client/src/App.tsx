@@ -21,6 +21,7 @@ import { MechanicDashboard } from "./pages/MechanicDashboard";
 import { Invoices } from "./pages/Invoices";
 import { VerifyInvoice } from "./pages/VerifyInvoice";
 import { Analytics } from "./pages/Analytics";
+import { ForgotPassword } from "./pages/ForgotPassword";
 import { Guard } from "./layouts/Guard";
 import { AppShell } from "./layouts/AppShell";
 
@@ -42,6 +43,7 @@ export function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/verify-otp" element={<VerifyOtp />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/verify/:token" element={<VerifyInvoice />} />
 
       {/* Protected Customer Routes */}
