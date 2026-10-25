@@ -1,11 +1,25 @@
 import { Link } from "react-router-dom";
 import { CalendarClock } from "lucide-react";
 import { useApi } from "../hooks/useApi";
+import { useLanguage } from "../hooks/useLanguage";
 import type { ServiceDue } from "../types";
 
 /** Dashboard banner for cars that are due or overdue for their periodic service. */
 export function ServiceReminders() {
   const { data } = useApi<ServiceDue[]>("/api/reminders/");
+  const { t } = useLanguage();
+
+  // Built here from the numbers (not the API's English text) so it follows the chosen language
+  const reasons = (d: ServiceDue) => {
+    const out: string[] = [];
+    if (d.days_left < 0) out.push(t("rem.daysPast", { n: -d.days_left }));
+    else if (d.days_left <= 14) out.push(t("rem.daysLeft", { n: d.days_left }));
+    if (d.km_left != null) {
+      if (d.km_left < 0) out.push(t("rem.kmPast", { n: (-d.km_left).toLocaleString("en-IN") }));
+      else if (d.km_left <= 1000) out.push(t("rem.kmLeft", { n: d.km_left.toLocaleString("en-IN") }));
+    }
+    return out.join(" · ");
+  };
   const due = (data ?? []).filter((d) => d.status === "OVERDUE" || d.status === "DUE_SOON");
   if (!due.length) return null;
 
@@ -24,13 +38,13 @@ export function ServiceReminders() {
             <CalendarClock size={20} className={d.status === "OVERDUE" ? "text-red-600" : "text-amber-600"} />
             <div>
               <p className="font-bold">
-                {d.status === "OVERDUE" ? "Service overdue" : "Service due soon"}: {d.name} ({d.registration_number})
+                {t(d.status === "OVERDUE" ? "rem.overdue" : "rem.dueSoon")}: {d.name} ({d.registration_number})
               </p>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400">{d.reasons.join(" · ")}</p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400">{reasons(d)}</p>
             </div>
           </div>
           <Link to={`/app/book?vehicle=${d.vehicle}`} className="rounded-2xl bg-[#ff4d2e] px-4 py-2 text-sm font-bold text-white">
-            Book now
+            {t("rem.bookNow")}
           </Link>
         </div>
       ))}

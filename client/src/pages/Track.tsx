@@ -4,6 +4,7 @@ import { Clock3, Navigation, Route, XCircle, AlertTriangle } from "lucide-react"
 import { useApi } from "../hooks/useApi";
 import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
+import { useLanguage, useStatusLabel } from "../hooks/useLanguage";
 import { Empty, Skeleton } from "../components/States";
 import type { Booking } from "../types";
 import { LiveTrackingMap, type RoutePoint } from "../components/LiveTrackingMap";
@@ -28,6 +29,8 @@ export function Track() {
   const { push } = useToast();
   const [cancelling, setCancelling] = useState(false);
   const [selectedId, setSelectedId] = useState<string | number>("");
+  const { t } = useLanguage();
+  const statusLabel = useStatusLabel();
 
   const active = useMemo(
     () => data?.filter((b) => !["Completed", "Delivered", "Cancelled"].includes(b.status)) ?? [],
@@ -57,7 +60,7 @@ export function Track() {
   }, [bookingId, isFinished]);
 
   if (loading) return <Skeleton className="h-64" />;
-  if (!booking) return <Empty title="No bookings found" hint="Book a service to track status." />;
+  if (!booking) return <Empty title={t("track.none")} hint={t("track.noneHint")} />;
 
   const serviceName = booking.service_type_details?.name || booking.serviceType || "Vehicle Service";
   const vehicleName = booking.vehicle_details
@@ -102,7 +105,7 @@ export function Track() {
 
   async function handleCancelBooking() {
     if (!isCancellable) return;
-    if (!window.confirm("Are you sure you want to cancel this booking?")) return;
+    if (!window.confirm(t("track.cancelConfirm"))) return;
 
     setCancelling(true);
     try {
@@ -126,7 +129,7 @@ export function Track() {
       {data && data.length > 1 && (
         <div className="flex items-center justify-between gap-3">
           <label className="text-xs font-semibold text-zinc-500">
-            Select Booking:
+            {t("track.select")}
           </label>
           <select
             className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 font-semibold"
@@ -135,7 +138,7 @@ export function Track() {
           >
             {data.map((b) => (
               <option key={b.id || b._id || b.booking_reference} value={b.id || b._id || b.booking_reference}>
-                {b.booking_reference || b.booking_id} · {b.service_type_details?.name || b.serviceType} ({b.status})
+                {b.booking_reference || b.booking_id} · {b.service_type_details?.name || b.serviceType} ({statusLabel(b.status)})
               </option>
             ))}
           </select>
@@ -145,18 +148,18 @@ export function Track() {
       {/* Handover OTP Notice Box for Customer */}
       {otpCode && !booking.handover_otp_verified && (
         <div className="rounded-3xl bg-zinc-900 p-6 text-center text-white dark:bg-white dark:text-zinc-900 space-y-2">
-          <span className="text-xs uppercase font-bold tracking-widest text-[#ff4d2e]">Share Handover OTP with Valet</span>
+          <span className="text-xs uppercase font-bold tracking-widest text-[#ff4d2e]">{t("track.shareHandover")}</span>
           <p className="font-mono text-4xl font-black tracking-[0.4em]">{otpCode}</p>
-          <p className="text-xs text-zinc-400 dark:text-zinc-600">Provide this 6-digit code to your valet when handing over your car keys.</p>
+          <p className="text-xs text-zinc-400 dark:text-zinc-600">{t("track.handoverHint")}</p>
         </div>
       )}
 
       {/* Delivery OTP: the customer gives it to the driver when the car comes back */}
       {deliveryOtp && currentStatus === "Out for Delivery" && (
         <div className="rounded-3xl bg-emerald-700 p-6 text-center text-white space-y-2">
-          <span className="text-xs uppercase font-bold tracking-widest text-emerald-200">Share Delivery OTP when you receive your car</span>
+          <span className="text-xs uppercase font-bold tracking-widest text-emerald-200">{t("track.shareDelivery")}</span>
           <p className="font-mono text-4xl font-black tracking-[0.4em]">{deliveryOtp}</p>
-          <p className="text-xs text-emerald-100">Only share it after checking your car. Giving this code confirms the handover.</p>
+          <p className="text-xs text-emerald-100">{t("track.deliveryHint")}</p>
         </div>
       )}
 
@@ -176,7 +179,7 @@ export function Track() {
             <div>
               <div className="flex items-center justify-between gap-3">
                 <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
-                  {currentStatus}
+                  {statusLabel(currentStatus)}
                 </span>
               </div>
               <h2 className="mt-4 text-2xl font-extrabold">{refCode}</h2>
@@ -185,19 +188,19 @@ export function Track() {
               <div className="mt-5 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-zinc-100/80 p-3 dark:bg-zinc-800/70">
                   <Clock3 size={16} className="text-[#ff4d2e]" />
-                  <p className="mt-2 text-lg font-extrabold">{isOnTheWay ? "Arriving soon" : "Active"}</p>
-                  <p className="text-xs text-zinc-500">status stage</p>
+                  <p className="mt-2 text-lg font-extrabold">{isOnTheWay ? t("track.arriving") : t("track.active")}</p>
+                  <p className="text-xs text-zinc-500">{t("track.stage")}</p>
                 </div>
                 <div className="rounded-2xl bg-zinc-100/80 p-3 dark:bg-zinc-800/70">
                   <Navigation size={16} className="text-[#ff4d2e]" />
-                  <p className="mt-2 text-lg font-extrabold">{driver ? "Assigned" : "Queued"}</p>
-                  <p className="text-xs text-zinc-500">valet assignment</p>
+                  <p className="mt-2 text-lg font-extrabold">{driver ? t("track.assigned") : t("track.queued")}</p>
+                  <p className="text-xs text-zinc-500">{t("track.valetAssignment")}</p>
                 </div>
               </div>
             </div>
 
             <div className="mt-5 border-t border-zinc-200/70 pt-4 dark:border-zinc-700/70">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Assigned Hub</p>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">{t("track.hub")}</p>
               <p className="mt-1 flex items-center gap-2 text-sm font-semibold">
                 <Route size={15} className="text-[#ff4d2e]" /> {centerName}
               </p>
@@ -217,7 +220,7 @@ export function Track() {
             </p>
           </div>
           <div className="text-right">
-            <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Estimated Cost</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t("track.cost")}</p>
             <p className="text-2xl font-black text-emerald-600">
               ₹{Number(cost).toLocaleString("en-IN")}
             </p>
@@ -227,17 +230,17 @@ export function Track() {
         {/* Driver & Mechanic Staff Badges */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div className="rounded-2xl bg-zinc-100/70 p-3 dark:bg-zinc-800/70">
-            <span className="text-zinc-400 font-bold uppercase block mb-0.5">Assigned Valet / Driver</span>
+            <span className="text-zinc-400 font-bold uppercase block mb-0.5">{t("track.valet")}</span>
             <p className="font-bold text-sm text-zinc-800 dark:text-zinc-100">
-              {driver ? (driver.name || driver.email) : "Unassigned"}
+              {driver ? (driver.name || driver.email) : t("track.unassigned")}
             </p>
             {driver?.phone && <p className="text-zinc-500 font-mono mt-0.5">Phone: {driver.phone}</p>}
           </div>
 
           <div className="rounded-2xl bg-zinc-100/70 p-3 dark:bg-zinc-800/70">
-            <span className="text-zinc-400 font-bold uppercase block mb-0.5">Assigned Mechanic</span>
+            <span className="text-zinc-400 font-bold uppercase block mb-0.5">{t("track.mechanic")}</span>
             <p className="font-bold text-sm text-zinc-800 dark:text-zinc-100">
-              {mechanic ? (mechanic.name || mechanic.email) : "Unassigned"}
+              {mechanic ? (mechanic.name || mechanic.email) : t("track.unassigned")}
             </p>
           </div>
         </div>
@@ -246,7 +249,7 @@ export function Track() {
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
           <div className="flex gap-2">
             <RouterLink className="rounded-2xl bg-[#ff4d2e] px-4 py-2 text-sm font-semibold text-white" to="/app/approvals">
-              Repair Approvals
+              {t("track.approvals")}
             </RouterLink>
           </div>
 
@@ -258,12 +261,12 @@ export function Track() {
               className="flex items-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-400 disabled:opacity-50"
             >
               <XCircle size={16} />
-              {cancelling ? "Cancelling..." : "Cancel Booking"}
+              {cancelling ? t("track.cancelling") : t("track.cancel")}
             </button>
           ) : (
             <div className="flex items-center gap-1.5 text-xs text-zinc-500 italic">
               <AlertTriangle size={14} className="text-amber-500" />
-              <span>Cannot cancel once vehicle pickup is started or in-service.</span>
+              <span>{t("track.cannotCancel")}</span>
             </div>
           )}
         </div>
@@ -277,7 +280,7 @@ export function Track() {
 
       {/* Visual Timeline Tracker */}
       <div className="glass rounded-3xl p-6">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-4">Complete Service Progress Timeline</h3>
+        <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-4">{t("track.timeline")}</h3>
         {STEPS.map((s, i) => {
           const stepDone = currentStepIdx >= 0 && i <= currentStepIdx;
           const isCurrent = currentStepIdx >= 0 && i === currentStepIdx;
@@ -307,7 +310,7 @@ export function Track() {
                     : "text-zinc-400"
                 }`}
               >
-                {s}
+                {statusLabel(s)}
               </p>
             </div>
           );
@@ -319,6 +322,8 @@ export function Track() {
 
 export function History() {
   const { data, loading, reload } = useApi<Booking[]>("/api/bookings/");
+  const { t } = useLanguage();
+  const statusLabel = useStatusLabel();
   const done = data?.filter((b) => ["Delivered", "Cancelled", "Completed"].includes(b.status)) ?? [];
 
   if (loading) return <Skeleton className="h-40" />;
@@ -330,7 +335,7 @@ export function History() {
         <article key={b.id || b._id || b.booking_reference} className="glass rounded-3xl p-5 flex flex-wrap justify-between items-center gap-4">
           <div>
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${b.status === "Cancelled" ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600"}`}>
-              {b.status}
+              {statusLabel(b.status)}
             </span>
             <h3 className="mt-2 text-lg font-bold">{b.service_type_details?.name || b.serviceType || "Service"}</h3>
             <p className="text-xs text-zinc-500">
@@ -341,7 +346,7 @@ export function History() {
             <p className="text-lg font-black text-zinc-800 dark:text-zinc-100">
               ₹{Number(b.estimated_cost || b.estimatedCost || 0).toLocaleString("en-IN")}
             </p>
-            {b.status === "Completed" && b.has_review && <p className="text-xs font-semibold text-amber-600">★ Reviewed</p>}
+            {b.status === "Completed" && b.has_review && <p className="text-xs font-semibold text-amber-600">{t("review.reviewed")}</p>}
           </div>
           {b.status === "Completed" && !b.has_review && (
             <div className="w-full sm:w-80">

@@ -2,12 +2,14 @@ import { Camera, Gauge } from "lucide-react";
 import { useApi } from "../hooks/useApi";
 import type { ConditionPhoto, ConditionReport } from "../types";
 import { CONDITION_ANGLES } from "./ConditionCapture";
+import { useLanguage } from "../hooks/useLanguage";
+import type { StringKey } from "../i18n/strings";
 
-function Thumb({ photo, label }: { photo?: ConditionPhoto; label: string }) {
+function Thumb({ photo, label, empty }: { photo?: ConditionPhoto; label: string; empty: string }) {
   if (!photo) {
     return (
       <div className="flex aspect-[4/3] items-center justify-center rounded-xl bg-zinc-100 text-[11px] text-zinc-400 dark:bg-zinc-800">
-        No {label.toLowerCase()} photo
+        {empty}
       </div>
     );
   }
@@ -21,6 +23,7 @@ function Thumb({ photo, label }: { photo?: ConditionPhoto; label: string }) {
 /** Customer view: the car's condition at pickup next to its condition at delivery, angle by angle. */
 export function ConditionReportView({ bookingId }: { bookingId: string | number }) {
   const { data } = useApi<ConditionReport>(`/api/bookings/${bookingId}/condition-report/`);
+  const { t } = useLanguage();
   if (!data || (!data.pickup_photos.length && !data.delivery_photos.length && data.pickup_odometer_km == null)) return null;
 
   // Latest photo per angle for each stage
@@ -33,14 +36,14 @@ export function ConditionReportView({ bookingId }: { bookingId: string | number 
     <div className="glass rounded-3xl p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-zinc-400">
-          <Camera size={16} className="text-[#ff4d2e]" /> Vehicle Condition Report
+          <Camera size={16} className="text-[#ff4d2e]" /> {t("cr.title")}
         </h3>
         <div className="flex items-center gap-2 text-xs font-semibold">
           <Gauge size={14} className="text-[#ff4d2e]" />
-          <span>Pickup: {data.pickup_odometer_km != null ? `${data.pickup_odometer_km.toLocaleString("en-IN")} km` : "—"}</span>
-          <span>· Delivery: {data.delivery_odometer_km != null ? `${data.delivery_odometer_km.toLocaleString("en-IN")} km` : "—"}</span>
+          <span>{t("cr.pickup")}: {data.pickup_odometer_km != null ? `${data.pickup_odometer_km.toLocaleString("en-IN")} km` : "—"}</span>
+          <span>· {t("cr.delivery")}: {data.delivery_odometer_km != null ? `${data.delivery_odometer_km.toLocaleString("en-IN")} km` : "—"}</span>
           {data.km_driven != null && (
-            <span className="rounded-full bg-[#ff4d2e]/10 px-2 py-0.5 text-[#ff4d2e]">{data.km_driven} km driven while with us</span>
+            <span className="rounded-full bg-[#ff4d2e]/10 px-2 py-0.5 text-[#ff4d2e]">{t("cr.kmDriven", { n: data.km_driven })}</span>
           )}
         </div>
       </div>
@@ -48,14 +51,14 @@ export function ConditionReportView({ bookingId }: { bookingId: string | number 
         <div className="space-y-3">
           <div className="grid grid-cols-[5rem_1fr_1fr] gap-2 text-[11px] font-bold uppercase text-zinc-400">
             <span />
-            <span>Before (pickup)</span>
-            <span>After (delivery)</span>
+            <span>{t("cr.before")}</span>
+            <span>{t("cr.after")}</span>
           </div>
           {angles.map((a) => (
             <div key={a.value} className="grid grid-cols-[5rem_1fr_1fr] items-center gap-2">
-              <span className="text-xs font-semibold">{a.label}</span>
-              <Thumb photo={before.get(a.value)} label="Before" />
-              <Thumb photo={after.get(a.value)} label="After" />
+              <span className="text-xs font-semibold">{t(`angle.${a.value}` as StringKey)}</span>
+              <Thumb photo={before.get(a.value)} label={t("cr.before")} empty={t("cr.noPhoto")} />
+              <Thumb photo={after.get(a.value)} label={t("cr.after")} empty={t("cr.noPhoto")} />
             </div>
           ))}
         </div>
