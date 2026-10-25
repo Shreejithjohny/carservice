@@ -1,3 +1,4 @@
+import os
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
@@ -16,10 +17,6 @@ from api.models import (
     Employee,
     CarHealthScore,
 )
-
-
-# Local development only; never seed production with a known password.
-DEMO_PASSWORD = "DoorStep@2026"
 
 
 class Command(BaseCommand):
@@ -211,17 +208,20 @@ class Command(BaseCommand):
         else:
             booking = existing
 
-        # Local demo password for every demo account, set only while an account has none,
-        # so a password someone changed is never reset by re-seeding.
-        for demo_user in (admin, manager, driver, mechanic, customer):
-            if not demo_user.has_password():
-                demo_user.set_password(DEMO_PASSWORD)
-                demo_user.save(update_fields=["password"])
+        # Optional password for the demo accounts, taken from DEMO_ACCOUNT_PASSWORD in backend/.env
+        # (never stored in the code). Set only while an account has none, so a password someone
+        # changed is never reset by re-seeding.
+        demo_password = os.getenv("DEMO_ACCOUNT_PASSWORD", "").strip()
+        if demo_password:
+            for demo_user in (admin, manager, driver, mechanic, customer):
+                if not demo_user.has_password():
+                    demo_user.set_password(demo_password)
+                    demo_user.save(update_fields=["password"])
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Successfully seeded demo accounts & active booking!\n"
-                f"Demo password for all accounts: {DEMO_PASSWORD}\n"
+                f"Demo account passwords: {'from DEMO_ACCOUNT_PASSWORD' if demo_password else 'not set (DEMO_ACCOUNT_PASSWORD is empty)'}\n"
                 f"Admin:    admin@smartdoorstep.com (Role: ADMIN)\n"
                 f"Manager:  manager@smartdoorstep.com (Role: SERVICE_CENTER_MANAGER)\n"
                 f"Driver:   driver@smartdoorstep.com (Role: DRIVER)\n"

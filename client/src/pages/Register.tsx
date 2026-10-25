@@ -65,7 +65,7 @@ export function Register() {
 
         <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={onRegister}>
           <label className="block text-xs font-semibold text-zinc-500">
-            Full Name
+            <span>Full Name</span>
             <input required autoComplete="name" className={INPUT} placeholder="Meera Iyer" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="block text-xs font-semibold text-zinc-500">

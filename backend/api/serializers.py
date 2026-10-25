@@ -64,7 +64,7 @@ class PasswordRegisterSerializer(serializers.Serializer):
         if not value:
             return ""
         cleaned = re.sub(r"[\s\-\(\)\.]+", "", value)
-        if not re.match(r"^\+?[0-9]{10,15}$", cleaned):
+        if not re.match(r"^\+?\d{10,15}$", cleaned):
             raise serializers.ValidationError("Enter a valid mobile number.")
         phone = normalize_phone_number(value)
         if User.objects.filter(phone=phone).exists():

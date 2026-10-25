@@ -68,7 +68,7 @@ export function ForgotPassword() {
         {!codeSent ? (
           <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={onRequest}>
             <label className="block text-xs font-semibold text-zinc-500">
-              Email address or Mobile number
+              <span>Email address or Mobile number</span>
               <input required autoComplete="username" className={INPUT} value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
             </label>
             <button disabled={busy} type="submit" className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white disabled:opacity-50">
@@ -78,7 +78,7 @@ export function ForgotPassword() {
         ) : (
           <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={onReset}>
             <label className="block text-xs font-semibold text-zinc-500">
-              Reset code
+              <span>Reset code</span>
               <input
                 required
                 inputMode="numeric"

@@ -8,13 +8,13 @@ export function PasswordField({
   onChange,
   autoComplete,
   hint,
-}: {
+}: Readonly<{
   label: string;
   value: string;
   onChange: (v: string) => void;
   autoComplete: "current-password" | "new-password";
   hint?: string;
-}) {
+}>) {
   const id = useId();
   const [visible, setVisible] = useState(false);
   return (

@@ -54,7 +54,7 @@ Open http://localhost:5173. The scripts call `python`; if your system only has `
 | Mechanic | mechanic@smartdoorstep.com |
 | Customer | customer@smartdoorstep.com |
 
-Every demo account also has the password **`DoorStep@2026`** for normal email + password sign-in (local seed data only; re-seeding never overwrites a password that was changed).
+To also sign in to the demo accounts with email + password, set `DEMO_ACCOUNT_PASSWORD` in `backend/.env` to a password of your choice **before** running `npm run seed`. The seed gives each demo account that password, but only if the account has none yet, so a password that was changed is never reset. The password lives only in your `.env`, never in the code.
 
 With `OTP_BYPASS=True` (set in `.env.example`) the login page shows one-click demo buttons for these accounts. With it off, sign-in always uses a one-time code. Without SMS/email configured, the code is printed in the backend console (development only).
 

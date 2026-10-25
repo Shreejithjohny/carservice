@@ -6,7 +6,7 @@ import { ApiError } from "../services/api";
 import { PasswordField, PASSWORD_HINT } from "./PasswordField";
 
 /** Change (or, for accounts created with a one-time code, first set) the signed-in user's password. */
-export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+export function ChangePasswordDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const { user, changePassword } = useAuth();
   const { push } = useToast();
   const hasPassword = user?.has_password !== false;
@@ -31,7 +31,11 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
+    <dialog
+      open
+      aria-labelledby="change-password-title"
+      className="fixed inset-0 z-50 m-0 flex h-full max-h-none w-full max-w-none items-center justify-center bg-black/60 p-4 text-inherit backdrop-blur-sm"
+    >
       <form className="glass w-full max-w-sm space-y-4 rounded-3xl bg-white p-6 dark:bg-zinc-900" onSubmit={onSubmit}>
         <div className="flex items-center justify-between">
           <h2 id="change-password-title" className="text-lg font-extrabold">{hasPassword ? "Change password" : "Set a password"}</h2>
@@ -46,6 +50,6 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
           {busy ? "Saving..." : "Save password"}
         </button>
       </form>
-    </div>
+    </dialog>
   );
 }
