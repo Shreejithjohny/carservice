@@ -52,34 +52,40 @@ function ChartCard({
   return (
     <section className="glass rounded-3xl p-5 space-y-3">
       <h2 className="text-sm font-bold">{title}</h2>
-      <div className="text-zinc-500" style={{ height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          {horizontal ? (
-            <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16 }}>
-              <CartesianGrid horizontal={false} stroke="currentColor" strokeOpacity={0.15} />
-              <XAxis type="number" allowDecimals={false} tick={{ fill: "currentColor", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey={xKey} width={130} tick={{ fill: "currentColor", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip cursor={{ fill: "currentColor", fillOpacity: 0.06 }} content={<ChartTooltip format={format} />} />
-              <Bar dataKey={yKey} fill={ACCENT} radius={[0, 4, 4, 0]} maxBarSize={22} />
-            </BarChart>
-          ) : (
-            <BarChart data={rows} margin={{ left: 0, right: 8 }}>
-              <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.15} />
-              <XAxis dataKey={xKey} tick={{ fill: "currentColor", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis
-                allowDecimals={false}
-                width={64}
-                tickFormatter={(v: number) => (yKey === "revenue" ? (v >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`) : String(v))}
-                tick={{ fill: "currentColor", fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip cursor={{ fill: "currentColor", fillOpacity: 0.06 }} content={<ChartTooltip format={format} />} />
-              <Bar dataKey={yKey} fill={ACCENT} radius={[4, 4, 0, 0]} maxBarSize={36} />
-            </BarChart>
-          )}
-        </ResponsiveContainer>
-      </div>
+      {rows.every((r) => !Number(r[yKey])) ? (
+        <p className="flex items-center justify-center rounded-2xl bg-zinc-100/70 text-sm text-zinc-500 dark:bg-zinc-800/50" style={{ height }}>
+          Nothing recorded in this period yet.
+        </p>
+      ) : (
+        <div className="text-zinc-500" style={{ height }}>
+          <ResponsiveContainer width="100%" height="100%">
+            {horizontal ? (
+              <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <CartesianGrid horizontal={false} stroke="currentColor" strokeOpacity={0.15} />
+                <XAxis type="number" allowDecimals={false} tick={{ fill: "currentColor", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey={xKey} width={130} tick={{ fill: "currentColor", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip cursor={{ fill: "currentColor", fillOpacity: 0.06 }} content={<ChartTooltip format={format} />} />
+                <Bar dataKey={yKey} fill={ACCENT} radius={[0, 4, 4, 0]} maxBarSize={22} />
+              </BarChart>
+            ) : (
+              <BarChart data={rows} margin={{ left: 0, right: 8 }}>
+                <CartesianGrid vertical={false} stroke="currentColor" strokeOpacity={0.15} />
+                <XAxis dataKey={xKey} tick={{ fill: "currentColor", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis
+                  allowDecimals={false}
+                  width={64}
+                  tickFormatter={(v: number) => (yKey === "revenue" ? (v >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`) : String(v))}
+                  tick={{ fill: "currentColor", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip cursor={{ fill: "currentColor", fillOpacity: 0.06 }} content={<ChartTooltip format={format} />} />
+                <Bar dataKey={yKey} fill={ACCENT} radius={[4, 4, 0, 0]} maxBarSize={36} />
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+        </div>
+      )}
       <details className="text-xs">
         <summary className="cursor-pointer font-semibold text-zinc-500">Show as table</summary>
         <table className="mt-2 w-full">
