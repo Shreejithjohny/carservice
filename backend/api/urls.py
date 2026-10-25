@@ -42,6 +42,8 @@ urlpatterns = [
 
     # Phase 5 Location & Distance Endpoints
     path("location/distance/", views.calculate_distance_view, name="location_distance"),
+    path("location/search/", views.location_search, name="location_search"),
+    path("location/reverse/", views.location_reverse, name="location_reverse"),
 
     # Phase 6 Service Center Manager Endpoints
     path("service-center/bookings/", views.service_center_bookings_list, name="sc_bookings_list"),

@@ -157,7 +157,7 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | `no such table` or `no such column` errors | Run `npm run migrate:django` |
 | The login page has no demo buttons | `OTP_BYPASS=True` is missing from `backend/.env` |
 | Number plate scanning fails | Run `npm install --prefix client` again, then restart `npm run dev` (it copies the OCR files into `client/public/ocr/`) |
-| Booking page shows "Google Maps Configuration Required" | Normal without a Google Maps key. Type the address or pick a preset area instead |
+| Address search on the Book page says it is unavailable | The free OpenStreetMap search needs internet (on the backend). Tap the map, use "Use my location", or pick a preset area instead |
 
 ### Demo accounts
 
@@ -225,6 +225,12 @@ The frontend's `predev`/`prebuild` scripts copy the OCR engine and English langu
 An invoice is created automatically when the service center manager marks a booking **Completed** (an admin or that center's manager can also regenerate it via `POST /api/bookings/<id>/generate-invoice/`). Invoices cannot be created before completion, and a paid invoice can no longer be changed.
 
 Customers pay invoices from the Invoices page with UPI or card. Only a **mock gateway** exists today (`PAYMENT_GATEWAY=mock`, on by default in development): it records the payment and marks the invoice paid without charging anything, and the payment screen says so. Use `failure@mock` or card `4000 0000 0000 0002` to simulate a declined payment. Card numbers are validated (Luhn check) but only the last 4 digits are stored. A real gateway such as Razorpay plugs in at `backend/api/payment_service.py`.
+
+## Pickup location (Book page)
+
+Customers pick their pickup point on a free **OpenStreetMap** map: tap the map, drag the pin, search for a place, use the phone's location, or tap a preset area. No API key is needed. Address search and "pin → address" lookups go through the backend (`/api/location/search/`, `/api/location/reverse/`), which follows OpenStreetMap's Nominatim usage policy: at most one request per second, an identifying User-Agent, and results cached for a day. The free search is less precise than Google for small lanes, so the address box stays editable for flat and house numbers. The distance shown is a straight-line estimate.
+
+Optional: with `VITE_GOOGLE_MAPS_API_KEY` set in `client/.env` (Google Cloud billing account, Maps JavaScript + Places APIs), the Book page uses Google Maps instead.
 
 ## Live tracking
 
