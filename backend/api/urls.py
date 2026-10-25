@@ -8,6 +8,11 @@ urlpatterns = [
     path("auth/quick-login/", views.bypass_login, name="quick_login"),
     path("auth/send-otp/", views.send_otp, name="send_otp"),
     path("auth/verify-otp/", views.verify_otp, name="verify_otp"),
+    path("auth/register/", views.register_with_password, name="register_with_password"),
+    path("auth/login/", views.password_login, name="password_login"),
+    path("auth/password-reset/request/", views.password_reset_request, name="password_reset_request"),
+    path("auth/password-reset/confirm/", views.password_reset_confirm, name="password_reset_confirm"),
+    path("auth/change-password/", views.change_password, name="change_password"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", views.me, name="auth_me"),
 

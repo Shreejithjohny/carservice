@@ -25,6 +25,11 @@ type AuthCtx = {
   sendOtp: (identifier: string) => Promise<SendOtpResponse>;
   verifyOtp: (identifier: string, otpCode: string, name?: string) => Promise<User>;
   bypassLogin: (identifier?: string, role?: Role, name?: string) => Promise<User>;
+  passwordLogin: (identifier: string, password: string) => Promise<User>;
+  register: (details: { name: string; email: string; phone?: string; password: string }) => Promise<User>;
+  requestPasswordReset: (identifier: string) => Promise<{ message: string; otp_code?: string }>;
+  confirmPasswordReset: (identifier: string, otpCode: string, newPassword: string) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 };
@@ -64,6 +69,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     void boot();
   }, []);
+
+  // Stores the tokens from any sign-in response and returns the signed-in user
+  function finishSignIn(res: VerifyOtpResponse, name?: string): User {
+    const accessToken = res.access || res.token;
+    saveSession(accessToken, res.user, res.refresh);
+    const normalizedUser: User = {
+      ...res.user,
+      role: res.user.role.toLowerCase() as Role,
+      name: res.user.name || name || res.user.email?.split("@")[0] || "User",
+    };
+    setUser(normalizedUser);
+    return normalizedUser;
+  }
 
   const value = useMemo<AuthCtx>(
     () => ({
@@ -105,6 +123,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         setUser(normalizedUser);
         return normalizedUser;
+      },
+      async passwordLogin(identifier, password) {
+        const res = await api<VerifyOtpResponse>("/api/auth/login/", {
+          method: "POST",
+          body: JSON.stringify({ identifier, password }),
+        });
+        return finishSignIn(res);
+      },
+      async register(details) {
+        const res = await api<VerifyOtpResponse>("/api/auth/register/", {
+          method: "POST",
+          body: JSON.stringify(details),
+        });
+        return finishSignIn(res, details.name);
+      },
+      async requestPasswordReset(identifier) {
+        return api<{ message: string; otp_code?: string }>("/api/auth/password-reset/request/", {
+          method: "POST",
+          body: JSON.stringify({ identifier }),
+        });
+      },
+      async confirmPasswordReset(identifier, otpCode, newPassword) {
+        const res = await api<VerifyOtpResponse>("/api/auth/password-reset/confirm/", {
+          method: "POST",
+          body: JSON.stringify({ identifier, otp_code: otpCode, new_password: newPassword }),
+        });
+        return finishSignIn(res);
+      },
+      async changePassword(currentPassword, newPassword) {
+        const res = await api<{ user: User }>("/api/auth/change-password/", {
+          method: "POST",
+          body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+        });
+        if (user) setUser({ ...user, has_password: res.user.has_password });
       },
       logout() {
         clearSession();

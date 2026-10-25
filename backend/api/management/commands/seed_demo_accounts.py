@@ -18,6 +18,10 @@ from api.models import (
 )
 
 
+# Local development only; never seed production with a known password.
+DEMO_PASSWORD = "DoorStep@2026"
+
+
 class Command(BaseCommand):
     help = "Seeds demo users for each role and sample booking/vehicle data for UI testing."
 
@@ -207,9 +211,17 @@ class Command(BaseCommand):
         else:
             booking = existing
 
+        # Local demo password for every demo account, set only while an account has none,
+        # so a password someone changed is never reset by re-seeding.
+        for demo_user in (admin, manager, driver, mechanic, customer):
+            if not demo_user.has_password():
+                demo_user.set_password(DEMO_PASSWORD)
+                demo_user.save(update_fields=["password"])
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Successfully seeded demo accounts & active booking!\n"
+                f"Demo password for all accounts: {DEMO_PASSWORD}\n"
                 f"Admin:    admin@smartdoorstep.com (Role: ADMIN)\n"
                 f"Manager:  manager@smartdoorstep.com (Role: SERVICE_CENTER_MANAGER)\n"
                 f"Driver:   driver@smartdoorstep.com (Role: DRIVER)\n"

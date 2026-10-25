@@ -28,6 +28,17 @@ class User(AbstractUser):
     otp_last_sent_at = models.DateTimeField(null=True, blank=True)
     is_verified = models.BooleanField(default=False)
 
+    # Password sign-in: failed attempts in a row, and a temporary lock after too many
+    password_attempts = models.PositiveIntegerField(default=0)
+    password_locked_until = models.DateTimeField(null=True, blank=True)
+
+    def has_password(self):
+        """
+        Accounts made through OTP sign-in have an empty password field, which Django still counts
+        as "usable"; treat those as having no password.
+        """
+        return bool(self.password) and self.has_usable_password()
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["username"]
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -17,11 +18,13 @@ import {
   Receipt,
   BarChart3,
   Languages,
+  KeyRound,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import type { Role } from "../types";
 import { useLanguage } from "../hooks/useLanguage";
+import { ChangePasswordDialog } from "../components/ChangePasswordDialog";
 import { LANGUAGES, type Language, type StringKey } from "../i18n/strings";
 
 interface NavItem {
@@ -75,6 +78,7 @@ export function AppShell() {
   const { dark, toggle } = useTheme();
   const { lang, setLang, t } = useLanguage();
   const navigate = useNavigate();
+  const [changingPassword, setChangingPassword] = useState(false);
   const isCustomer = user?.role.toLowerCase() === "customer";
   const label = (l: NavItem) => (isCustomer && l.labelKey ? t(l.labelKey) : l.label);
 
@@ -124,6 +128,15 @@ export function AppShell() {
               <h1 className="text-2xl font-bold">{user?.name}</h1>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setChangingPassword(true)}
+                title={isCustomer ? t("shell.password") : "Change password"}
+                aria-label={isCustomer ? t("shell.password") : "Change password"}
+                className="rounded-full p-2 text-zinc-500 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+              >
+                <KeyRound size={18} />
+              </button>
               {isCustomer && (
                 <label className="flex items-center gap-1 text-xs text-zinc-500">
                   <Languages size={16} aria-hidden />
@@ -147,6 +160,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
       <nav className="fixed bottom-0 left-0 right-0 z-30 flex justify-around border-t border-zinc-200 bg-white/90 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 md:hidden">
         {links.slice(0, 5).map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `flex flex-col items-center text-[10px] ${isActive ? "text-[#ff4d2e]" : "text-zinc-500"}`}>

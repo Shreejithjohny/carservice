@@ -6,12 +6,14 @@ import { ApiError } from "../services/api";
 import type { Role } from "../types";
 import { ROLE_LABELS, homePathForRole } from "../utils/roles";
 import { Sparkles, Shield, Car, Wrench, Building2, Truck } from "lucide-react";
+import { PasswordField } from "../components/PasswordField";
 
 export function Login() {
-  const { sendOtp, bypassLogin, demoMode } = useAuth();
+  const { sendOtp, bypassLogin, passwordLogin, demoMode } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("customer");
   const [busy, setBusy] = useState(false);
 
@@ -59,6 +61,20 @@ export function Login() {
     }
   }
 
+  async function onPasswordLogin(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const user = await passwordLogin(identifier.trim(), password);
+      push({ title: `Welcome back, ${user.name}!` });
+      redirectForRole(user.role);
+    } catch (err) {
+      push({ title: err instanceof ApiError ? err.message : "Sign in failed", tone: "err" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onSendOtp(e?: FormEvent) {
     e?.preventDefault();
     if (!identifier.trim()) {
@@ -89,10 +105,43 @@ export function Login() {
         </Link>
         <h1 className="mt-4 text-3xl font-extrabold">Sign in</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          {demoMode
-            ? "Explore all dashboards instantly or sign in with your email / mobile number."
-            : "We'll send a one-time code to your email or mobile number."}
+          Sign in with your email (or mobile number) and password.
         </p>
+
+        <form className="glass mt-5 space-y-4 rounded-3xl p-5" onSubmit={onPasswordLogin}>
+          <label className="block text-xs font-semibold text-zinc-500">
+            Email address or Mobile number
+            <input
+              required
+              autoComplete="username"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]"
+              placeholder="user@example.com or +919876543210"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+            />
+          </label>
+          <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" />
+          <button
+            disabled={busy}
+            className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white transition hover:bg-[#e94529] disabled:opacity-50 shadow-md shadow-[#ff4d2e]/20"
+            type="submit"
+          >
+            {busy ? "Please wait..." : "Sign in"}
+          </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+            <Link to="/forgot-password" state={{ identifier }} className="text-[#ff4d2e] hover:underline">
+              Forgot password?
+            </Link>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onSendOtp()}
+              className="text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-300"
+            >
+              Sign in with a one-time code instead
+            </button>
+          </div>
+        </form>
 
         {/* 1-Click Role Switcher (demo mode only) */}
         {demoMode && (
@@ -167,13 +216,9 @@ export function Login() {
         )}
 
         {demoMode && (
-          <>
-            <div className="relative my-6 text-center">
-              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-zinc-300 dark:border-zinc-800" /></div>
-              <span className="relative bg-[#f6f3ee] px-3 text-xs font-medium text-zinc-500 dark:bg-[#07080c]">or sign in with custom account</span>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
+          <details className="mt-4 rounded-3xl border border-zinc-200 p-4 dark:border-zinc-800">
+            <summary className="cursor-pointer text-xs font-semibold text-zinc-500">Demo: sign in as any role without a password</summary>
+            <div className="mt-3 flex flex-wrap gap-2">
               {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
                 <button
                   key={r}
@@ -187,42 +232,25 @@ export function Login() {
                 </button>
               ))}
             </div>
-          </>
-        )}
-
-        <form className="glass mt-4 space-y-4 rounded-3xl p-5" onSubmit={demoMode ? onDirectLogin : onSendOtp}>
-          <label className="block text-xs font-semibold text-zinc-500">
-            Email address or Mobile number
-            <input
-              required
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]"
-              placeholder="user@example.com or +919876543210"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-            />
-          </label>
-
-          <button
-            disabled={busy}
-            className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white transition hover:bg-[#e94529] disabled:opacity-50 shadow-md shadow-[#ff4d2e]/20"
-            type="submit"
-          >
-            {busy ? "Please wait..." : demoMode ? `Demo sign in as ${ROLE_LABELS[role]} (no OTP)` : "Send verification code"}
-          </button>
-
-          {demoMode && (
-            <div className="pt-1 text-center">
+            <form className="mt-3 space-y-3" onSubmit={onDirectLogin}>
+              <input
+                required
+                aria-label="Demo account email or mobile number"
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                placeholder="any-email@example.com"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+              />
               <button
-                type="button"
                 disabled={busy}
-                onClick={() => onSendOtp()}
-                className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 underline"
+                type="submit"
+                className="w-full rounded-2xl border border-[#ff4d2e] py-2.5 text-xs font-semibold text-[#ff4d2e] disabled:opacity-50"
               >
-                Use SMS/Email OTP instead →
+                Demo sign in as {ROLE_LABELS[role]} (no password)
               </button>
-            </div>
-          )}
-        </form>
+            </form>
+          </details>
+        )}
 
         <p className="mt-4 text-center text-sm text-zinc-500">
           New here?{" "}

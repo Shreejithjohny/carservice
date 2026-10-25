@@ -3,65 +3,52 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
+import { PasswordField, PASSWORD_HINT } from "../components/PasswordField";
+
+const INPUT =
+  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]";
 
 export function Register() {
-  const { sendOtp, bypassLogin, demoMode } = useAuth();
+  const { register, sendOtp } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
 
   const [name, setName] = useState("");
-  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function onDirectRegister(e: FormEvent) {
+  async function onRegister(e: FormEvent) {
     e.preventDefault();
-    if (name.trim().length < 2) {
-      push({ title: "Enter your full name", tone: "err" });
-      return;
-    }
-    if (!identifier.trim()) {
-      push({ title: "Enter a valid email address or mobile phone number", tone: "err" });
-      return;
-    }
+    if (name.trim().length < 2) return push({ title: "Enter your full name", tone: "err" });
+    if (password !== confirm) return push({ title: "The two passwords don't match", tone: "err" });
 
     setBusy(true);
     try {
-      const user = await bypassLogin(identifier.trim(), "customer", name.trim());
+      const user = await register({ name: name.trim(), email: email.trim(), phone: phone.trim(), password });
       push({ title: `Welcome to DoorStep, ${user.name}!` });
-      navigate("/app");
+      void navigate("/app");
     } catch (err) {
-      push({
-        title: err instanceof ApiError ? err.message : "Registration failed",
-        tone: "err",
-      });
+      push({ title: err instanceof ApiError ? err.message : "Registration failed", tone: "err" });
     } finally {
       setBusy(false);
     }
   }
 
-  async function onSendOtp(e?: FormEvent) {
-    e?.preventDefault();
-    if (name.trim().length < 2) {
-      push({ title: "Enter your full name first", tone: "err" });
-      return;
+  // Alternative: create the account with a one-time code instead of a password
+  async function onUseOtp() {
+    if (name.trim().length < 2 || !email.trim()) {
+      return push({ title: "Enter your name and email first", tone: "err" });
     }
-    if (!identifier.trim()) {
-      push({ title: "Enter an email or mobile phone number", tone: "err" });
-      return;
-    }
-
     setBusy(true);
     try {
-      const res = await sendOtp(identifier.trim());
-      push({ title: res.message || `Verification code sent to ${identifier}` });
-      navigate("/verify-otp", {
-        state: { identifier: identifier.trim(), name: name.trim() },
-      });
+      const res = await sendOtp(email.trim());
+      push({ title: res.message || `Verification code sent to ${email}` });
+      void navigate("/verify-otp", { state: { identifier: email.trim(), name: name.trim() } });
     } catch (err) {
-      push({
-        title: err instanceof ApiError ? err.message : "Could not request registration OTP",
-        tone: "err",
-      });
+      push({ title: err instanceof ApiError ? err.message : "Could not send the code", tone: "err" });
     } finally {
       setBusy(false);
     }
@@ -74,53 +61,56 @@ export function Register() {
           ← Back to DoorStep
         </Link>
         <h1 className="mt-4 text-3xl font-extrabold">Create account</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Register with your email or mobile phone to book doorstep vehicle services.
-        </p>
+        <p className="mt-1 text-sm text-zinc-500">Register to book doorstep vehicle services.</p>
 
-        <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={demoMode ? onDirectRegister : onSendOtp}>
+        <form className="glass mt-6 space-y-4 rounded-3xl p-5" onSubmit={onRegister}>
           <label className="block text-xs font-semibold text-zinc-500">
             Full Name
-            <input
-              required
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]"
-              placeholder="John Doe"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            <input required autoComplete="name" className={INPUT} placeholder="Meera Iyer" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-
           <label className="block text-xs font-semibold text-zinc-500">
-            Email address or Mobile phone
+            Email address
             <input
               required
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]"
-              placeholder="user@example.com or +919876543210"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              type="email"
+              autoComplete="email"
+              className={INPUT}
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
           </label>
+          <label className="block text-xs font-semibold text-zinc-500">
+            Mobile number (optional)
+            <input
+              type="tel"
+              autoComplete="tel"
+              className={INPUT}
+              placeholder="+91 98450 12345"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </label>
+          <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="new-password" hint={PASSWORD_HINT} />
+          <PasswordField label="Confirm password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
 
           <button
             disabled={busy}
             className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white transition hover:bg-[#e94529] disabled:opacity-50 shadow-md shadow-[#ff4d2e]/20"
             type="submit"
           >
-            {busy ? "Please wait..." : demoMode ? "Register & Start (demo, no OTP)" : "Send verification code"}
+            {busy ? "Please wait..." : "Create account"}
           </button>
-
-          {demoMode && (
-            <div className="pt-1 text-center">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onSendOtp()}
-                className="text-xs font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300 underline"
-              >
-                Use SMS/Email OTP instead →
-              </button>
-            </div>
-          )}
+          <div className="text-center">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onUseOtp()}
+              className="text-xs font-semibold text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-300"
+            >
+              Register with a one-time code instead
+            </button>
+          </div>
         </form>
 
         <p className="mt-4 text-center text-sm text-zinc-500">

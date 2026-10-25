@@ -9,6 +9,7 @@ export interface User {
   role: Role;
   avatarUrl?: string;
   is_verified?: boolean;
+  has_password?: boolean;
 }
 
 export interface CarBrand {

@@ -1,5 +1,7 @@
 import re
 import uuid
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
@@ -26,17 +28,56 @@ from .models import (
     Notification,
     ServiceReview,
 )
+from .otp_service import normalize_phone_number
 
 
 class UserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "phone", "role", "is_verified", "name"]
+        fields = ["id", "username", "email", "phone", "role", "is_verified", "name", "has_password"]
 
     def get_name(self, obj):
         return obj.get_full_name() or obj.username or obj.email.split("@")[0]
+
+    def get_has_password(self, obj):
+        return obj.has_password()
+
+
+class PasswordRegisterSerializer(serializers.Serializer):
+    name = serializers.CharField(min_length=2, max_length=150)
+    email = serializers.EmailField()
+    phone = serializers.CharField(required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            # Never set a password on someone else's account; the owner can use "Forgot password".
+            raise serializers.ValidationError("An account with this email already exists. Sign in, or use Forgot password.")
+        return value
+
+    def validate_phone(self, value):
+        value = (value or "").strip()
+        if not value:
+            return ""
+        cleaned = re.sub(r"[\s\-\(\)\.]+", "", value)
+        if not re.match(r"^\+?[0-9]{10,15}$", cleaned):
+            raise serializers.ValidationError("Enter a valid mobile number.")
+        phone = normalize_phone_number(value)
+        if User.objects.filter(phone=phone).exists():
+            raise serializers.ValidationError("This mobile number is already registered.")
+        return phone
+
+    def validate(self, attrs):
+        candidate = User(email=attrs["email"], first_name=attrs["name"], username=attrs["email"].split("@")[0])
+        try:
+            validate_password(attrs["password"], user=candidate)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)})
+        return attrs
 
 
 class SendOTPSerializer(serializers.Serializer):
