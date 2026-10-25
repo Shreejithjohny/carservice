@@ -3,7 +3,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  /* Outfit has no Indian scripts; Hindi and Kannada text falls through to the Noto fonts */
+  --font-sans: "Outfit", "Noto Sans Devanagari", "Noto Sans Kannada", ui-sans-serif, system-ui, sans-serif;
   --color-brand: #ff4d2e;
   --color-ink: #0b0d12;
 }
@@ -28,3 +29,9 @@ body { font-family: var(--font-sans); }
 .map-pin-hub { background: #151923; }
 .map-pin-driver { background: #1da56a; }
 @media (max-width: 640px) { .track-map { min-height: 300px; } .map-point span { display: none; } }
+
+/* Letter-spacing (Tailwind tracking-*) breaks up joined letters in Indian scripts */
+html:lang(hi) *,
+html:lang(kn) * {
+  letter-spacing: normal !important;
+}

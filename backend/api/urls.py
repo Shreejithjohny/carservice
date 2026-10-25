@@ -30,6 +30,8 @@ urlpatterns = [
     # Phase 4 Service & Booking Endpoints
     path("service-types/", views.service_type_list, name="service_type_list"),
     path("service-centers/", views.service_center_list, name="service_center_list"),
+    path("service-centers/<int:pk>/reviews/", views.service_center_reviews, name="service_center_reviews"),
+    path("service-centers/<int:pk>/slots/", views.service_center_slots, name="service_center_slots"),
     path("bookings/", views.booking_list_create, name="booking_list_create"),
     path("bookings/<str:pk>/", views.booking_detail, name="booking_detail"),
 
@@ -39,6 +41,7 @@ urlpatterns = [
     # Phase 6 Service Center Manager Endpoints
     path("service-center/bookings/", views.service_center_bookings_list, name="sc_bookings_list"),
     path("service-center/bookings/<str:pk>/", views.service_center_booking_update, name="sc_booking_update"),
+    path("service-center/analytics/", views.service_center_analytics, name="sc_analytics"),
     path("service-center/employees/", views.service_center_employees_list, name="sc_employees_list"),
 
     # Phase 7 Driver / Valet Endpoints
@@ -46,6 +49,11 @@ urlpatterns = [
     path("driver/pickups/<int:pk>/status/", views.driver_pickup_status_update, name="driver_pickup_status_update"),
     path("driver/pickups/<int:pk>/handover-otp/request/", views.driver_request_handover_otp, name="driver_request_handover_otp"),
     path("driver/pickups/<int:pk>/handover-otp/verify/", views.driver_verify_handover_otp, name="driver_verify_handover_otp"),
+    path("driver/pickups/<int:pk>/delivery-otp/request/", views.driver_request_delivery_otp, name="driver_request_delivery_otp"),
+    path("driver/pickups/<int:pk>/delivery-otp/verify/", views.driver_verify_delivery_otp, name="driver_verify_delivery_otp"),
+    path("driver/pickups/<int:pk>/condition-photos/", views.driver_upload_condition_photo, name="driver_upload_condition_photo"),
+    path("driver/pickups/<int:pk>/plate-check/", views.driver_plate_check, name="driver_plate_check"),
+    path("driver/pickups/<int:pk>/odometer/", views.driver_record_odometer, name="driver_record_odometer"),
     path("driver/pickups/<int:pk>/location/", views.driver_post_location, name="driver_post_location"),
 
     # Phase 8 Mechanic & Repair Endpoints
@@ -56,6 +64,8 @@ urlpatterns = [
     path("repair-requests/", views.create_repair_request, name="create_repair_request"),
 
     # Customer Tracking & Approvals
+    path("bookings/<str:pk>/review/", views.booking_review, name="booking_review"),
+    path("bookings/<str:pk>/condition-report/", views.booking_condition_report, name="booking_condition_report"),
     path("bookings/<str:pk>/tracking/", views.customer_booking_tracking_detail, name="customer_booking_tracking_detail"),
     path("repair-requests/<int:pk>/approve/", views.customer_approve_repair_request, name="customer_approve_repair_request"),
     path("repair-requests/<int:pk>/reject/", views.customer_reject_repair_request, name="customer_reject_repair_request"),
@@ -65,15 +75,20 @@ urlpatterns = [
 
     # Phase 10 Invoices & Car Health Score
     path("invoices/", views.invoices_list, name="invoices_list"),
+    path("invoices/verify/<str:token>/", views.invoice_verify, name="invoice_verify"),
     path("invoices/<str:pk>/", views.invoice_detail, name="invoice_detail"),
+    path("invoices/<str:pk>/pdf/", views.invoice_pdf, name="invoice_pdf"),
     path("invoices/<int:pk>/pay/", views.invoice_pay, name="invoice_pay"),
     path("bookings/<str:pk>/generate-invoice/", views.booking_generate_invoice, name="booking_generate_invoice"),
+    path("reminders/", views.service_reminders, name="service_reminders"),
     path("vehicles/<int:pk>/health-score/", views.vehicle_health_score, name="vehicle_health_score"),
 
     # Phase 11 Notifications & Admin Dashboard
     path("notifications/", views.notifications_list, name="notifications_list"),
     path("notifications/<int:pk>/read/", views.notification_mark_read, name="notification_mark_read"),
     path("notifications/mark-all-read/", views.notifications_mark_all_read, name="notifications_mark_all_read"),
+    path("admin/cost-model/", views.admin_cost_model, name="admin_cost_model"),
+    path("admin/cost-model/train/", views.admin_train_cost_model, name="admin_train_cost_model"),
     path("admin/dashboard-stats/", views.admin_dashboard_stats, name="admin_dashboard_stats"),
 
     # Health Check

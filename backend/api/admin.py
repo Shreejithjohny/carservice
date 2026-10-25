@@ -16,6 +16,7 @@ from .models import (
     DriverLocation,
     ServiceInspection,
     RepairEvidence,
+    VehicleConditionPhoto,
     RepairRequest,
     Invoice,
     InvoiceItem,
@@ -24,6 +25,7 @@ from .models import (
     ServiceHistory,
     RepairCostEstimate,
     CarHealthScore,
+    ServiceReview,
 )
 
 
@@ -77,7 +79,7 @@ class ServiceTypeAdmin(admin.ModelAdmin):
 
 @admin.register(ServiceCenter)
 class ServiceCenterAdmin(admin.ModelAdmin):
-    list_display = ["name", "phone", "email", "rating", "is_active", "active"]
+    list_display = ["name", "phone", "email", "rating", "slot_capacity", "is_active", "active"]
     search_fields = ["name", "email"]
     list_filter = ["is_active"]
 
@@ -136,6 +138,12 @@ class RepairEvidenceAdmin(admin.ModelAdmin):
     list_display = ["booking", "mechanic", "issue_title", "media_type", "created_at"]
 
 
+@admin.register(VehicleConditionPhoto)
+class VehicleConditionPhotoAdmin(admin.ModelAdmin):
+    list_display = ["booking", "stage", "angle", "uploaded_by", "created_at"]
+    list_filter = ["stage", "angle"]
+
+
 @admin.register(RepairRequest)
 class RepairRequestAdmin(admin.ModelAdmin):
     list_display = ["booking", "mechanic", "issue_title", "estimated_cost", "status", "created_at"]
@@ -178,3 +186,9 @@ class RepairCostEstimateAdmin(admin.ModelAdmin):
 class CarHealthScoreAdmin(admin.ModelAdmin):
     list_display = ["vehicle", "score", "maintenance_compliance", "critical_issue_count", "calculated_at"]
 
+
+
+@admin.register(ServiceReview)
+class ServiceReviewAdmin(admin.ModelAdmin):
+    list_display = ["booking", "customer", "service_center", "center_rating", "driver_rating", "created_at"]
+    list_filter = ["center_rating", "service_center"]

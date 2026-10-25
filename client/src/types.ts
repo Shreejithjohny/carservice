@@ -63,6 +63,7 @@ export interface Vehicle {
   registration_number: string;
   registration?: string;
   color?: string;
+  odometer_km?: number | null;
   image?: string;
   image_url?: string;
   created_at?: string;
@@ -87,6 +88,9 @@ export interface ServiceCenter {
   latitude?: number;
   longitude?: number;
   rating?: number;
+  review_count?: number;
+  average_rating?: number | null;
+  slot_capacity?: number;
   is_active?: boolean;
   active?: boolean;
 }
@@ -114,6 +118,14 @@ export interface Booking {
   assigned_mechanic_details?: User | null;
   handover_otp?: string | null;
   handover_otp_verified?: boolean;
+  delivery_otp_verified?: boolean;
+  delivered_at?: string | null;
+  completed_at?: string | null;
+  pickup_odometer_km?: number | null;
+  delivery_odometer_km?: number | null;
+  plate_verified?: boolean;
+  plate_detected?: string;
+  has_review?: boolean;
   pickup_address?: string;
   pickup_latitude?: number | null;
   pickup_longitude?: number | null;
@@ -130,6 +142,74 @@ export interface Booking {
   pickupAt?: string;
 }
 
+export interface ConditionPhoto {
+  id: number;
+  stage: "PICKUP" | "DELIVERY";
+  angle: string;
+  file: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface ConditionReport {
+  booking: number;
+  pickup_photos: ConditionPhoto[];
+  delivery_photos: ConditionPhoto[];
+  pickup_odometer_km: number | null;
+  delivery_odometer_km: number | null;
+  km_driven: number | null;
+}
+
+export interface ServiceDue {
+  vehicle: number;
+  registration_number: string;
+  name: string;
+  status: "OK" | "DUE_SOON" | "OVERDUE" | "BOOKED";
+  last_service_date: string | null;
+  due_date: string;
+  days_left: number;
+  km_left: number | null;
+  odometer_km: number | null;
+  reasons: string[];
+}
+
+export interface CenterAnalytics {
+  scope: string;
+  monthly: { month: string; label: string; bookings: number; completed: number; revenue: number }[];
+  totals: { bookings: number; completed: number; cancelled: number; revenue_paid: number; outstanding: number };
+  turnaround_hours: { count: number; average: number | null; median: number | null };
+  repairs: {
+    approved: number;
+    rejected: number;
+    pending: number;
+    approval_rate: number | null;
+    top: { title: string; count: number; average_cost: number }[];
+  };
+  ratings: {
+    count: number;
+    average: number | null;
+    distribution: { stars: number; count: number }[];
+    recent: { rating: number; comment: string; created_at: string }[];
+  };
+  status_breakdown: { status: string; count: number }[];
+}
+
+export interface CostModelStatus {
+  active: {
+    id: number;
+    trained_at: string;
+    n_samples: number;
+    synthetic_share: number;
+    is_active: boolean;
+    metrics: {
+      ml: { mae: number; mape: number };
+      rule_based: { mae: number; mape: number };
+      interval_coverage: number;
+    };
+  } | null;
+  available_samples: number;
+  min_samples: number;
+}
 
 export interface InvoiceItem {
   id?: number;
@@ -222,7 +302,7 @@ export interface RepairCostEstimate {
   estimated_min_cost: number | string;
   estimated_max_cost: number | string;
   estimated_labor_hours: number | string;
-  estimation_source: "AI" | "RULE_BASED" | "MANUAL" | string;
+  estimation_source: "AI" | "ML" | "RULE_BASED" | "MANUAL" | string;
   explanation: string;
   created_at?: string;
 }

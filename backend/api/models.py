@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
@@ -161,6 +162,8 @@ class Vehicle(models.Model):
     )
     registration_number = models.CharField(max_length=20, unique=True)
     color = models.CharField(max_length=30, blank=True, default="")
+    # Latest odometer reading we know of (from the customer or a driver's pickup/delivery reading).
+    odometer_km = models.PositiveIntegerField(null=True, blank=True)
     image = models.ImageField(upload_to="vehicle_images/", null=True, blank=True)
     image_url = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -215,6 +218,8 @@ class ServiceCenter(models.Model):
     latitude = models.FloatField(default=12.9716)
     longitude = models.FloatField(default=77.5946)
     rating = models.FloatField(default=4.8)
+    # Pickups the center can handle in each time slot (roughly its number of drivers).
+    slot_capacity = models.PositiveIntegerField(default=3)
     is_active = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -273,6 +278,7 @@ class BookingStatus(models.TextChoices):
     VEHICLE_PICKED_UP = "Vehicle Picked Up", _("Vehicle Picked Up")
     IN_SERVICE = "In Service", _("In Service")
     READY_FOR_DELIVERY = "Ready for Delivery", _("Ready for Delivery")
+    OUT_FOR_DELIVERY = "Out for Delivery", _("Out for Delivery")
     COMPLETED = "Completed", _("Completed")
     CANCELLED = "Cancelled", _("Cancelled")
 
@@ -340,6 +346,19 @@ class ServiceBooking(models.Model):
     handover_otp_verified = models.BooleanField(default=False)
     handover_otp_expires_at = models.DateTimeField(null=True, blank=True)
     handover_otp_attempts = models.PositiveIntegerField(default=0)
+    # Return trip: the customer gives this code to the driver when the car is handed back.
+    delivery_otp = models.CharField(max_length=6, blank=True, default="")
+    delivery_otp_verified = models.BooleanField(default=False)
+    delivery_otp_expires_at = models.DateTimeField(null=True, blank=True)
+    delivery_otp_attempts = models.PositiveIntegerField(default=0)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # Odometer readings taken by the driver, so the customer can see how far the car was driven.
+    pickup_odometer_km = models.PositiveIntegerField(null=True, blank=True)
+    delivery_odometer_km = models.PositiveIntegerField(null=True, blank=True)
+    # Set when the driver's photo of the number plate matched the registration on the booking.
+    plate_verified = models.BooleanField(default=False)
+    plate_detected = models.CharField(max_length=20, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -468,6 +487,41 @@ class RepairEvidence(models.Model):
         return f"Evidence {self.issue_title} for {self.booking.booking_reference}"
 
 
+class VehicleConditionPhoto(models.Model):
+    """Photos the driver takes at pickup and again at delivery, so any new damage is visible."""
+
+    class Stage(models.TextChoices):
+        PICKUP = "PICKUP", _("Pickup")
+        DELIVERY = "DELIVERY", _("Delivery")
+
+    class Angle(models.TextChoices):
+        FRONT = "FRONT", _("Front")
+        REAR = "REAR", _("Rear")
+        LEFT = "LEFT", _("Left side")
+        RIGHT = "RIGHT", _("Right side")
+        INTERIOR = "INTERIOR", _("Interior")
+        ODOMETER = "ODOMETER", _("Odometer")
+        OTHER = "OTHER", _("Other / close-up")
+
+    booking = models.ForeignKey(
+        ServiceBooking, on_delete=models.CASCADE, related_name="condition_photos"
+    )
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="condition_photos"
+    )
+    stage = models.CharField(max_length=10, choices=Stage.choices)
+    angle = models.CharField(max_length=10, choices=Angle.choices, default=Angle.OTHER)
+    file = models.FileField(upload_to="condition_photos/")
+    notes = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.stage} {self.angle} photo for {self.booking.booking_reference}"
+
+
 class RepairRequestStatus(models.TextChoices):
     PENDING = "PENDING", _("Pending")
     APPROVED = "APPROVED", _("Approved")
@@ -507,6 +561,7 @@ class RepairRequest(models.Model):
 
 class EstimationSource(models.TextChoices):
     AI = "AI", _("AI")
+    ML = "ML", _("Learned model")
     RULE_BASED = "RULE_BASED", _("Rule-Based")
     MANUAL = "MANUAL", _("Manual")
 
@@ -552,6 +607,29 @@ class RepairCostEstimate(models.Model):
 
     def __str__(self):
         return f"Estimate for {self.vehicle}: ₹{self.estimated_min_cost}–₹{self.estimated_max_cost} ({self.estimation_source})"
+
+
+class CostModel(models.Model):
+    """A repair-cost regression trained on billed repairs (see ml_cost_model.py). One is active at a time."""
+
+    trained_at = models.DateTimeField(auto_now_add=True)
+    n_samples = models.PositiveIntegerField()
+    # Percentage of training repairs that came from the demo data generator, not real jobs
+    synthetic_share = models.FloatField(default=0)
+    features = models.JSONField()
+    weights = models.JSONField()
+    feature_mean = models.JSONField()
+    feature_std = models.JSONField()
+    residual_q10 = models.FloatField()
+    residual_q90 = models.FloatField()
+    metrics = models.JSONField(default=dict)
+    is_active = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-trained_at"]
+
+    def __str__(self):
+        return f"Cost model {self.trained_at:%Y-%m-%d %H:%M} ({self.n_samples} samples)"
 
 
 class InvoiceStatus(models.TextChoices):
@@ -756,6 +834,33 @@ class CarHealthScore(models.Model):
         return f"Health Score for {self.vehicle}: {self.score}/100"
 
 
+class ServiceReview(models.Model):
+    """A customer's rating of a completed booking: the service center, and the driver if one was assigned."""
+
+    booking = models.OneToOneField(
+        ServiceBooking, on_delete=models.CASCADE, related_name="review"
+    )
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reviews")
+    service_center = models.ForeignKey(
+        ServiceCenter, on_delete=models.SET_NULL, null=True, blank=True, related_name="reviews"
+    )
+    driver = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="driver_reviews"
+    )
+    center_rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    driver_rating = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    comment = models.TextField(blank=True, default="", max_length=1000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.center_rating}/5 for {self.booking.booking_reference}"
+
+
 class NotificationType(models.TextChoices):
     BOOKING_CREATED = "BOOKING_CREATED", _("Booking Created")
     BOOKING_CONFIRMED = "BOOKING_CONFIRMED", _("Booking Confirmed")
@@ -771,6 +876,7 @@ class NotificationType(models.TextChoices):
     DELIVERY_COMPLETED = "DELIVERY_COMPLETED", _("Delivery Completed")
     INVOICE_GENERATED = "INVOICE_GENERATED", _("Invoice Generated")
     PAYMENT_RECEIVED = "PAYMENT_RECEIVED", _("Payment Received")
+    SERVICE_REMINDER = "SERVICE_REMINDER", _("Service Reminder")
     GENERAL = "GENERAL", _("General")
 
 

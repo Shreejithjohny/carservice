@@ -100,9 +100,37 @@ def estimate_repair_cost(
     severity: str = "MEDIUM",
     estimated_labor_hours: Optional[Decimal] = None,
 ) -> Dict[str, Any]:
-    """Main helper for estimating vehicle repair costs."""
-    estimator = FallbackRuleBasedEstimator()
+    """
+    Main helper for estimating vehicle repair costs. Uses the learned model once one has been trained
+    on enough billed repairs, otherwise the rule-based formula.
+    """
+    from .ml_cost_model import active_model, predict
+
     labor_hours = Decimal(str(estimated_labor_hours)) if estimated_labor_hours is not None else Decimal("1.5")
+    stored = active_model()
+    if stored is not None:
+        result = predict(stored, vehicle, service_type, severity, labor_hours)
+        mape = stored.metrics.get("ml", {}).get("mape")
+        coverage = stored.metrics.get("interval_coverage")
+        if stored.synthetic_share:
+            source = (
+                f"Learned from {stored.n_samples} past repairs, {stored.synthetic_share:.0f}% of them synthetic demo data, "
+                "so this accuracy is not real-world evidence"
+            )
+        else:
+            source = f"Learned from {stored.n_samples} completed repairs billed by our workshops"
+        return {
+            "estimated_min_cost": Decimal(str(result["low"])).quantize(Decimal("0.01")),
+            "estimated_max_cost": Decimal(str(result["high"])).quantize(Decimal("0.01")),
+            "estimated_labor_hours": labor_hours,
+            "explanation": (
+                f"{source} (cross-validated average error {mape}%; {coverage}% of held-out repairs fell inside "
+                "their predicted range). The final price is confirmed after inspection."
+            ),
+            "estimation_source": "ML",
+        }
+
+    estimator = FallbackRuleBasedEstimator()
     return estimator.estimate(
         vehicle=vehicle,
         service_type=service_type,

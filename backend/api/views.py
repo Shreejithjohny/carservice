@@ -1,7 +1,8 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Avg, Q
 from django.conf import settings
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
@@ -26,6 +27,7 @@ from .models import (
     RepairEvidence,
     RepairRequest,
     RepairRequestStatus,
+    VehicleConditionPhoto,
     Invoice,
     InvoiceItem,
     InvoiceStatus,
@@ -34,6 +36,8 @@ from .models import (
     Notification,
     NotificationType,
     Employee,
+    CostModel,
+    ServiceReview,
 )
 from .serializers import (
     SendOTPSerializer,
@@ -50,6 +54,7 @@ from .serializers import (
     ServiceInspectionSerializer,
     RepairEvidenceSerializer,
     RepairRequestSerializer,
+    VehicleConditionPhotoSerializer,
     RepairCostEstimateInputSerializer,
     RepairCostEstimateSerializer,
     InvoiceItemSerializer,
@@ -57,13 +62,22 @@ from .serializers import (
     PaymentSerializer,
     CarHealthScoreSerializer,
     NotificationSerializer,
+    ServiceReviewSerializer,
 )
 from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number
 from .ai_cost_service import estimate_repair_cost
 from .invoice_service import InvoiceError, generate_invoice_for_booking
+from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
+from .plate_service import LIKELY, MATCH, check_plate
+from .reminder_service import service_due
+from .analytics_service import center_analytics
+from .ml_cost_model import (
+    MIN_TRAINING_SAMPLES, SYNTHETIC_HISTORY_EMAIL, SYNTHETIC_MARKER, train_cost_model, training_rows,
+)
+from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
 # Permissions come from the app role. is_staff only controls access to the Django admin site,
@@ -130,8 +144,16 @@ MECHANIC_SETTABLE_STATUSES = {BookingStatus.IN_SERVICE, "Inspection", "Repair Ap
 PICKUP_STAGE_STATUSES = {
     BookingStatus.CONFIRMED, BookingStatus.PICKUP_SCHEDULED, "Driver Assigned", "En Route for Pickup", "Arrived at Pickup",
 }
-DRIVER_SETTABLE_STATUSES = {"En Route for Pickup", "Arrived at Pickup"}
-DRIVER_GPS_STATUSES = PICKUP_STAGE_STATUSES | {BookingStatus.VEHICLE_PICKED_UP}
+# Return trip: the car is ready at the workshop, then on its way back to the customer.
+DELIVERY_STAGE_STATUSES = {BookingStatus.READY_FOR_DELIVERY, BookingStatus.OUT_FOR_DELIVERY}
+# Status a driver may set -> the statuses the booking may be in at that moment.
+DRIVER_STATUS_MOVES = {
+    "En Route for Pickup": PICKUP_STAGE_STATUSES,
+    "Arrived at Pickup": PICKUP_STAGE_STATUSES,
+    BookingStatus.OUT_FOR_DELIVERY: {BookingStatus.READY_FOR_DELIVERY},
+}
+DRIVER_SETTABLE_STATUSES = set(DRIVER_STATUS_MOVES)
+DRIVER_GPS_STATUSES = PICKUP_STAGE_STATUSES | {BookingStatus.VEHICLE_PICKED_UP, BookingStatus.OUT_FOR_DELIVERY}
 
 
 def driver_job_error(user, booking, allowed_statuses):
@@ -142,6 +164,114 @@ def driver_job_error(user, booking, allowed_statuses):
         return Response({"error": "This pickup is not assigned to you."}, status=status.HTTP_403_FORBIDDEN)
     if booking.status not in allowed_statuses:
         return Response({"error": f"Not available while the booking is '{booking.status}'."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+# The pickup handover and the return delivery each use their own one-time code, stored in
+# fields named handover_otp* and delivery_otp* on the booking.
+
+
+def issue_booking_otp(booking, kind):
+    code = generate_otp_code()
+    setattr(booking, f"{kind}_otp", code)
+    setattr(booking, f"{kind}_otp_verified", False)
+    setattr(booking, f"{kind}_otp_attempts", 0)
+    setattr(booking, f"{kind}_otp_expires_at", timezone.now() + timedelta(minutes=10))
+    booking.save()
+    resp_data = {"booking_reference": booking.booking_reference, "expires_in_minutes": 10}
+    if getattr(settings, "OTP_BYPASS", False):
+        resp_data["bypass_code"] = "123456"
+    return resp_data
+
+
+def booking_otp_error(booking, kind, otp_code):
+    """Checks the code the driver typed in. Returns an error Response, or None when it matches."""
+    if not otp_code:
+        return Response({"error": "OTP code is required."}, status=status.HTTP_400_BAD_REQUEST)
+    expected = getattr(booking, f"{kind}_otp")
+    bypass_active = getattr(settings, "OTP_BYPASS", False)
+    if bypass_active and (otp_code in ["123456", "000000", "999999"] or otp_code.lower() == "bypass" or otp_code == expected):
+        return None
+
+    attempts = getattr(booking, f"{kind}_otp_attempts")
+    if attempts >= 5:
+        return Response({"error": "Maximum OTP verification attempts exceeded. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
+    setattr(booking, f"{kind}_otp_attempts", attempts + 1)
+    booking.save()
+
+    expires_at = getattr(booking, f"{kind}_otp_expires_at")
+    if not expected:
+        return Response({"error": f"No {kind} OTP has been requested yet."}, status=status.HTTP_400_BAD_REQUEST)
+    if expires_at and timezone.now() > expires_at:
+        return Response({"error": f"OTP has expired. Please request a new {kind} OTP."}, status=status.HTTP_400_BAD_REQUEST)
+    if expected != otp_code:
+        remaining = 5 - (attempts + 1)
+        return Response({"error": f"Invalid {kind} OTP code. {remaining} attempt(s) remaining."}, status=status.HTTP_400_BAD_REQUEST)
+    return None
+
+
+def notify_ready_for_delivery(booking):
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.READY_FOR_DELIVERY,
+        title="Vehicle Ready for Delivery",
+        message=f"Servicing complete! Vehicle {booking.vehicle.registration_number} is ready for doorstep delivery.",
+    )
+    if booking.assigned_driver:
+        send_notification(
+            user=booking.assigned_driver,
+            booking=booking,
+            notification_type=NotificationType.READY_FOR_DELIVERY,
+            title="Return Delivery Ready",
+            message=f"Vehicle {booking.vehicle.registration_number} is ready to be delivered back to {booking.pickup_address}.",
+        )
+
+
+def complete_booking(booking):
+    """Closes a booking: records the time, notifies the customer, issues the invoice, updates car health."""
+    booking.status = BookingStatus.COMPLETED
+    booking.completed_at = booking.completed_at or timezone.now()
+    booking.save()
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.SERVICE_COMPLETED,
+        title="Service Completed Successfully",
+        message=f"All services and repairs for {booking.vehicle.registration_number} have been successfully finalized.",
+    )
+    try:
+        generate_invoice_for_booking(booking)
+    except InvoiceError:
+        pass  # e.g. already paid; completing the booking still succeeds
+    try:
+        recalculate_car_health_score(booking.vehicle)
+    except Exception:
+        pass
+
+
+def find_booking(pk):
+    """Looks a booking up by its numeric id or its reference (e.g. SDV-2026-000001)."""
+    if str(pk).isdigit():
+        return ServiceBooking.objects.filter(pk=pk).first()
+    return ServiceBooking.objects.filter(Q(booking_reference=pk) | Q(booking_id=pk)).first()
+
+
+def can_view_booking(user, booking):
+    """The customer, an admin, the assigned driver or mechanic, or the manager of the booking's center."""
+    if booking.customer_id == user.id or is_admin(user):
+        return True
+    if user.id in (booking.assigned_driver_id, booking.assigned_mechanic_id):
+        return True
+    return manager_scope_error(user, booking) is None
+
+
+def condition_stage(booking):
+    """Which set of condition photos the driver is taking right now, or None outside those stages."""
+    if booking.status in PICKUP_STAGE_STATUSES:
+        return VehicleConditionPhoto.Stage.PICKUP
+    if booking.status == BookingStatus.OUT_FOR_DELIVERY:
+        return VehicleConditionPhoto.Stage.DELIVERY
     return None
 
 
@@ -709,6 +839,27 @@ def service_center_list(request):
     return Response(serializer.data)
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def service_center_slots(request, pk):
+    """
+    GET /api/service-centers/<id>/slots/?date=YYYY-MM-DD -> pickup slots with remaining capacity
+    """
+
+    center = ServiceCenter.objects.filter(pk=pk, is_active=True).first()
+    if not center:
+        return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        day = date.fromisoformat(request.query_params.get("date", ""))
+    except ValueError:
+        return Response({"error": "Pass the date as YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({
+        "service_center": center.id,
+        "date": day.isoformat(),
+        "slots": slot_availability(center, day),
+    })
+
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def booking_list_create(request):
@@ -718,7 +869,7 @@ def booking_list_create(request):
     """
     if request.method == "GET":
         if is_admin(request.user):
-            qs = ServiceBooking.objects.all().order_by("-created_at")
+            qs = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER).order_by("-created_at")
         else:
             qs = ServiceBooking.objects.filter(customer=request.user).order_by("-created_at")
         serializer = ServiceBookingSerializer(qs, many=True)
@@ -744,11 +895,20 @@ def booking_list_create(request):
                 return Response({"error": "Choose an available service center."}, status=status.HTTP_400_BAD_REQUEST)
             est_cost = service_type.base_price
 
-            booking = serializer.save(
-                customer=request.user,
-                estimated_cost=est_cost,
-                status=BookingStatus.PENDING
-            )
+            try:
+                booking = reserve_slot(
+                    service_center,
+                    serializer.validated_data.get("preferred_date"),
+                    serializer.validated_data.get("preferred_time", ""),
+                    timezone.localdate(),
+                    lambda: serializer.save(
+                        customer=request.user,
+                        estimated_cost=est_cost,
+                        status=BookingStatus.PENDING,
+                    ),
+                )
+            except SlotError as exc:
+                return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
             send_notification(
                 user=booking.customer,
                 booking=booking,
@@ -803,6 +963,21 @@ def booking_detail(request, pk):
                     {"error": f"Bookings can only be changed or cancelled while Pending or Confirmed. Current status is '{booking.status}'."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            new_date = request.data.get("preferred_date")
+            new_time = request.data.get("preferred_time")
+            if new_date is not None or new_time is not None:
+                # Rescheduling must land in a slot that still has room.
+
+                try:
+                    day = date.fromisoformat(str(new_date)) if new_date is not None else booking.preferred_date
+                except ValueError:
+                    return Response({"error": "Enter the pickup date as YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+                slot = str(new_time) if new_time is not None else booking.preferred_time
+                if (day, slot) != (booking.preferred_date, booking.preferred_time):
+                    try:
+                        validate_slot_choice(booking.service_center, day, slot, timezone.localdate())
+                    except SlotError as exc:
+                        return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = ServiceBookingSerializer(booking, data=request.data, partial=(request.method == "PATCH"), context={"request": request})
         if serializer.is_valid():
@@ -873,7 +1048,7 @@ def service_center_bookings_list(request):
     if error:
         return error
 
-    qs = ServiceBooking.objects.all().order_by("-created_at")
+    qs = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER).order_by("-created_at")
     if not is_admin(request.user):
         qs = qs.filter(service_center=manager_center(request.user))
 
@@ -928,29 +1103,10 @@ def service_center_booking_update(request, pk):
                 message="Your service booking has been accepted and confirmed by the service center.",
             )
         elif new_status == BookingStatus.READY_FOR_DELIVERY:
-            send_notification(
-                user=booking.customer,
-                booking=booking,
-                notification_type=NotificationType.READY_FOR_DELIVERY,
-                title=f"Vehicle Ready for Delivery",
-                message=f"Servicing complete! Vehicle {booking.vehicle.registration_number} is ready for doorstep delivery.",
-            )
+            notify_ready_for_delivery(booking)
         elif new_status == BookingStatus.COMPLETED:
-            send_notification(
-                user=booking.customer,
-                booking=booking,
-                notification_type=NotificationType.SERVICE_COMPLETED,
-                title=f"Service Completed Successfully",
-                message=f"All services and repairs for {booking.vehicle.registration_number} have been successfully finalized.",
-            )
-            try:
-                generate_invoice_for_booking(booking)
-            except InvoiceError:
-                pass  # e.g. already paid; completing the booking still succeeds
-            try:
-                recalculate_car_health_score(booking.vehicle)
-            except Exception:
-                pass
+            # e.g. the customer collected the car at the center instead of a doorstep delivery
+            complete_booking(booking)
 
     if assigned_driver_id:
         driver = User.objects.filter(pk=assigned_driver_id).first()
@@ -984,6 +1140,31 @@ def service_center_booking_update(request, pk):
 
     booking.save()
     return Response(ServiceBookingSerializer(booking).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def service_center_analytics(request):
+    """
+    GET /api/service-center/analytics/?months=6
+    Managers see their own center; admins see every center, or one with ?center=<id>.
+    """
+    error = manager_scope_error(request.user)
+    if error:
+        return error
+    try:
+        months = min(24, max(1, int(request.query_params.get("months", 6))))
+    except ValueError:
+        months = 6
+
+    if is_admin(request.user):
+        center_id = request.query_params.get("center")
+        center = ServiceCenter.objects.filter(pk=center_id).first() if center_id else None
+        if center_id and not center:
+            return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
+    else:
+        center = manager_center(request.user)
+    return Response(center_analytics(center, months))
 
 
 @api_view(["GET"])
@@ -1028,7 +1209,9 @@ def driver_pickups_list(request):
         return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
 
     if is_admin(request.user):
-        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).order_by("-created_at")
+        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).exclude(
+            customer_notes__startswith=SYNTHETIC_MARKER
+        ).order_by("-created_at")
     else:
         qs = ServiceBooking.objects.filter(assigned_driver=request.user).exclude(
             status=BookingStatus.CANCELLED
@@ -1052,21 +1235,35 @@ def driver_pickup_status_update(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES | DELIVERY_STAGE_STATUSES)
     if error:
         return error
 
     new_status = request.data.get("status")
     if not new_status:
         return Response({"error": "Status is required."}, status=status.HTTP_400_BAD_REQUEST)
-    if not is_admin(request.user) and new_status not in DRIVER_SETTABLE_STATUSES:
-        return Response(
-            {"error": f"Drivers cannot set status '{new_status}'. The handover OTP marks the vehicle picked up."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    if not is_admin(request.user):
+        if new_status not in DRIVER_SETTABLE_STATUSES:
+            return Response(
+                {"error": f"Drivers cannot set status '{new_status}'. The handover and delivery OTPs move the job on."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if booking.status not in DRIVER_STATUS_MOVES[new_status]:
+            return Response(
+                {"error": f"Cannot change to '{new_status}' while the booking is '{booking.status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     booking.status = new_status
     booking.save()
+    if new_status == BookingStatus.OUT_FOR_DELIVERY:
+        send_notification(
+            user=booking.customer,
+            booking=booking,
+            notification_type=NotificationType.READY_FOR_DELIVERY,
+            title="Your Car Is On Its Way Back",
+            message=f"Vehicle {booking.vehicle.registration_number} is out for delivery. Keep your delivery OTP ready.",
+        )
     return Response(ServiceBookingSerializer(booking).data)
 
 
@@ -1088,22 +1285,7 @@ def driver_request_handover_otp(request, pk):
     if error:
         return error
 
-    code = generate_otp_code()
-    booking.handover_otp = code
-    booking.handover_otp_verified = False
-    booking.handover_otp_attempts = 0
-    booking.handover_otp_expires_at = timezone.now() + timedelta(minutes=10)
-    booking.save()
-
-    resp_data = {
-        "message": "Handover OTP generated successfully.",
-        "booking_reference": booking.booking_reference,
-        "expires_in_minutes": 10,
-    }
-    if getattr(settings, "OTP_BYPASS", False):
-        resp_data["bypass_code"] = "123456"
-
-    return Response(resp_data)
+    return Response({"message": "Handover OTP generated successfully.", **issue_booking_otp(booking, "handover")})
 
 
 @api_view(["POST"])
@@ -1125,33 +1307,13 @@ def driver_verify_handover_otp(request, pk):
         return error
 
     otp_code = str(request.data.get("otp_code") or request.data.get("code") or "").strip()
-    if not otp_code:
-        return Response({"error": "OTP code is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-    bypass_active = getattr(settings, "OTP_BYPASS", False)
-    is_universal_bypass = bypass_active and (
-        otp_code in ["123456", "000000", "999999"] or otp_code.lower() == "bypass" or otp_code == booking.handover_otp
-    )
-
-    if not is_universal_bypass:
-        if booking.handover_otp_attempts >= 5:
-            return Response({"error": "Maximum OTP verification attempts exceeded. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
-
-        booking.handover_otp_attempts += 1
-
-        if booking.handover_otp_expires_at and timezone.now() > booking.handover_otp_expires_at:
-            booking.save()
-            return Response({"error": "OTP has expired. Please request a new handover OTP."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if booking.handover_otp != otp_code:
-            booking.save()
-            remaining = 5 - booking.handover_otp_attempts
-            return Response({"error": f"Invalid handover OTP code. {remaining} attempt(s) remaining."}, status=status.HTTP_400_BAD_REQUEST)
+    error = booking_otp_error(booking, "handover", otp_code)
+    if error:
+        return error
 
     booking.handover_otp_verified = True
     booking.status = BookingStatus.VEHICLE_PICKED_UP
     booking.save()
-
 
     send_notification(
         user=booking.customer,
@@ -1164,6 +1326,193 @@ def driver_verify_handover_otp(request, pk):
     return Response({
         "message": "Vehicle handover OTP verified successfully. Status updated to Vehicle Picked Up.",
         "booking": ServiceBookingSerializer(booking).data,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_request_delivery_otp(request, pk):
+    """
+    POST /api/driver/pickups/<id>/delivery-otp/request/
+    Driver at the customer's door asks for the return-delivery code, which the customer sees in the app.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    return Response({"message": "Delivery OTP generated successfully.", **issue_booking_otp(booking, "delivery")})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_verify_delivery_otp(request, pk):
+    """
+    POST /api/driver/pickups/<id>/delivery-otp/verify/
+    Driver enters the customer's delivery code. A match hands the car back and completes the booking.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    otp_code = str(request.data.get("otp_code") or request.data.get("code") or "").strip()
+    error = booking_otp_error(booking, "delivery", otp_code)
+    if error:
+        return error
+
+    booking.delivery_otp_verified = True
+    booking.delivered_at = timezone.now()
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.DELIVERY_COMPLETED,
+        title="Vehicle Delivered",
+        message=f"Vehicle {booking.vehicle.registration_number} has been handed back to you. Thank you for choosing DoorStep!",
+    )
+    complete_booking(booking)
+
+    return Response({
+        "message": "Delivery OTP verified. The vehicle is handed back and the booking is completed.",
+        "booking": ServiceBookingSerializer(booking).data,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_upload_condition_photo(request, pk):
+    """
+    POST /api/driver/pickups/<id>/condition-photos/  (multipart: file, angle, notes)
+    Photos taken before pickup are the "before" set; photos taken at delivery are the "after" set.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES | {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    serializer = VehicleConditionPhotoSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    photo = serializer.save(booking=booking, uploaded_by=request.user, stage=condition_stage(booking))
+    return Response(VehicleConditionPhotoSerializer(photo).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_plate_check(request, pk):
+    """
+    POST /api/driver/pickups/<id>/plate-check/  {"ocr_text": "KA 01 AB 1234"}
+    The driver's phone reads the number plate (OCR in the browser); the server compares it with the
+    registration on the booking so the driver cannot pick up the wrong car.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES)
+    if error:
+        return error
+
+    ocr_text = str(request.data.get("ocr_text") or "")[:500]
+    outcome = check_plate(ocr_text, booking.vehicle.registration_number)
+    if outcome["result"] in (MATCH, LIKELY):
+        booking.plate_verified = True
+        booking.plate_detected = outcome["detected"][:20]
+        booking.save(update_fields=["plate_verified", "plate_detected", "updated_at"])
+    return Response({**outcome, "plate_verified": booking.plate_verified})
+
+
+MAX_ODOMETER_KM = 2_000_000
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def driver_record_odometer(request, pk):
+    """
+    POST /api/driver/pickups/<id>/odometer/  {"reading_km": 45210}
+    Recorded at pickup and again at delivery; the difference is the distance driven while we had the car.
+    """
+    if not (is_driver(request.user) or is_admin(request.user)):
+        return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
+
+    booking = ServiceBooking.objects.filter(pk=pk).first()
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    error = driver_job_error(request.user, booking, PICKUP_STAGE_STATUSES | {BookingStatus.OUT_FOR_DELIVERY})
+    if error:
+        return error
+
+    try:
+        reading = int(request.data.get("reading_km"))
+    except (TypeError, ValueError):
+        return Response({"error": "Enter the odometer reading in whole kilometres."}, status=status.HTTP_400_BAD_REQUEST)
+    if not 0 <= reading <= MAX_ODOMETER_KM:
+        return Response({"error": "That odometer reading is out of range."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if condition_stage(booking) == VehicleConditionPhoto.Stage.PICKUP:
+        booking.pickup_odometer_km = reading
+    else:
+        if booking.pickup_odometer_km is not None and reading < booking.pickup_odometer_km:
+            return Response(
+                {"error": f"The delivery reading cannot be lower than the pickup reading ({booking.pickup_odometer_km} km)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        booking.delivery_odometer_km = reading
+    booking.save()
+
+    vehicle = booking.vehicle
+    if vehicle.odometer_km is None or reading > vehicle.odometer_km:
+        vehicle.odometer_km = reading
+        vehicle.save(update_fields=["odometer_km", "updated_at"])
+    return Response(ServiceBookingSerializer(booking).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def booking_condition_report(request, pk):
+    """
+    GET /api/bookings/<id>/condition-report/
+    Before (pickup) and after (delivery) photos and odometer readings for one booking.
+    """
+    booking = find_booking(pk)
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+    if not can_view_booking(request.user, booking):
+        return Response({"error": "You do not have permission to view this booking."}, status=status.HTTP_403_FORBIDDEN)
+
+    photos = booking.condition_photos.all()
+    km_driven = None
+    if booking.pickup_odometer_km is not None and booking.delivery_odometer_km is not None:
+        km_driven = booking.delivery_odometer_km - booking.pickup_odometer_km
+    return Response({
+        "booking": booking.id,
+        "pickup_photos": VehicleConditionPhotoSerializer(photos.filter(stage=VehicleConditionPhoto.Stage.PICKUP), many=True).data,
+        "delivery_photos": VehicleConditionPhotoSerializer(photos.filter(stage=VehicleConditionPhoto.Stage.DELIVERY), many=True).data,
+        "pickup_odometer_km": booking.pickup_odometer_km,
+        "delivery_odometer_km": booking.delivery_odometer_km,
+        "km_driven": km_driven,
     })
 
 
@@ -1217,7 +1566,9 @@ def mechanic_jobs_list(request):
         return Response({"error": "Mechanic permissions required."}, status=status.HTTP_403_FORBIDDEN)
 
     if is_admin(request.user):
-        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).order_by("-created_at")
+        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).exclude(
+            customer_notes__startswith=SYNTHETIC_MARKER
+        ).order_by("-created_at")
     else:
         qs = ServiceBooking.objects.filter(assigned_mechanic=request.user).exclude(
             status=BookingStatus.CANCELLED
@@ -1257,6 +1608,8 @@ def mechanic_job_status_update(request, pk):
     booking.status = new_status
     booking.save()
 
+    if new_status == BookingStatus.READY_FOR_DELIVERY:
+        notify_ready_for_delivery(booking)
     if new_status == BookingStatus.IN_SERVICE:
         send_notification(
             user=booking.customer,
@@ -1399,6 +1752,9 @@ def customer_booking_tracking_detail(request, pk):
         "assigned_driver": UserSerializer(booking.assigned_driver).data if booking.assigned_driver else None,
         "assigned_mechanic": UserSerializer(booking.assigned_mechanic).data if booking.assigned_mechanic else None,
         "handover_otp_code": booking.handover_otp if booking.customer == request.user else None,
+        "delivery_otp_code": (
+            booking.delivery_otp if booking.customer == request.user and not booking.delivery_otp_verified else None
+        ),
         "inspections": ServiceInspectionSerializer(inspections, many=True).data,
         "evidence": RepairEvidenceSerializer(evidence_items, many=True).data,
         "repair_requests": RepairRequestSerializer(repair_requests, many=True).data,
@@ -1600,15 +1956,58 @@ def invoice_detail(request, pk):
 
     if not invoice:
         return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    # Permissions
-    if invoice.customer != request.user and not is_admin(request.user):
-        center = manager_center(request.user) if request.user.role == UserRole.SERVICE_CENTER_MANAGER else None
-        if not center or invoice.service_center_id != center.id:
-            return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
+    if not can_view_invoice(request.user, invoice):
+        return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
 
     serializer = InvoiceSerializer(invoice)
     return Response(serializer.data)
+
+
+def can_view_invoice(user, invoice):
+    """The customer billed, an admin, or the manager of the center that issued it."""
+    if invoice.customer_id == user.id or is_admin(user):
+        return True
+    center = manager_center(user) if user.role == UserRole.SERVICE_CENTER_MANAGER else None
+    return bool(center) and invoice.service_center_id == center.id
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def invoice_pdf(request, pk):
+    """GET /api/invoices/<id>/pdf/ -> downloadable PDF with a verification QR code"""
+    invoice = Invoice.objects.filter(pk=pk).first() if str(pk).isdigit() else Invoice.objects.filter(invoice_number=pk).first()
+    if not invoice:
+        return Response({"error": "Invoice not found."}, status=status.HTTP_404_NOT_FOUND)
+    if not can_view_invoice(request.user, invoice):
+        return Response({"error": "Unauthorized access to invoice."}, status=status.HTTP_403_FORBIDDEN)
+
+    response = HttpResponse(build_invoice_pdf(invoice), content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{invoice.invoice_number}.pdf"'
+    return response
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def invoice_verify(request, token):
+    """
+    GET /api/invoices/verify/<token>/  (public; the token comes from the QR code on the PDF)
+    Confirms an invoice is genuine. Shows only what is printed on it anyway, minus customer contact details.
+    """
+    invoice = invoice_from_token(token)
+    if not invoice:
+        return Response({"valid": False, "error": "This code does not match any invoice we issued."}, status=status.HTTP_404_NOT_FOUND)
+    reg = invoice.vehicle.registration_number if invoice.vehicle else ""
+    return Response({
+        "valid": True,
+        "invoice_number": invoice.invoice_number,
+        "issued_at": invoice.issued_at,
+        "service_center": invoice.service_center.name if invoice.service_center else None,
+        # Partly hidden so a lost invoice does not reveal the full registration
+        "vehicle": f"{reg[:4]}{'*' * max(0, len(reg) - 6)}{reg[-2:]}" if len(reg) > 6 else reg,
+        "grand_total": invoice.grand_total,
+        "payment_status": invoice.payment_status,
+        "invoice_status": invoice.invoice_status,
+    })
 
 
 @api_view(["POST"])
@@ -1661,6 +2060,79 @@ def booking_generate_invoice(request, pk):
         return Response({"error": exc.message}, status=exc.status_code)
     recalculate_car_health_score(booking.vehicle)
     return Response(InvoiceSerializer(invoice).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def booking_review(request, pk):
+    """
+    GET  /api/bookings/<id>/review/ -> the review left for this booking (404 if none)
+    POST /api/bookings/<id>/review/ -> customer rates a completed booking once:
+         {"center_rating": 1-5, "driver_rating": 1-5 (optional), "comment": "..."}
+    """
+    booking = find_booking(pk)
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        if not can_view_booking(request.user, booking):
+            return Response({"error": "You do not have permission to view this booking."}, status=status.HTTP_403_FORBIDDEN)
+        review = ServiceReview.objects.filter(booking=booking).first()
+        if not review:
+            return Response({"error": "No review yet."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ServiceReviewSerializer(review).data)
+
+    if booking.customer_id != request.user.id:
+        return Response({"error": "Only the customer who booked this service can review it."}, status=status.HTTP_403_FORBIDDEN)
+    if booking.status != BookingStatus.COMPLETED:
+        return Response({"error": "You can review a service once it is completed."}, status=status.HTTP_400_BAD_REQUEST)
+    if ServiceReview.objects.filter(booking=booking).exists():
+        return Response({"error": "You have already reviewed this service."}, status=status.HTTP_409_CONFLICT)
+
+    serializer = ServiceReviewSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    driver_rating = serializer.validated_data.get("driver_rating")
+    if driver_rating is not None and not booking.assigned_driver_id:
+        return Response({"error": "This booking had no driver to rate."}, status=status.HTTP_400_BAD_REQUEST)
+
+    review = serializer.save(
+        booking=booking,
+        customer=request.user,
+        service_center=booking.service_center,
+        driver=booking.assigned_driver if driver_rating is not None else None,
+    )
+    center = booking.service_center
+    if center:
+        # Keep the stored rating equal to the real average, so nothing shows a made-up score.
+        center.rating = round(center.reviews.aggregate(avg=Avg("center_rating"))["avg"], 1)
+        center.save(update_fields=["rating", "active"])
+    return Response(ServiceReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def service_center_reviews(request, pk):
+    """GET /api/service-centers/<id>/reviews/ -> recent public reviews of a center"""
+    center = ServiceCenter.objects.filter(pk=pk).first()
+    if not center:
+        return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
+    reviews = center.reviews.select_related("customer", "booking")[:20]
+    return Response({
+        "service_center": ServiceCenterSerializer(center).data,
+        "reviews": ServiceReviewSerializer(reviews, many=True).data,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def service_reminders(request):
+    """
+    GET /api/reminders/
+    Next service due date / kilometres for each of the customer's vehicles.
+    """
+    today = timezone.localdate()
+    return Response([service_due(v, today) for v in Vehicle.objects.filter(customer=request.user)])
 
 
 @api_view(["GET"])
@@ -1738,10 +2210,12 @@ def admin_dashboard_stats(request):
     if not is_admin(request.user):
         return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
 
-    total_customers = User.objects.filter(role=UserRole.CUSTOMER).count()
-    total_vehicles = Vehicle.objects.count()
-    total_bookings = ServiceBooking.objects.count()
-    active_services = ServiceBooking.objects.filter(
+    # Leave out generated demo history (seed_repair_history)
+    real_bookings = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER)
+    total_customers = User.objects.filter(role=UserRole.CUSTOMER).exclude(email=SYNTHETIC_HISTORY_EMAIL).count()
+    total_vehicles = Vehicle.objects.exclude(customer__email=SYNTHETIC_HISTORY_EMAIL).count()
+    total_bookings = real_bookings.count()
+    active_services = real_bookings.filter(
         status__in=[
             BookingStatus.CONFIRMED,
             BookingStatus.PICKUP_SCHEDULED,
@@ -1749,10 +2223,11 @@ def admin_dashboard_stats(request):
             BookingStatus.IN_SERVICE,
             "Repair Approval Required",
             BookingStatus.READY_FOR_DELIVERY,
+            BookingStatus.OUT_FOR_DELIVERY,
         ]
     ).count()
-    completed_services = ServiceBooking.objects.filter(status=BookingStatus.COMPLETED).count()
-    service_centers_count = ServiceCenter.objects.count()
+    completed_services = real_bookings.filter(status=BookingStatus.COMPLETED).count()
+    service_centers_count = ServiceCenter.objects.filter(is_active=True).count()
     total_drivers = User.objects.filter(role=UserRole.DRIVER).count()
     total_mechanics = User.objects.filter(role=UserRole.MECHANIC).count()
 
@@ -1765,11 +2240,12 @@ def admin_dashboard_stats(request):
         Invoice.objects.exclude(payment_status=Invoice.PaymentStatus.PAID).exclude(invoice_status=InvoiceStatus.CANCELLED)
     )
 
+    real_repairs = RepairRequest.objects.exclude(booking__customer_notes__startswith=SYNTHETIC_MARKER)
     repair_stats = {
-        "total": RepairRequest.objects.count(),
-        "approved": RepairRequest.objects.filter(status=RepairRequestStatus.APPROVED).count(),
-        "pending": RepairRequest.objects.filter(status=RepairRequestStatus.PENDING).count(),
-        "rejected": RepairRequest.objects.filter(status=RepairRequestStatus.REJECTED).count(),
+        "total": real_repairs.count(),
+        "approved": real_repairs.filter(status=RepairRequestStatus.APPROVED).count(),
+        "pending": real_repairs.filter(status=RepairRequestStatus.PENDING).count(),
+        "rejected": real_repairs.filter(status=RepairRequestStatus.REJECTED).count(),
     }
 
     return Response({
@@ -1787,4 +2263,40 @@ def admin_dashboard_stats(request):
     })
 
 
+def cost_model_summary(model):
+    return {
+        "id": model.id,
+        "trained_at": model.trained_at,
+        "n_samples": model.n_samples,
+        "synthetic_share": model.synthetic_share,
+        "metrics": model.metrics,
+        "is_active": model.is_active,
+    }
 
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_cost_model(request):
+    """GET /api/admin/cost-model/ -> the active learned estimator (if any) and its cross-validated accuracy"""
+    if not is_admin(request.user):
+        return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+    model = CostModel.objects.filter(is_active=True).first()
+    return Response({
+        "active": cost_model_summary(model) if model else None,
+        "available_samples": len(training_rows()),
+        "min_samples": MIN_TRAINING_SAMPLES,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def admin_train_cost_model(request):
+    """POST /api/admin/cost-model/train/ -> retrain on all completed, approved repairs"""
+    if not is_admin(request.user):
+        return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+    try:
+        model = train_cost_model()
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(cost_model_summary(model), status=status.HTTP_201_CREATED)

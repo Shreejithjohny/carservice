@@ -1,5 +1,6 @@
 import re
 import uuid
+from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
     UserRole,
@@ -16,12 +17,14 @@ from .models import (
     ServiceInspection,
     RepairEvidence,
     RepairRequest,
+    VehicleConditionPhoto,
     Invoice,
     InvoiceItem,
     Payment,
     CarHealthScore,
     RepairCostEstimate,
     Notification,
+    ServiceReview,
 )
 
 
@@ -151,6 +154,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             "fuel_type",
             "registration_number",
             "color",
+            "odometer_km",
             "image",
             "image_url",
             "created_at",
@@ -187,6 +191,21 @@ class ServiceTypeSerializer(serializers.ModelSerializer):
 
 
 class ServiceCenterSerializer(serializers.ModelSerializer):
+    review_count = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+
+    def _ratings(self, obj):
+        if not hasattr(obj, "_rating_stats"):
+            obj._rating_stats = obj.reviews.aggregate(n=Count("id"), avg=Avg("center_rating"))
+        return obj._rating_stats
+
+    def get_review_count(self, obj):
+        return self._ratings(obj)["n"]
+
+    def get_average_rating(self, obj):
+        avg = self._ratings(obj)["avg"]
+        return round(avg, 1) if avg is not None else None
+
     class Meta:
         model = ServiceCenter
         fields = [
@@ -198,6 +217,9 @@ class ServiceCenterSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "rating",
+            "review_count",
+            "average_rating",
+            "slot_capacity",
             "is_active",
             "active",
             "created_at",
@@ -213,6 +235,10 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
     service_center_details = ServiceCenterSerializer(source="service_center", read_only=True)
     assigned_driver_details = UserSerializer(source="assigned_driver", read_only=True)
     assigned_mechanic_details = UserSerializer(source="assigned_mechanic", read_only=True)
+    has_review = serializers.SerializerMethodField()
+
+    def get_has_review(self, obj):
+        return ServiceReview.objects.filter(booking_id=obj.pk).exists()
 
     class Meta:
         model = ServiceBooking
@@ -243,6 +269,14 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "estimated_cost",
             "status",
             "handover_otp_verified",
+            "delivery_otp_verified",
+            "delivered_at",
+            "completed_at",
+            "pickup_odometer_km",
+            "delivery_odometer_km",
+            "plate_verified",
+            "plate_detected",
+            "has_review",
             "created_at",
             "updated_at",
         ]
@@ -252,6 +286,13 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "booking_id",
             "customer",
             "handover_otp_verified",
+            "delivery_otp_verified",
+            "delivered_at",
+            "completed_at",
+            "pickup_odometer_km",
+            "delivery_odometer_km",
+            "plate_verified",
+            "plate_detected",
             "created_at",
             "updated_at",
         ]
@@ -382,6 +423,30 @@ class RepairEvidenceSerializer(serializers.ModelSerializer):
         elif not url.startswith(("https://", "http://")):
             raise serializers.ValidationError({"file_url": "Enter a full http(s) link to the media."})
         return attrs
+
+
+MAX_CONDITION_PHOTO_BYTES = 10 * 1024 * 1024
+PHOTO_CONTENT_TYPES = {k for k, v in EVIDENCE_CONTENT_TYPES.items() if v == "PHOTO"}
+
+
+class VehicleConditionPhotoSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source="uploaded_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = VehicleConditionPhoto
+        fields = ["id", "booking", "uploaded_by", "uploaded_by_name", "stage", "angle", "file", "notes", "created_at"]
+        read_only_fields = ["id", "booking", "uploaded_by", "stage", "created_at"]
+
+    def validate_file(self, upload):
+        content_type = getattr(upload, "content_type", "") or ""
+        if content_type not in PHOTO_CONTENT_TYPES:
+            raise serializers.ValidationError("Upload a JPEG, PNG or WebP photo.")
+        if upload.size > MAX_CONDITION_PHOTO_BYTES:
+            raise serializers.ValidationError("Photo is too large (max 10 MB).")
+        if not _evidence_content_matches(upload, content_type):
+            raise serializers.ValidationError("The file content does not match its type.")
+        upload.name = f"{uuid.uuid4().hex}{EVIDENCE_EXTENSIONS[content_type]}"
+        return upload
 
 
 class RepairRequestSerializer(serializers.ModelSerializer):
@@ -543,6 +608,25 @@ class CarHealthScoreSerializer(serializers.ModelSerializer):
             "calculated_at",
         ]
         read_only_fields = ["id", "calculated_at"]
+
+
+class ServiceReviewSerializer(serializers.ModelSerializer):
+    reviewer = serializers.SerializerMethodField()
+    booking_reference = serializers.CharField(source="booking.booking_reference", read_only=True)
+
+    class Meta:
+        model = ServiceReview
+        fields = [
+            "id", "booking", "booking_reference", "reviewer", "service_center", "driver",
+            "center_rating", "driver_rating", "comment", "created_at",
+        ]
+        read_only_fields = ["id", "booking", "service_center", "driver", "created_at"]
+
+    def get_reviewer(self, obj):
+        # Public reviews show only a first name and last initial
+        user = obj.customer
+        first = (user.first_name or user.username or "Customer").split()[0]
+        return f"{first} {user.last_name[:1]}.".strip() if user.last_name else first
 
 
 class NotificationSerializer(serializers.ModelSerializer):

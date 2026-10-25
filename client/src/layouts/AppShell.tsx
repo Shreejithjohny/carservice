@@ -15,26 +15,40 @@ import {
   Building2,
   ClipboardCheck,
   Receipt,
+  BarChart3,
+  Languages,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import type { Role } from "../types";
+import { useLanguage } from "../hooks/useLanguage";
+import { LANGUAGES, type Language, type StringKey } from "../i18n/strings";
 
-const customer = [
-  { to: "/app", label: "Home", icon: LayoutGrid, end: true },
-  { to: "/app/vehicles", label: "Vehicles", icon: Car },
-  { to: "/app/book", label: "Book", icon: Wrench },
-  { to: "/app/track", label: "Track", icon: Gauge },
-  { to: "/app/estimate", label: "Cost Estimate", icon: IndianRupee },
-  { to: "/app/health", label: "Car Health", icon: HeartPulse },
-  { to: "/app/approvals", label: "Approvals", icon: Video },
-  { to: "/app/invoices", label: "Invoices", icon: Receipt },
-  { to: "/app/notifications", label: "Alerts", icon: Bell },
+interface NavItem {
+  to: string;
+  label: string;
+  labelKey?: StringKey;
+  icon: typeof Car;
+  end?: boolean;
+}
+
+// Customer screens are translated (labelKey); staff screens stay in English.
+const customer: NavItem[] = [
+  { to: "/app", label: "Home", labelKey: "nav.home", icon: LayoutGrid, end: true },
+  { to: "/app/vehicles", label: "Vehicles", labelKey: "nav.vehicles", icon: Car },
+  { to: "/app/book", label: "Book", labelKey: "nav.book", icon: Wrench },
+  { to: "/app/track", label: "Track", labelKey: "nav.track", icon: Gauge },
+  { to: "/app/estimate", label: "Cost Estimate", labelKey: "nav.estimate", icon: IndianRupee },
+  { to: "/app/health", label: "Car Health", labelKey: "nav.health", icon: HeartPulse },
+  { to: "/app/approvals", label: "Approvals", labelKey: "nav.approvals", icon: Video },
+  { to: "/app/invoices", label: "Invoices", labelKey: "nav.invoices", icon: Receipt },
+  { to: "/app/notifications", label: "Alerts", labelKey: "nav.alerts", icon: Bell },
 ];
 
 const admin = [
   { to: "/admin", label: "Overview", icon: LayoutGrid, end: true },
   { to: "/admin/catalog", label: "Car Catalog", icon: Layers },
+  { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/admin/bookings", label: "Bookings", icon: Gauge },
   { to: "/admin/invoices", label: "Invoices", icon: Receipt },
 ];
@@ -42,6 +56,7 @@ const admin = [
 const manager = [
   { to: "/service-center", label: "Center Dashboard", icon: Building2, end: true },
   { to: "/service-center/bookings", label: "Manage Bookings", icon: Gauge },
+  { to: "/service-center/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/service-center/invoices", label: "Invoices", icon: Receipt },
 ];
 
@@ -53,12 +68,15 @@ const driver = [
   { to: "/driver", label: "Pickup Jobs", icon: Car, end: true },
 ];
 
-const linksByRole = { customer, admin, service_center_manager: manager, mechanic, driver };
+const linksByRole: Record<Role, NavItem[]> = { customer, admin, service_center_manager: manager, mechanic, driver };
 
 export function AppShell() {
   const { user, logout } = useAuth();
   const { dark, toggle } = useTheme();
+  const { lang, setLang, t } = useLanguage();
   const navigate = useNavigate();
+  const isCustomer = user?.role.toLowerCase() === "customer";
+  const label = (l: NavItem) => (isCustomer && l.labelKey ? t(l.labelKey) : l.label);
 
   const links = user ? linksByRole[user.role.toLowerCase() as Role] ?? customer : customer;
 
@@ -80,12 +98,12 @@ export function AppShell() {
                 }`
               }
             >
-              <l.icon size={16} /> {l.label}
+              <l.icon size={16} /> {label(l)}
             </NavLink>
           ))}
           <div className="mt-auto space-y-2">
             <button type="button" className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-sm hover:bg-zinc-200/60 dark:hover:bg-zinc-800" onClick={toggle}>
-              {dark ? <Sun size={16} /> : <Moon size={16} />} {dark ? "Light" : "Dark"} mode
+              {dark ? <Sun size={16} /> : <Moon size={16} />} {isCustomer ? t(dark ? "shell.light" : "shell.dark") : `${dark ? "Light" : "Dark"} mode`}
             </button>
             <button
               type="button"
@@ -95,7 +113,7 @@ export function AppShell() {
                 navigate("/");
               }}
             >
-              <LogOut size={16} /> Sign out
+              <LogOut size={16} /> {isCustomer ? t("shell.signOut") : "Sign out"}
             </button>
           </div>
         </aside>
@@ -105,7 +123,26 @@ export function AppShell() {
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{user?.role.replace(/_/g, " ")}</p>
               <h1 className="text-2xl font-bold">{user?.name}</h1>
             </div>
-            <img src={user?.avatarUrl || `https://api.dicebear.com/9.x/adventurer/svg?seed=${user?.name}`} alt="" className="h-11 w-11 rounded-full bg-zinc-200" />
+            <div className="flex items-center gap-3">
+              {isCustomer && (
+                <label className="flex items-center gap-1 text-xs text-zinc-500">
+                  <Languages size={16} aria-hidden />
+                  <span className="sr-only">{t("shell.language")}</span>
+                  <select
+                    className="rounded-xl border border-zinc-200 bg-transparent px-2 py-1 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-900"
+                    value={lang}
+                    onChange={(e) => setLang(e.target.value as Language)}
+                  >
+                    {(Object.keys(LANGUAGES) as Language[]).map((code) => (
+                      <option key={code} value={code}>
+                        {LANGUAGES[code]["lang.name"]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <img src={user?.avatarUrl || `https://api.dicebear.com/9.x/adventurer/svg?seed=${user?.name}`} alt="" className="h-11 w-11 rounded-full bg-zinc-200" />
+            </div>
           </div>
           <Outlet />
         </main>
@@ -114,7 +151,7 @@ export function AppShell() {
         {links.slice(0, 5).map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `flex flex-col items-center text-[10px] ${isActive ? "text-[#ff4d2e]" : "text-zinc-500"}`}>
             <l.icon size={18} />
-            {l.label}
+            {label(l)}
           </NavLink>
         ))}
       </nav>

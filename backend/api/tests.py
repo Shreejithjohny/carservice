@@ -1,3 +1,5 @@
+from datetime import timedelta
+from django.utils import timezone
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -18,6 +20,9 @@ from api.models import (
 )
 
 User = get_user_model()
+
+# Bookings can only be made for upcoming dates, so API payloads use a date a few days out.
+FUTURE_DATE = (timezone.localdate() + timedelta(days=3)).isoformat()
 
 
 class Phase4ServiceBookingTests(TestCase):
@@ -96,8 +101,8 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "123 Street",
-            "preferred_date": "2026-10-01",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -109,8 +114,8 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "456 MG Road, Indiranagar, Bengaluru",
-            "preferred_date": "2026-10-01",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
             "customer_notes": "Please check brake squeal.",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
@@ -128,7 +133,7 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "789 Brigade Road",
-            "preferred_date": "2026-10-01",
+            "preferred_date": FUTURE_DATE,
             "preferred_time": "11:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
@@ -208,8 +213,8 @@ class Phase4ServiceBookingTests(TestCase):
             "pickup_address": "100 Feet Road, Indiranagar, Bengaluru",
             "pickup_latitude": 12.9784,
             "pickup_longitude": 77.6408,
-            "preferred_date": "2026-10-05",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
@@ -223,7 +228,7 @@ class Phase4ServiceBookingTests(TestCase):
             "service_type": self.service_type.id,
             "service_center": self.service_center.id,
             "pickup_address": "Text address only without map coordinates",
-            "preferred_date": "2026-10-06",
+            "preferred_date": FUTURE_DATE,
             "preferred_time": "11:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
@@ -240,8 +245,8 @@ class Phase4ServiceBookingTests(TestCase):
             "pickup_address": "Invalid latitude test",
             "pickup_latitude": 120.0,  # Invalid: > 90
             "pickup_longitude": 77.6408,
-            "preferred_date": "2026-10-07",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
@@ -256,8 +261,8 @@ class Phase4ServiceBookingTests(TestCase):
             "pickup_address": "Invalid longitude test",
             "pickup_latitude": 12.9784,
             "pickup_longitude": -200.0,  # Invalid: < -180
-            "preferred_date": "2026-10-07",
-            "preferred_time": "10:00:00",
+            "preferred_date": FUTURE_DATE,
+            "preferred_time": "09:00:00",
         }
         res = self.client.post("/api/bookings/", payload, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
@@ -675,8 +680,8 @@ class Phase9To11CompleteOperationsTests(TestCase):
                 "service_type": self.service_type.id,
                 "service_center": self.service_center.id,
                 "pickup_address": "Indiranagar 100ft Rd",
-                "preferred_date": "2026-10-15",
-                "preferred_time": "09:00 AM",
+                "preferred_date": FUTURE_DATE,
+                "preferred_time": "09:00:00",
             },
             format="json",
         )
@@ -1458,6 +1463,7 @@ class SecurityAuditTests(TestCase):
         res = self.client.post("/api/bookings/", {
             "vehicle": self.vehicle.id, "service_type": self.st.id, "service_center": self.center.id,
             "pickup_address": "Jayanagar", "estimated_cost": 1,
+            "preferred_date": FUTURE_DATE, "preferred_time": "09:00:00",
         }, format="json")
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(float(res.data["estimated_cost"]), 4000.0)
@@ -1528,3 +1534,514 @@ class SecurityAuditTests(TestCase):
         fixed = recalculate_car_health_score(self.vehicle).score
         self.assertEqual(unfixed, 90 - 25)  # new car, no completed services yet, one open critical issue
         self.assertEqual(fixed, 90 + 5 + 3)  # completed service + approved repair, fault resolved
+
+
+class BookingSlotTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="slotc", email="slotc@example.com", role=UserRole.CUSTOMER)
+        self.center = ServiceCenter.objects.create(
+            name="Slot Center", address="MG Road", phone="+918000000001", email="slot@example.com", slot_capacity=2
+        )
+        self.st = ServiceType.objects.create(name="Slot Service", base_price=1000)
+        self.vehicles = [
+            Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number=f"KA05SL{i:04d}")
+            for i in range(4)
+        ]
+        self.client.force_authenticate(user=self.customer)
+
+    def book(self, vehicle, day=FUTURE_DATE, slot="09:00:00"):
+        return self.client.post("/api/bookings/", {
+            "vehicle": vehicle.id, "service_type": self.st.id, "service_center": self.center.id,
+            "pickup_address": "Koramangala", "preferred_date": day, "preferred_time": slot,
+        }, format="json")
+
+    def test_slot_fills_up_at_capacity(self):
+        self.assertEqual(self.book(self.vehicles[0]).status_code, 201)
+        self.assertEqual(self.book(self.vehicles[1]).status_code, 201)
+        res = self.book(self.vehicles[2])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("fully booked", res.data["error"])
+        # Another slot on the same day still has room
+        self.assertEqual(self.book(self.vehicles[2], slot="11:00:00").status_code, 201)
+
+    def test_cancelled_booking_frees_its_place(self):
+        first = self.book(self.vehicles[0]).data
+        self.book(self.vehicles[1])
+        self.client.patch(f"/api/bookings/{first['id']}/", {"status": "Cancelled"}, format="json")
+        self.assertEqual(self.book(self.vehicles[2]).status_code, 201)
+
+    def test_availability_endpoint(self):
+        self.book(self.vehicles[0])
+        res = self.client.get(f"/api/service-centers/{self.center.id}/slots/?date={FUTURE_DATE}")
+        self.assertEqual(res.status_code, 200)
+        nine = next(s for s in res.data["slots"] if s["time"] == "09:00:00")
+        self.assertEqual((nine["booked"], nine["available"], nine["is_full"]), (1, 1, False))
+        self.assertEqual(self.client.get(f"/api/service-centers/{self.center.id}/slots/?date=bad").status_code, 400)
+
+    def test_rejects_past_dates_unknown_slots_and_missing_date(self):
+        yesterday = (timezone.localdate() - timedelta(days=1)).isoformat()
+        self.assertEqual(self.book(self.vehicles[0], day=yesterday).status_code, 400)
+        self.assertEqual(self.book(self.vehicles[0], slot="03:00:00").status_code, 400)
+        too_far = (timezone.localdate() + timedelta(days=45)).isoformat()
+        self.assertEqual(self.book(self.vehicles[0], day=too_far).status_code, 400)
+        res = self.client.post("/api/bookings/", {
+            "vehicle": self.vehicles[0].id, "service_type": self.st.id, "service_center": self.center.id,
+            "pickup_address": "Koramangala", "preferred_time": "09:00:00",
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+
+    def test_reschedule_into_a_full_slot_is_refused(self):
+        self.book(self.vehicles[0], slot="11:00:00")
+        self.book(self.vehicles[1], slot="11:00:00")
+        mine = self.book(self.vehicles[2]).data
+        res = self.client.patch(f"/api/bookings/{mine['id']}/", {"preferred_time": "11:00:00"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        res = self.client.patch(f"/api/bookings/{mine['id']}/", {"preferred_time": "14:00:00"}, format="json")
+        self.assertEqual(res.status_code, 200)
+
+
+@override_settings(OTP_BYPASS=False)
+class ReturnDeliveryTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="rd_cust", email="rd_cust@example.com", role=UserRole.CUSTOMER)
+        self.drv = User.objects.create_user(username="rd_drv", email="rd_drv@example.com", role=UserRole.DRIVER)
+        self.other = User.objects.create_user(username="rd_other", email="rd_other@example.com", role=UserRole.DRIVER)
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Kia", model="Seltos", registration_number="KA02RD01")
+        st = ServiceType.objects.create(name="RD Service", base_price=2000)
+        center = ServiceCenter.objects.create(name="RD Hub", address="HSR", phone="+918000000009", email="rd@example.com")
+        self.job = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=st, service_center=center,
+            pickup_address="HSR Layout", status=BookingStatus.READY_FOR_DELIVERY, assigned_driver=self.drv,
+        )
+        self.base = f"/api/driver/pickups/{self.job.id}"
+
+    def post(self, user, path, body=None):
+        self.client.force_authenticate(user=user)
+        return self.client.post(f"{self.base}/{path}", body or {}, format="json")
+
+    def test_full_return_delivery_completes_and_invoices(self):
+        # Delivery code only exists once the driver is on the way
+        self.assertEqual(self.post(self.drv, "delivery-otp/request/").status_code, 400)
+        self.assertEqual(self.post(self.drv, "status/", {"status": "Out for Delivery"}).status_code, 200)
+        self.assertEqual(self.post(self.drv, "location/", {"latitude": 12.91, "longitude": 77.64}).status_code, 201)
+        self.assertEqual(self.post(self.drv, "delivery-otp/request/").status_code, 200)
+        self.job.refresh_from_db()
+
+        # The customer sees the code on their tracking page
+        self.client.force_authenticate(user=self.customer)
+        tracking = self.client.get(f"/api/bookings/{self.job.id}/tracking/").data
+        self.assertEqual(tracking["delivery_otp_code"], self.job.delivery_otp)
+
+        wrong = "000000" if self.job.delivery_otp != "000000" else "111111"
+        res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": wrong})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("4 attempt(s) remaining", res.data["error"])
+        res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": self.job.delivery_otp})
+        self.assertEqual(res.status_code, 200)
+
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, BookingStatus.COMPLETED)
+        self.assertTrue(self.job.delivery_otp_verified)
+        self.assertIsNotNone(self.job.delivered_at)
+        self.assertIsNotNone(self.job.completed_at)
+        self.assertTrue(Invoice.objects.filter(booking=self.job).exists())
+        self.assertTrue(Notification.objects.filter(user=self.customer, notification_type="DELIVERY_COMPLETED").exists())
+        # Code no longer shown once used
+        self.client.force_authenticate(user=self.customer)
+        self.assertIsNone(self.client.get(f"/api/bookings/{self.job.id}/tracking/").data["delivery_otp_code"])
+
+    def test_other_driver_and_wrong_stage_are_refused(self):
+        self.assertEqual(self.post(self.other, "status/", {"status": "Out for Delivery"}).status_code, 403)
+        # Out for Delivery only follows Ready for Delivery
+        self.job.status = BookingStatus.IN_SERVICE
+        self.job.save()
+        self.assertEqual(self.post(self.drv, "status/", {"status": "Out for Delivery"}).status_code, 400)
+        # Pickup moves are not allowed during the return trip
+        self.job.status = BookingStatus.READY_FOR_DELIVERY
+        self.job.save()
+        self.assertEqual(self.post(self.drv, "status/", {"status": "En Route for Pickup"}).status_code, 400)
+
+    def test_delivery_code_locks_after_five_wrong_tries(self):
+        self.post(self.drv, "status/", {"status": "Out for Delivery"})
+        self.post(self.drv, "delivery-otp/request/")
+        self.job.refresh_from_db()
+        wrong = "000000" if self.job.delivery_otp != "000000" else "111111"
+        for _ in range(5):
+            self.post(self.drv, "delivery-otp/verify/", {"otp_code": wrong})
+        res = self.post(self.drv, "delivery-otp/verify/", {"otp_code": self.job.delivery_otp})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Maximum", res.data["error"])
+
+
+class ConditionReportTests(TestCase):
+    def setUp(self):
+        import tempfile
+
+        self.media_dir = tempfile.mkdtemp()
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="cr_cust", email="cr_cust@example.com", role=UserRole.CUSTOMER)
+        self.stranger = User.objects.create_user(username="cr_x", email="cr_x@example.com", role=UserRole.CUSTOMER)
+        self.drv = User.objects.create_user(username="cr_drv", email="cr_drv@example.com", role=UserRole.DRIVER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Honda", model="City", registration_number="KA03CR01")
+        center = ServiceCenter.objects.create(name="CR Hub", address="Whitefield", phone="+918000000010", email="cr@example.com")
+        self.job = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, service_center=center, pickup_address="Whitefield",
+            status="Arrived at Pickup",
+            assigned_driver=self.drv,
+        )
+        self.base = f"/api/driver/pickups/{self.job.id}"
+
+    def photo(self, angle="FRONT", content_type="image/jpeg"):
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), "blue").save(buf, format="JPEG")
+        self.client.force_authenticate(user=self.drv)
+        with self.settings(MEDIA_ROOT=self.media_dir):
+            return self.client.post(
+                f"{self.base}/condition-photos/",
+                {"angle": angle, "file": SimpleUploadedFile("x.jpg", buf.getvalue(), content_type)},
+                format="multipart",
+            )
+
+    def odometer(self, km):
+        self.client.force_authenticate(user=self.drv)
+        return self.client.post(f"{self.base}/odometer/", {"reading_km": km}, format="json")
+
+    def test_before_and_after_photos_and_km_driven(self):
+        self.assertEqual(self.photo("FRONT").status_code, 201)
+        self.assertEqual(self.odometer(40210).status_code, 200)
+        # While the car is at the workshop no condition photos are taken
+        ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.IN_SERVICE)
+        self.assertEqual(self.photo("REAR").status_code, 400)
+        ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.OUT_FOR_DELIVERY)
+        self.assertEqual(self.photo("FRONT").status_code, 201)
+        res = self.odometer(40190)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("lower than the pickup", res.data["error"])
+        self.assertEqual(self.odometer(40236).status_code, 200)
+
+        self.client.force_authenticate(user=self.customer)
+        report = self.client.get(f"/api/bookings/{self.job.id}/condition-report/").data
+        self.assertEqual(len(report["pickup_photos"]), 1)
+        self.assertEqual(len(report["delivery_photos"]), 1)
+        self.assertEqual(report["km_driven"], 26)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.odometer_km, 40236)
+
+    def test_non_image_is_rejected(self):
+        res = self.photo(content_type="application/pdf")
+        self.assertEqual(res.status_code, 400)
+
+    def test_report_is_private(self):
+        self.client.force_authenticate(user=self.stranger)
+        self.assertEqual(self.client.get(f"/api/bookings/{self.job.id}/condition-report/").status_code, 403)
+        other_driver = User.objects.create_user(username="cr_d2", email="cr_d2@example.com", role=UserRole.DRIVER)
+        self.client.force_authenticate(user=other_driver)
+        self.assertEqual(self.client.post(f"{self.base}/odometer/", {"reading_km": 5}, format="json").status_code, 403)
+
+
+class PlateCheckTests(TestCase):
+    def test_matching_rules(self):
+        from api.plate_service import LIKELY, MATCH, MISMATCH, NO_TEXT, check_plate
+
+        self.assertEqual(check_plate("KA 01 AB 1234", "KA01AB1234")["result"], MATCH)
+        # OCR lookalikes: O for 0, I for 1, 8 for B
+        self.assertEqual(check_plate("KA O1 A8 I234", "KA01AB1234")["result"], MATCH)
+        # Plate text surrounded by other words, over two lines
+        self.assertEqual(check_plate("IND\nKA-01-AB-1234\nSHOWROOM", "KA01AB1234")["result"], MATCH)
+        # One unreadable character
+        self.assertEqual(check_plate("KA01AB12E4", "KA01AB1234")["result"], LIKELY)
+        self.assertEqual(check_plate("KA01AB234", "KA01AB1234")["result"], LIKELY)
+        # A different car
+        res = check_plate("MH12CD5678", "KA01AB1234")
+        self.assertEqual(res["result"], MISMATCH)
+        self.assertEqual(res["detected"], "MH12CD5678")
+        self.assertEqual(check_plate("  --  ", "KA01AB1234")["result"], NO_TEXT)
+        self.assertEqual(check_plate("22 BH 1234 AA", "22BH1234AA")["result"], MATCH)
+
+    def test_endpoint_marks_booking_verified(self):
+        client = APIClient()
+        customer = User.objects.create_user(username="pc_c", email="pc_c@example.com", role=UserRole.CUSTOMER)
+        drv = User.objects.create_user(username="pc_d", email="pc_d@example.com", role=UserRole.DRIVER)
+        vehicle = Vehicle.objects.create(customer=customer, brand="Maruti", model="Swift", registration_number="KA51MX4321")
+        job = ServiceBooking.objects.create(
+            customer=customer, vehicle=vehicle, pickup_address="Jayanagar", status="Arrived at Pickup", assigned_driver=drv,
+        )
+        client.force_authenticate(user=drv)
+        res = client.post(f"/api/driver/pickups/{job.id}/plate-check/", {"ocr_text": "TN09XY0001"}, format="json")
+        self.assertEqual((res.status_code, res.data["result"], res.data["plate_verified"]), (200, "MISMATCH", False))
+        res = client.post(f"/api/driver/pickups/{job.id}/plate-check/", {"ocr_text": "KA 51 MX 4321"}, format="json")
+        self.assertEqual((res.data["result"], res.data["plate_verified"]), ("MATCH", True))
+        job.refresh_from_db()
+        self.assertTrue(job.plate_verified)
+
+
+class ServiceReminderTests(TestCase):
+    def setUp(self):
+        self.customer = User.objects.create_user(username="sr_c", email="sr_c@example.com", role=UserRole.CUSTOMER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Toyota", model="Glanza", registration_number="KA04SR01")
+        self.today = timezone.localdate()
+
+    def complete_service(self, days_ago, odometer=None):
+        return ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, pickup_address="RT Nagar", status=BookingStatus.COMPLETED,
+            completed_at=timezone.now() - timedelta(days=days_ago), delivery_odometer_km=odometer,
+        )
+
+    def test_due_by_time(self):
+        from api.reminder_service import DUE_SOON, OK, OVERDUE, service_due
+
+        self.complete_service(days_ago=30)
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], OK)
+        ServiceBooking.objects.all().delete()
+        self.complete_service(days_ago=170)
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], DUE_SOON)
+        ServiceBooking.objects.all().delete()
+        self.complete_service(days_ago=200)
+        due = service_due(self.vehicle, self.today)
+        self.assertEqual(due["status"], OVERDUE)
+        self.assertEqual(due["days_left"], -20)
+
+    def test_due_by_kilometres_first(self):
+        from api.reminder_service import DUE_SOON, OVERDUE, service_due
+
+        self.complete_service(days_ago=20, odometer=30000)
+        self.vehicle.odometer_km = 39500
+        self.vehicle.save()
+        due = service_due(self.vehicle, self.today)
+        self.assertEqual((due["status"], due["km_left"]), (DUE_SOON, 500))
+        self.vehicle.odometer_km = 41200
+        self.vehicle.save()
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], OVERDUE)
+
+    def test_open_booking_suppresses_and_command_dedupes(self):
+        from api.reminder_service import BOOKED, send_service_reminders, service_due
+
+        self.complete_service(days_ago=400)
+        self.assertEqual(send_service_reminders(self.today), 1)
+        self.assertEqual(send_service_reminders(self.today), 0)  # not again within a week
+        ServiceBooking.objects.create(customer=self.customer, vehicle=self.vehicle, pickup_address="RT Nagar")
+        self.assertEqual(service_due(self.vehicle, self.today)["status"], BOOKED)
+
+    def test_endpoint_lists_only_own_vehicles(self):
+        other = User.objects.create_user(username="sr_o", email="sr_o@example.com", role=UserRole.CUSTOMER)
+        Vehicle.objects.create(customer=other, brand="Tata", model="Punch", registration_number="KA04SR02")
+        client = APIClient()
+        client.force_authenticate(user=self.customer)
+        res = client.get("/api/reminders/")
+        self.assertEqual([r["registration_number"] for r in res.data], ["KA04SR01"])
+
+
+class ServiceReviewTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(
+            username="rv_c", email="rv_c@example.com", role=UserRole.CUSTOMER, first_name="Asha", last_name="Rao"
+        )
+        self.drv = User.objects.create_user(username="rv_d", email="rv_d@example.com", role=UserRole.DRIVER)
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Hyundai", model="Creta", registration_number="KA05RV01")
+        self.center = ServiceCenter.objects.create(name="RV Hub", address="Hebbal", phone="+918000000011", email="rv@example.com")
+        self.job = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_center=self.center, pickup_address="Hebbal",
+            status=BookingStatus.COMPLETED, assigned_driver=self.drv,
+        )
+        self.url = f"/api/bookings/{self.job.id}/review/"
+
+    def test_review_once_and_center_average_is_real(self):
+        res = self.client.get("/api/service-centers/")
+        center = next(c for c in res.data if c["id"] == self.center.id)
+        self.assertEqual((center["review_count"], center["average_rating"]), (0, None))
+
+        self.client.force_authenticate(user=self.customer)
+        res = self.client.post(self.url, {"center_rating": 4, "driver_rating": 5, "comment": "On time"}, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["reviewer"], "Asha R.")
+        self.assertEqual(self.client.post(self.url, {"center_rating": 1}, format="json").status_code, 409)
+
+        public = self.client.get(f"/api/service-centers/{self.center.id}/reviews/").data
+        self.assertEqual(public["service_center"]["average_rating"], 4.0)
+        self.assertEqual(len(public["reviews"]), 1)
+        self.center.refresh_from_db()
+        self.assertEqual(self.center.rating, 4.0)
+
+    def test_rules(self):
+        stranger = User.objects.create_user(username="rv_s", email="rv_s@example.com", role=UserRole.CUSTOMER)
+        self.client.force_authenticate(user=stranger)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 5}, format="json").status_code, 403)
+        self.client.force_authenticate(user=self.customer)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 6}, format="json").status_code, 400)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 0}, format="json").status_code, 400)
+        ServiceBooking.objects.filter(pk=self.job.pk).update(status=BookingStatus.IN_SERVICE)
+        self.assertEqual(self.client.post(self.url, {"center_rating": 5}, format="json").status_code, 400)
+
+
+class InvoicePdfTests(TestCase):
+    def setUp(self):
+        from api.invoice_service import generate_invoice_for_booking
+
+        self.client = APIClient()
+        self.customer = User.objects.create_user(
+            username="pdf_c", email="pdf_c@example.com", role=UserRole.CUSTOMER, first_name="Ravi & Sons <Ltd>"
+        )
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Altroz", registration_number="KA06PD1234")
+        st = ServiceType.objects.create(name="PDF Service", base_price=1800)
+        center = ServiceCenter.objects.create(name="PDF Hub", address="Yeshwanthpur", phone="+918000000012", email="pdf@example.com")
+        booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=st, service_center=center,
+            pickup_address="Yeshwanthpur", status=BookingStatus.COMPLETED,
+        )
+        self.invoice = generate_invoice_for_booking(booking)
+
+    def test_customer_downloads_pdf_and_stranger_cannot(self):
+        self.client.force_authenticate(user=self.customer)
+        res = self.client.get(f"/api/invoices/{self.invoice.id}/pdf/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res["Content-Type"], "application/pdf")
+        self.assertTrue(res.content.startswith(b"%PDF"))
+        stranger = User.objects.create_user(username="pdf_s", email="pdf_s@example.com", role=UserRole.CUSTOMER)
+        self.client.force_authenticate(user=stranger)
+        self.assertEqual(self.client.get(f"/api/invoices/{self.invoice.id}/pdf/").status_code, 403)
+
+    def test_qr_token_verifies_and_rejects_forgery(self):
+        from api.invoice_pdf import verification_token
+
+        token = verification_token(self.invoice)
+        res = self.client.get(f"/api/invoices/verify/{token}/")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data["valid"])
+        self.assertEqual(res.data["invoice_number"], self.invoice.invoice_number)
+        self.assertEqual(res.data["vehicle"], "KA06****34")
+        self.assertNotIn("customer", res.data)
+        # Changing the invoice number in the token breaks the signature
+        number, sig = token.rsplit(":", 1)
+        forged = number[:-1] + ("2" if number[-1] != "2" else "3") + ":" + sig
+        self.assertEqual(self.client.get(f"/api/invoices/verify/{forged}/").status_code, 404)
+
+
+class AnalyticsTests(TestCase):
+    def setUp(self):
+        from api.models import Employee, RepairRequest, ServiceReview
+
+        self.client = APIClient()
+        self.center = ServiceCenter.objects.create(name="AN Hub", address="Malleshwaram", phone="+918000000013", email="an@example.com")
+        other_center = ServiceCenter.objects.create(name="AN Other", address="Vijayanagar", phone="+918000000014", email="an2@example.com")
+        self.manager = User.objects.create_user(username="an_m", email="an_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        customer = User.objects.create_user(username="an_c", email="an_c@example.com", role=UserRole.CUSTOMER)
+        mech = User.objects.create_user(username="an_k", email="an_k@example.com", role=UserRole.MECHANIC)
+        vehicle = Vehicle.objects.create(customer=customer, brand="Maruti", model="Baleno", registration_number="KA07AN01")
+        now = timezone.now()
+
+        def booking(center, status_, hours=None):
+            b = ServiceBooking.objects.create(customer=customer, vehicle=vehicle, service_center=center, pickup_address="x", status=status_)
+            if hours is not None:
+                b.completed_at = b.created_at + timedelta(hours=hours)
+                b.save()
+            return b
+
+        done1 = booking(self.center, BookingStatus.COMPLETED, hours=10)
+        booking(self.center, BookingStatus.COMPLETED, hours=30)
+        booking(self.center, BookingStatus.CANCELLED)
+        booking(other_center, BookingStatus.COMPLETED, hours=99)  # must not leak into AN Hub's numbers
+
+        Invoice.objects.create(booking=done1, grand_total=1180, payment_status="PAID", issued_at=now)
+        for title, st in [("Brake pads", "APPROVED"), ("brake  PADS", "REJECTED"), ("Wiper blades", "APPROVED")]:
+            RepairRequest.objects.create(booking=done1, mechanic=mech, issue_title=title, description="d", additional_cost=1000, status=st)
+        ServiceReview.objects.create(booking=done1, customer=customer, service_center=self.center, center_rating=4, comment="Good")
+
+    def test_manager_sees_own_center_numbers(self):
+        self.client.force_authenticate(user=self.manager)
+        data = self.client.get("/api/service-center/analytics/").data
+        self.assertEqual(data["scope"], "AN Hub")
+        self.assertEqual((data["totals"]["bookings"], data["totals"]["completed"], data["totals"]["cancelled"]), (3, 2, 1))
+        self.assertEqual(data["totals"]["revenue_paid"], 1180.0)
+        self.assertEqual(data["turnaround_hours"], {"count": 2, "average": 20.0, "median": 20.0})
+        self.assertEqual(data["repairs"]["top"][0], {"title": "Brake pads", "count": 2, "average_cost": 1000.0})
+        self.assertAlmostEqual(data["repairs"]["approval_rate"], 66.7)
+        self.assertEqual(data["ratings"]["average"], 4.0)
+        self.assertEqual(len(data["monthly"]), 6)
+        self.assertEqual(data["monthly"][-1]["bookings"], 3)
+        self.assertEqual(data["monthly"][-1]["revenue"], 1180.0)
+
+    def test_customers_cannot_read_analytics(self):
+        customer = User.objects.get(username="an_c")
+        self.client.force_authenticate(user=customer)
+        self.assertEqual(self.client.get("/api/service-center/analytics/").status_code, 403)
+
+
+class LearnedCostModelTests(TestCase):
+    def setUp(self):
+        from django.core.management import call_command
+
+        ServiceType.objects.create(name="ML Service A", base_price=1500)
+        ServiceType.objects.create(name="ML Service B", base_price=3500)
+        self.admin = User.objects.create_user(username="ml_a", email="ml_a@example.com", role=UserRole.ADMIN)
+        self.customer = User.objects.create_user(username="ml_c", email="ml_c@example.com", role=UserRole.CUSTOMER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Kia", model="Sonet", registration_number="KA08ML01", year=2020)
+        self.call = call_command
+
+    def test_falls_back_to_formula_until_enough_data(self):
+        from api.ai_cost_service import estimate_repair_cost
+        from api.ml_cost_model import train_cost_model
+
+        with self.assertRaises(ValueError):
+            train_cost_model()
+        self.assertEqual(estimate_repair_cost(self.vehicle, None, "noise", "HIGH", 2)["estimation_source"], "RULE_BASED")
+
+    def test_trains_and_serves_learned_estimates(self):
+        from io import StringIO
+
+        from api.ai_cost_service import estimate_repair_cost
+        from api.models import CostModel
+
+        self.call("seed_repair_history", count=80, stdout=StringIO())
+        self.call("train_cost_model", stdout=StringIO())
+        model = CostModel.objects.get(is_active=True)
+        self.assertEqual((model.n_samples, model.synthetic_share), (80, 100.0))
+        self.assertLess(model.metrics["ml"]["mape"], model.metrics["rule_based"]["mape"])
+
+        low = estimate_repair_cost(self.vehicle, None, "noise", "LOW", 2)
+        critical = estimate_repair_cost(self.vehicle, None, "noise", "CRITICAL", 2)
+        self.assertEqual(low["estimation_source"], "ML")
+        self.assertLess(low["estimated_min_cost"], low["estimated_max_cost"])
+        self.assertGreater(critical["estimated_min_cost"], low["estimated_min_cost"])
+        self.assertIn("synthetic", low["explanation"])
+
+        # Retraining replaces the active model
+        self.call("train_cost_model", stdout=StringIO())
+        self.assertEqual(CostModel.objects.filter(is_active=True).count(), 1)
+
+    def test_synthetic_history_stays_out_of_business_numbers(self):
+        from io import StringIO
+
+        self.call("seed_repair_history", count=40, stdout=StringIO())
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        stats = client.get("/api/admin/dashboard-stats/").data
+        self.assertEqual((stats["total_bookings"], stats["total_vehicles"], stats["total_customers"]), (0, 1, 1))
+        self.assertEqual(client.get("/api/service-center/analytics/").data["totals"]["bookings"], 0)
+        res = client.get("/api/admin/cost-model/")
+        self.assertEqual((res.data["available_samples"], res.data["active"]), (40, None))
+        self.assertEqual(client.post("/api/admin/cost-model/train/").status_code, 201)
+        client.force_authenticate(user=self.customer)
+        self.assertEqual(client.post("/api/admin/cost-model/train/").status_code, 403)
+
+
+class SyntheticHistoryHiddenTests(TestCase):
+    def test_admin_booking_lists_leave_out_synthetic_jobs(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        ServiceType.objects.create(name="SH Service", base_price=1000)
+        call_command("seed_repair_history", count=5, stdout=StringIO())
+        admin = User.objects.create_user(username="sh_a", email="sh_a@example.com", role=UserRole.ADMIN)
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        for url in ["/api/bookings/", "/api/service-center/bookings/", "/api/driver/pickups/", "/api/mechanic/jobs/"]:
+            self.assertEqual(client.get(url).data, [], url)

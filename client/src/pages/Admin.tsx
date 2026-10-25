@@ -1,6 +1,7 @@
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Empty, Skeleton } from "../components/States";
 import { useApi } from "../hooks/useApi";
+import { CostModelPanel } from "../components/CostModelPanel";
 import type { Booking, AdminStats } from "../types";
 
 export function AdminHome() {
@@ -80,6 +81,8 @@ export function AdminHome() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      <CostModelPanel />
 
       {/* Recent bookings list */}
       <section className="glass rounded-3xl p-5">
