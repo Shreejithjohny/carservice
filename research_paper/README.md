@@ -25,3 +25,15 @@ Figures use colorblind-checked colors, and each line also has its own marker or 
 1. **The cost "accuracy" is not measured against real data.** Each simulated order's ground truth is the estimate multiplied by N(1, σ) with σ = 8%. MAPE ≈ σ·√(2/π) ≈ 6.4% and coverage ≈ 97% follow from that choice (Fig. 4), not from estimator quality. To report real accuracy, replace the synthetic ground truth with final invoice amounts for real repairs.
 2. **VHI saturates at 100.** A new car and a 6-year-old maintained car both score 100, so the index cannot rank healthy vehicles (Fig. 1, 2).
 3. **Latency** covers the formula only, not the API, database or network.
+
+## Learned cost model (app feature)
+
+The app can now learn repair prices from its own completed, billed repairs
+(`backend/api/ml_cost_model.py`: ridge regression on log cost, 5-fold cross-validated against the
+rule formula; `python manage.py train_cost_model`). This is the way to get a **real** accuracy figure
+for the paper: train it on real invoices and report the cross-validated numbers it prints.
+
+`python manage.py seed_repair_history` exists only to demonstrate the pipeline. Its prices come from a
+made-up generator, so a model trained on it shows only that it recovers that generator, the same
+circularity as limitation 1. The trained model records the share of synthetic rows, and the admin
+page and every estimate say when it is above zero. Do not report those numbers as real accuracy.

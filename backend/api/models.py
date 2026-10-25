@@ -561,6 +561,7 @@ class RepairRequest(models.Model):
 
 class EstimationSource(models.TextChoices):
     AI = "AI", _("AI")
+    ML = "ML", _("Learned model")
     RULE_BASED = "RULE_BASED", _("Rule-Based")
     MANUAL = "MANUAL", _("Manual")
 
@@ -606,6 +607,29 @@ class RepairCostEstimate(models.Model):
 
     def __str__(self):
         return f"Estimate for {self.vehicle}: ₹{self.estimated_min_cost}–₹{self.estimated_max_cost} ({self.estimation_source})"
+
+
+class CostModel(models.Model):
+    """A repair-cost regression trained on billed repairs (see ml_cost_model.py). One is active at a time."""
+
+    trained_at = models.DateTimeField(auto_now_add=True)
+    n_samples = models.PositiveIntegerField()
+    # Percentage of training repairs that came from the demo data generator, not real jobs
+    synthetic_share = models.FloatField(default=0)
+    features = models.JSONField()
+    weights = models.JSONField()
+    feature_mean = models.JSONField()
+    feature_std = models.JSONField()
+    residual_q10 = models.FloatField()
+    residual_q90 = models.FloatField()
+    metrics = models.JSONField(default=dict)
+    is_active = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-trained_at"]
+
+    def __str__(self):
+        return f"Cost model {self.trained_at:%Y-%m-%d %H:%M} ({self.n_samples} samples)"
 
 
 class InvoiceStatus(models.TextChoices):

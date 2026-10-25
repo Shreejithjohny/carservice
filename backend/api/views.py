@@ -36,6 +36,7 @@ from .models import (
     Notification,
     NotificationType,
     Employee,
+    CostModel,
     ServiceReview,
 )
 from .serializers import (
@@ -73,6 +74,9 @@ from .payment_service import PaymentError, pay_invoice, payment_gateway
 from .plate_service import LIKELY, MATCH, check_plate
 from .reminder_service import service_due
 from .analytics_service import center_analytics
+from .ml_cost_model import (
+    MIN_TRAINING_SAMPLES, SYNTHETIC_HISTORY_EMAIL, SYNTHETIC_MARKER, train_cost_model, training_rows,
+)
 from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
@@ -2202,10 +2206,12 @@ def admin_dashboard_stats(request):
     if not is_admin(request.user):
         return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
 
-    total_customers = User.objects.filter(role=UserRole.CUSTOMER).count()
-    total_vehicles = Vehicle.objects.count()
-    total_bookings = ServiceBooking.objects.count()
-    active_services = ServiceBooking.objects.filter(
+    # Leave out generated demo history (seed_repair_history)
+    real_bookings = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER)
+    total_customers = User.objects.filter(role=UserRole.CUSTOMER).exclude(email=SYNTHETIC_HISTORY_EMAIL).count()
+    total_vehicles = Vehicle.objects.exclude(customer__email=SYNTHETIC_HISTORY_EMAIL).count()
+    total_bookings = real_bookings.count()
+    active_services = real_bookings.filter(
         status__in=[
             BookingStatus.CONFIRMED,
             BookingStatus.PICKUP_SCHEDULED,
@@ -2216,8 +2222,8 @@ def admin_dashboard_stats(request):
             BookingStatus.OUT_FOR_DELIVERY,
         ]
     ).count()
-    completed_services = ServiceBooking.objects.filter(status=BookingStatus.COMPLETED).count()
-    service_centers_count = ServiceCenter.objects.count()
+    completed_services = real_bookings.filter(status=BookingStatus.COMPLETED).count()
+    service_centers_count = ServiceCenter.objects.filter(is_active=True).count()
     total_drivers = User.objects.filter(role=UserRole.DRIVER).count()
     total_mechanics = User.objects.filter(role=UserRole.MECHANIC).count()
 
@@ -2230,11 +2236,12 @@ def admin_dashboard_stats(request):
         Invoice.objects.exclude(payment_status=Invoice.PaymentStatus.PAID).exclude(invoice_status=InvoiceStatus.CANCELLED)
     )
 
+    real_repairs = RepairRequest.objects.exclude(booking__customer_notes__startswith=SYNTHETIC_MARKER)
     repair_stats = {
-        "total": RepairRequest.objects.count(),
-        "approved": RepairRequest.objects.filter(status=RepairRequestStatus.APPROVED).count(),
-        "pending": RepairRequest.objects.filter(status=RepairRequestStatus.PENDING).count(),
-        "rejected": RepairRequest.objects.filter(status=RepairRequestStatus.REJECTED).count(),
+        "total": real_repairs.count(),
+        "approved": real_repairs.filter(status=RepairRequestStatus.APPROVED).count(),
+        "pending": real_repairs.filter(status=RepairRequestStatus.PENDING).count(),
+        "rejected": real_repairs.filter(status=RepairRequestStatus.REJECTED).count(),
     }
 
     return Response({
@@ -2252,4 +2259,40 @@ def admin_dashboard_stats(request):
     })
 
 
+def cost_model_summary(model):
+    return {
+        "id": model.id,
+        "trained_at": model.trained_at,
+        "n_samples": model.n_samples,
+        "synthetic_share": model.synthetic_share,
+        "metrics": model.metrics,
+        "is_active": model.is_active,
+    }
 
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_cost_model(request):
+    """GET /api/admin/cost-model/ -> the active learned estimator (if any) and its cross-validated accuracy"""
+    if not is_admin(request.user):
+        return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+    model = CostModel.objects.filter(is_active=True).first()
+    return Response({
+        "active": cost_model_summary(model) if model else None,
+        "available_samples": len(training_rows()),
+        "min_samples": MIN_TRAINING_SAMPLES,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def admin_train_cost_model(request):
+    """POST /api/admin/cost-model/train/ -> retrain on all completed, approved repairs"""
+    if not is_admin(request.user):
+        return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+    try:
+        model = train_cost_model()
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(cost_model_summary(model), status=status.HTTP_201_CREATED)

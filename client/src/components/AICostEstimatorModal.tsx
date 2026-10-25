@@ -188,7 +188,7 @@ export function AICostEstimatorModal({
           <div className="mt-5 space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-800/60">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-[#ff4d2e]">
-                {estimate.estimation_source === "AI" ? "AI Estimate" : "Algorithmic Estimate"}
+                {estimate.estimation_source === "ML" ? "Learned from past repairs" : estimate.estimation_source === "AI" ? "AI Estimate" : "Rule-based estimate"}
               </span>
               <span className="flex items-center gap-1 text-xs text-zinc-500">
                 <Clock className="h-3.5 w-3.5" /> ~{estimate.estimated_labor_hours} hrs labor

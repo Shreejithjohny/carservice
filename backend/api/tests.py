@@ -1972,3 +1972,61 @@ class AnalyticsTests(TestCase):
         customer = User.objects.get(username="an_c")
         self.client.force_authenticate(user=customer)
         self.assertEqual(self.client.get("/api/service-center/analytics/").status_code, 403)
+
+
+class LearnedCostModelTests(TestCase):
+    def setUp(self):
+        from django.core.management import call_command
+
+        ServiceType.objects.create(name="ML Service A", base_price=1500)
+        ServiceType.objects.create(name="ML Service B", base_price=3500)
+        self.admin = User.objects.create_user(username="ml_a", email="ml_a@example.com", role=UserRole.ADMIN)
+        self.customer = User.objects.create_user(username="ml_c", email="ml_c@example.com", role=UserRole.CUSTOMER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Kia", model="Sonet", registration_number="KA08ML01", year=2020)
+        self.call = call_command
+
+    def test_falls_back_to_formula_until_enough_data(self):
+        from api.ai_cost_service import estimate_repair_cost
+        from api.ml_cost_model import train_cost_model
+
+        with self.assertRaises(ValueError):
+            train_cost_model()
+        self.assertEqual(estimate_repair_cost(self.vehicle, None, "noise", "HIGH", 2)["estimation_source"], "RULE_BASED")
+
+    def test_trains_and_serves_learned_estimates(self):
+        from io import StringIO
+
+        from api.ai_cost_service import estimate_repair_cost
+        from api.models import CostModel
+
+        self.call("seed_repair_history", count=80, stdout=StringIO())
+        self.call("train_cost_model", stdout=StringIO())
+        model = CostModel.objects.get(is_active=True)
+        self.assertEqual((model.n_samples, model.synthetic_share), (80, 100.0))
+        self.assertLess(model.metrics["ml"]["mape"], model.metrics["rule_based"]["mape"])
+
+        low = estimate_repair_cost(self.vehicle, None, "noise", "LOW", 2)
+        critical = estimate_repair_cost(self.vehicle, None, "noise", "CRITICAL", 2)
+        self.assertEqual(low["estimation_source"], "ML")
+        self.assertLess(low["estimated_min_cost"], low["estimated_max_cost"])
+        self.assertGreater(critical["estimated_min_cost"], low["estimated_min_cost"])
+        self.assertIn("synthetic", low["explanation"])
+
+        # Retraining replaces the active model
+        self.call("train_cost_model", stdout=StringIO())
+        self.assertEqual(CostModel.objects.filter(is_active=True).count(), 1)
+
+    def test_synthetic_history_stays_out_of_business_numbers(self):
+        from io import StringIO
+
+        self.call("seed_repair_history", count=40, stdout=StringIO())
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        stats = client.get("/api/admin/dashboard-stats/").data
+        self.assertEqual((stats["total_bookings"], stats["total_vehicles"], stats["total_customers"]), (0, 1, 1))
+        self.assertEqual(client.get("/api/service-center/analytics/").data["totals"]["bookings"], 0)
+        res = client.get("/api/admin/cost-model/")
+        self.assertEqual((res.data["available_samples"], res.data["active"]), (40, None))
+        self.assertEqual(client.post("/api/admin/cost-model/train/").status_code, 201)
+        client.force_authenticate(user=self.customer)
+        self.assertEqual(client.post("/api/admin/cost-model/train/").status_code, 403)

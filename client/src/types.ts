@@ -194,6 +194,23 @@ export interface CenterAnalytics {
   status_breakdown: { status: string; count: number }[];
 }
 
+export interface CostModelStatus {
+  active: {
+    id: number;
+    trained_at: string;
+    n_samples: number;
+    synthetic_share: number;
+    is_active: boolean;
+    metrics: {
+      ml: { mae: number; mape: number };
+      rule_based: { mae: number; mape: number };
+      interval_coverage: number;
+    };
+  } | null;
+  available_samples: number;
+  min_samples: number;
+}
+
 export interface InvoiceItem {
   id?: number;
   description: string;
@@ -285,7 +302,7 @@ export interface RepairCostEstimate {
   estimated_min_cost: number | string;
   estimated_max_cost: number | string;
   estimated_labor_hours: number | string;
-  estimation_source: "AI" | "RULE_BASED" | "MANUAL" | string;
+  estimation_source: "AI" | "ML" | "RULE_BASED" | "MANUAL" | string;
   explanation: string;
   created_at?: string;
 }

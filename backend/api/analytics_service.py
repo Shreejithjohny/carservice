@@ -6,6 +6,7 @@ from statistics import median
 from django.db.models import Avg, Count
 from django.utils import timezone
 
+from .ml_cost_model import SYNTHETIC_MARKER
 from .models import BookingStatus, Invoice, RepairRequest, RepairRequestStatus, ServiceBooking, ServiceReview
 
 
@@ -26,9 +27,10 @@ def _month_of(dt):
 
 def center_analytics(center=None, months: int = 6) -> dict:
     """`center=None` means every center (admin view)."""
-    bookings = ServiceBooking.objects.all()
-    invoices = Invoice.objects.all()
-    repairs = RepairRequest.objects.all()
+    # Generated demo history (seed_repair_history) is never business data
+    bookings = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER)
+    invoices = Invoice.objects.exclude(booking__customer_notes__startswith=SYNTHETIC_MARKER)
+    repairs = RepairRequest.objects.exclude(booking__customer_notes__startswith=SYNTHETIC_MARKER)
     reviews = ServiceReview.objects.all()
     if center is not None:
         bookings = bookings.filter(service_center=center)

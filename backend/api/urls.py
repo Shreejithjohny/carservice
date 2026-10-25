@@ -87,6 +87,8 @@ urlpatterns = [
     path("notifications/", views.notifications_list, name="notifications_list"),
     path("notifications/<int:pk>/read/", views.notification_mark_read, name="notification_mark_read"),
     path("notifications/mark-all-read/", views.notifications_mark_all_read, name="notifications_mark_all_read"),
+    path("admin/cost-model/", views.admin_cost_model, name="admin_cost_model"),
+    path("admin/cost-model/train/", views.admin_train_cost_model, name="admin_train_cost_model"),
     path("admin/dashboard-stats/", views.admin_dashboard_stats, name="admin_dashboard_stats"),
 
     # Health Check
