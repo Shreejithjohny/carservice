@@ -60,7 +60,7 @@ export function SearchableSelect({
         onClick={() => setOpen(!open)}
         className={`flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left text-sm transition dark:border-zinc-700 dark:bg-zinc-900 ${
           disabled ? "opacity-50 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800" : "hover:border-zinc-300 dark:hover:border-zinc-600"
-        } ${open ? "ring-2 ring-[#ff4d2e]" : ""}`}
+        } ${open ? "ring-2 ring-brand" : ""}`}
       >
         <span className={selectedOption ? "font-semibold text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}>
           {loading ? "Loading..." : selectedOption ? selectedOption.name : placeholder}
@@ -100,7 +100,7 @@ export function SearchableSelect({
                     }}
                     className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition ${
                       isSelected
-                        ? "bg-[#ff4d2e] text-white font-bold"
+                        ? "bg-brand text-white font-bold"
                         : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     }`}
                   >

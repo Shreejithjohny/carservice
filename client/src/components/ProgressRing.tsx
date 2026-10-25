@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { BRAND, BRAND_LIGHT } from "../utils/theme";
 
 export function ProgressRing({ value, label }: { value: number; label: string }) {
   const r = 46;
@@ -24,8 +25,8 @@ export function ProgressRing({ value, label }: { value: number; label: string })
           />
           <defs>
             <linearGradient id={`ring-${label.replace(/\s/g, "")}`} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#ff4d2e" />
-              <stop offset="100%" stopColor="#ffb020" />
+              <stop offset="0%" stopColor={BRAND} />
+              <stop offset="100%" stopColor={BRAND_LIGHT} />
             </linearGradient>
           </defs>
         </svg>

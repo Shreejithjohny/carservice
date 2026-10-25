@@ -35,7 +35,7 @@ export function CostModelPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 font-bold">
-            <BrainCircuit size={18} className="text-[#ff4d2e]" /> Repair cost model
+            <BrainCircuit size={18} className="text-brand-fg" /> Repair cost model
           </h3>
           <p className="text-xs text-zinc-500">
             {m
@@ -48,7 +48,7 @@ export function CostModelPanel() {
           onClick={train}
           disabled={training || !enough}
           title={enough ? undefined : `Needs at least ${data.min_samples} completed, approved repairs`}
-          className="rounded-xl bg-[#ff4d2e] px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
+          className="rounded-xl bg-brand px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
         >
           {training ? "Training..." : m ? `Retrain (${data.available_samples} repairs)` : "Train model"}
         </button>

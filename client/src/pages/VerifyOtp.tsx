@@ -95,7 +95,7 @@ export function VerifyOtp() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f6f3ee] px-4 py-10 dark:bg-[#07080c] dark:text-white flex items-center justify-center">
+    <div className="min-h-dvh bg-canvas px-4 py-10 dark:bg-canvas-dark dark:text-white flex items-center justify-center">
       <div className="w-full max-w-md">
         <Link to="/login" className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300">
           ← Back to sign in
@@ -139,7 +139,7 @@ export function VerifyOtp() {
               inputMode="numeric"
               pattern="[0-9]{6}"
               maxLength={6}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.4em] dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]"
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-center text-2xl font-bold tracking-[0.4em] dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand"
               placeholder="000000"
               value={otpCode}
               onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
@@ -148,7 +148,7 @@ export function VerifyOtp() {
 
           <button
             disabled={busy}
-            className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white transition hover:bg-[#e94529] disabled:opacity-50 shadow-md shadow-[#ff4d2e]/20"
+            className="w-full rounded-2xl bg-brand py-3 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:opacity-50 shadow-md shadow-brand/20"
             type="submit"
           >
             {busy ? "Verifying..." : "Verify & Continue"}
@@ -171,7 +171,7 @@ export function VerifyOtp() {
               type="button"
               disabled={cooldown > 0 || busy}
               onClick={handleResend}
-              className="font-bold text-[#ff4d2e] hover:underline disabled:text-zinc-400 disabled:no-underline"
+              className="font-bold text-brand-fg hover:underline disabled:text-zinc-400 disabled:no-underline"
             >
               {cooldown > 0 ? `Resend OTP in ${cooldown}s` : "Resend OTP"}
             </button>

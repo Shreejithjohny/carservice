@@ -3,6 +3,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import { Crosshair } from "lucide-react";
+import { BRAND } from "../utils/theme";
 
 export type RoutePoint = { latitude: number; longitude: number; timestamp: string };
 type LatLng = [number, number];
@@ -98,7 +99,7 @@ export function LiveTrackingMap({
             <Popup>{hubName}</Popup>
           </Marker>
         )}
-        {trail.length > 1 && <Polyline positions={trail} pathOptions={{ color: "#ff4d2e", weight: 4, opacity: 0.8 }} />}
+        {trail.length > 1 && <Polyline positions={trail} pathOptions={{ color: BRAND, weight: 4, opacity: 0.8 }} />}
         {driver && (
           <Marker position={driver} icon={ICONS.driver}>
             <Popup>Driver{lastUpdate ? ` · updated ${timeAgo(lastUpdate, now)}` : ""}</Popup>

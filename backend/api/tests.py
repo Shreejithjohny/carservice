@@ -2137,3 +2137,38 @@ class PasswordAuthTests(TestCase):
         self.assertEqual(self.login("meera@example.com", "Garage#Blue77").status_code, 400)
         # The code works only once
         self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)
+
+
+@override_settings(OTP_BYPASS=False)
+class RoleSignInTabTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.driver = User.objects.create_user(username="tab_d", email="tab_d@example.com", role=UserRole.DRIVER, password="Road#Runner42")
+        self.superuser = User.objects.create_user(
+            username="tab_s", email="tab_s@example.com", role=UserRole.CUSTOMER, password="Root#Power42", is_superuser=True
+        )
+
+    def login(self, email, password, role=None):
+        body = {"identifier": email, "password": password}
+        if role:
+            body["role"] = role
+        return self.client.post("/api/auth/login/", body, format="json")
+
+    def test_matching_tab_signs_in(self):
+        self.assertEqual(self.login("tab_d@example.com", "Road#Runner42", "DRIVER").status_code, 200)
+        self.assertEqual(self.login("tab_d@example.com", "Road#Runner42").status_code, 200)  # no tab given
+
+    def test_wrong_tab_is_refused_with_the_right_tab(self):
+        res = self.login("tab_d@example.com", "Road#Runner42", "CUSTOMER")
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data["account_role"], UserRole.DRIVER)
+        self.assertNotIn("access", res.data)
+
+    def test_wrong_password_on_wrong_tab_reveals_nothing(self):
+        res = self.login("tab_d@example.com", "not-it", "CUSTOMER")
+        self.assertEqual((res.status_code, res.data["error"]), (400, "Invalid email or password."))
+        self.assertNotIn("account_role", res.data)
+
+    def test_superuser_counts_as_admin(self):
+        self.assertEqual(self.login("tab_s@example.com", "Root#Power42", "ADMIN").status_code, 200)
+        self.assertEqual(self.login("tab_s@example.com", "Root#Power42", "CUSTOMER").data["account_role"], UserRole.ADMIN)

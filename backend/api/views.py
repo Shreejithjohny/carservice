@@ -648,8 +648,10 @@ def register_with_password(request):
 @permission_classes([AllowAny])
 def password_login(request):
     """
-    POST /api/auth/login/  {"identifier": email or mobile, "password"}
-    Five wrong passwords in a row lock the account for 15 minutes.
+    POST /api/auth/login/  {"identifier": email or mobile, "password", "role" (optional)}
+    Five wrong passwords in a row lock the account for 15 minutes. When the sign-in page sends the
+    role of the tab used (e.g. DRIVER), an account of another role is refused and told which tab to
+    use; that is only revealed after the password was correct.
     """
     identifier = str(request.data.get("identifier") or request.data.get("email") or "").strip()
     password = str(request.data.get("password") or "")
@@ -682,6 +684,16 @@ def password_login(request):
     user.password_attempts = 0
     user.password_locked_until = None
     user.save(update_fields=["password_attempts", "password_locked_until"])
+
+    expected_role = str(request.data.get("role") or "").upper()
+    account_role = UserRole.ADMIN if is_admin(user) else user.role
+    if expected_role in UserRole.values and expected_role != account_role:
+        label = UserRole(account_role).label
+        return Response(
+            {"error": f"This is a {label} account. Please use the {label} sign-in.", "account_role": account_role},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     if user.role == UserRole.CUSTOMER and not hasattr(user, "customer_profile"):
         CustomerProfile.objects.create(user=user)
     return auth_tokens_response(user, "Signed in successfully.")

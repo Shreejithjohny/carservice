@@ -148,7 +148,7 @@ export function Track() {
       {/* Handover OTP Notice Box for Customer */}
       {otpCode && !booking.handover_otp_verified && (
         <div className="rounded-3xl bg-zinc-900 p-6 text-center text-white dark:bg-white dark:text-zinc-900 space-y-2">
-          <span className="text-xs uppercase font-bold tracking-widest text-[#ff4d2e]">{t("track.shareHandover")}</span>
+          <span className="text-xs uppercase font-bold tracking-widest text-brand-fg">{t("track.shareHandover")}</span>
           <p className="font-mono text-4xl font-black tracking-[0.4em]">{otpCode}</p>
           <p className="text-xs text-zinc-400 dark:text-zinc-600">{t("track.handoverHint")}</p>
         </div>
@@ -178,7 +178,7 @@ export function Track() {
           <div className="flex w-full flex-col justify-between lg:w-72 lg:py-1">
             <div>
               <div className="flex items-center justify-between gap-3">
-                <span className="rounded-full bg-[#ff4d2e]/15 px-3 py-1 text-xs font-bold text-[#ff4d2e]">
+                <span className="rounded-full bg-brand/15 px-3 py-1 text-xs font-bold text-brand-fg">
                   {statusLabel(currentStatus)}
                 </span>
               </div>
@@ -187,12 +187,12 @@ export function Track() {
 
               <div className="mt-5 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl bg-zinc-100/80 p-3 dark:bg-zinc-800/70">
-                  <Clock3 size={16} className="text-[#ff4d2e]" />
+                  <Clock3 size={16} className="text-brand-fg" />
                   <p className="mt-2 text-lg font-extrabold">{isOnTheWay ? t("track.arriving") : t("track.active")}</p>
                   <p className="text-xs text-zinc-500">{t("track.stage")}</p>
                 </div>
                 <div className="rounded-2xl bg-zinc-100/80 p-3 dark:bg-zinc-800/70">
-                  <Navigation size={16} className="text-[#ff4d2e]" />
+                  <Navigation size={16} className="text-brand-fg" />
                   <p className="mt-2 text-lg font-extrabold">{driver ? t("track.assigned") : t("track.queued")}</p>
                   <p className="text-xs text-zinc-500">{t("track.valetAssignment")}</p>
                 </div>
@@ -202,7 +202,7 @@ export function Track() {
             <div className="mt-5 border-t border-zinc-200/70 pt-4 dark:border-zinc-700/70">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">{t("track.hub")}</p>
               <p className="mt-1 flex items-center gap-2 text-sm font-semibold">
-                <Route size={15} className="text-[#ff4d2e]" /> {centerName}
+                <Route size={15} className="text-brand-fg" /> {centerName}
               </p>
             </div>
           </div>
@@ -213,7 +213,7 @@ export function Track() {
       <div className="glass rounded-3xl p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200/70 pb-4 dark:border-zinc-700/70">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-[#ff4d2e]">{refCode}</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-fg">{refCode}</span>
             <h2 className="text-2xl font-extrabold">{serviceName}</h2>
             <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
               {vehicleName} {regNumber ? `(${regNumber})` : ""}
@@ -248,7 +248,7 @@ export function Track() {
         {/* Action Controls & Cancellation Button */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
           <div className="flex gap-2">
-            <RouterLink className="rounded-2xl bg-[#ff4d2e] px-4 py-2 text-sm font-semibold text-white" to="/app/approvals">
+            <RouterLink className="rounded-2xl bg-brand px-4 py-2 text-sm font-semibold text-white" to="/app/approvals">
               {t("track.approvals")}
             </RouterLink>
           </div>
@@ -291,20 +291,20 @@ export function Track() {
                 <span
                   className={`h-3.5 w-3.5 rounded-full ${
                     isCurrent
-                      ? "bg-[#ff4d2e] ring-4 ring-[#ff4d2e]/20"
+                      ? "bg-brand ring-4 ring-brand/20"
                       : stepDone
-                      ? "bg-[#ff4d2e]"
+                      ? "bg-brand"
                       : "bg-zinc-300 dark:bg-zinc-700"
                   }`}
                 />
                 {i < STEPS.length - 1 && (
-                  <span className={`h-6 w-0.5 ${stepDone ? "bg-[#ff4d2e]" : "bg-zinc-200 dark:bg-zinc-800"}`} />
+                  <span className={`h-6 w-0.5 ${stepDone ? "bg-brand" : "bg-zinc-200 dark:bg-zinc-800"}`} />
                 )}
               </div>
               <p
                 className={`pb-4 text-sm ${
                   isCurrent
-                    ? "font-bold text-[#ff4d2e]"
+                    ? "font-bold text-brand-fg"
                     : stepDone
                     ? "font-semibold text-zinc-700 dark:text-zinc-300"
                     : "text-zinc-400"

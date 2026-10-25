@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { MapPin, Search, AlertTriangle, Route, Clock, Check } from "lucide-react";
 import type { ServiceCenter } from "../types";
+import { BRAND } from "../utils/theme";
 
 // Default location: Bengaluru city center
 const DEFAULT_LAT = 12.9716;
@@ -181,7 +182,7 @@ export function GoogleLocationPicker({
         icon: {
           path: win.google.maps.SymbolPath.CIRCLE,
           scale: 10,
-          fillColor: "#ff4d2e",
+          fillColor: BRAND,
           fillOpacity: 1,
           strokeColor: "#ffffff",
           strokeWeight: 3,
@@ -325,7 +326,7 @@ export function GoogleLocationPicker({
                 onChange({ address: e.target.value, latitude: currentLat, longitude: currentLng });
               }}
             />
-            <MapPin size={16} className="absolute left-3.5 top-3 text-[#ff4d2e]" />
+            <MapPin size={16} className="absolute left-3.5 top-3 text-brand-fg" />
           </div>
         </label>
 
@@ -340,7 +341,7 @@ export function GoogleLocationPicker({
                 key={p.name}
                 type="button"
                 onClick={() => handleSelectPreset(p)}
-                className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:border-[#ff4d2e] dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:border-brand dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
               >
                 {p.name.split(",")[0]}
               </button>
@@ -399,7 +400,7 @@ export function GoogleLocationPicker({
 
         {/* Map Overlay Instruction Badge */}
         <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-zinc-900/80 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-          <MapPin size={13} className="text-[#ff4d2e]" />
+          <MapPin size={13} className="text-brand-fg" />
           <span>Click map or drag red marker to pinpoint pickup</span>
         </div>
 

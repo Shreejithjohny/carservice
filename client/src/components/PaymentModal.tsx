@@ -43,7 +43,7 @@ export function PaymentModal({
   }
 
   const input =
-    "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]";
+    "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -52,7 +52,7 @@ export function PaymentModal({
           <X className="h-5 w-5" />
         </button>
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-[#ff4d2e]">Pay invoice</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-brand-fg">Pay invoice</p>
           <h2 className="mt-1 text-2xl font-black">₹{amount}</h2>
           <p className="text-xs text-zinc-500">{invoice.invoice_number}</p>
         </div>
@@ -71,7 +71,7 @@ export function PaymentModal({
               type="button"
               onClick={() => setMethod(m)}
               className={`flex items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-bold transition ${
-                method === m ? "bg-[#ff4d2e] text-white" : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                method === m ? "bg-brand text-white" : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
               }`}
             >
               {m === "UPI" ? <Smartphone size={16} /> : <CreditCard size={16} />} {m === "UPI" ? "UPI" : "Card"}
@@ -107,7 +107,7 @@ export function PaymentModal({
 
         {error && <p className="rounded-2xl bg-rose-500/10 p-3 text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>}
 
-        <button disabled={busy} type="submit" className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-bold text-white disabled:opacity-50">
+        <button disabled={busy} type="submit" className="w-full rounded-2xl bg-brand py-3 text-sm font-bold text-white disabled:opacity-50">
           {busy ? "Processing..." : `Pay ₹${amount}`}
         </button>
       </form>

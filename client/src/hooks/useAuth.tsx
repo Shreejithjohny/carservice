@@ -25,7 +25,8 @@ type AuthCtx = {
   sendOtp: (identifier: string) => Promise<SendOtpResponse>;
   verifyOtp: (identifier: string, otpCode: string, name?: string) => Promise<User>;
   bypassLogin: (identifier?: string, role?: Role, name?: string) => Promise<User>;
-  passwordLogin: (identifier: string, password: string) => Promise<User>;
+  /** `role` is the sign-in tab used (e.g. "driver"); the server refuses accounts of another role. */
+  passwordLogin: (identifier: string, password: string, role?: Role) => Promise<User>;
   register: (details: { name: string; email: string; phone?: string; password: string }) => Promise<User>;
   requestPasswordReset: (identifier: string) => Promise<{ message: string; otp_code?: string }>;
   confirmPasswordReset: (identifier: string, otpCode: string, newPassword: string) => Promise<User>;
@@ -124,10 +125,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(normalizedUser);
         return normalizedUser;
       },
-      async passwordLogin(identifier, password) {
+      async passwordLogin(identifier, password, role) {
         const res = await api<VerifyOtpResponse>("/api/auth/login/", {
           method: "POST",
-          body: JSON.stringify({ identifier, password }),
+          body: JSON.stringify({ identifier, password, role: role?.toUpperCase() }),
         });
         return finishSignIn(res);
       },

@@ -15,7 +15,7 @@ export function Estimate() {
     return (
       <div className="space-y-3">
         <Empty title="Add a vehicle first" hint="Cost estimates are calculated for a specific vehicle." />
-        <Link to="/app/vehicles" className="inline-block rounded-2xl bg-[#ff4d2e] px-4 py-2 font-semibold text-white">
+        <Link to="/app/vehicles" className="inline-block rounded-2xl bg-brand px-4 py-2 font-semibold text-white">
           Add vehicle
         </Link>
       </div>

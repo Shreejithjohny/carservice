@@ -128,7 +128,7 @@ export function Book() {
         <Car size={48} className="mx-auto text-zinc-400" />
         <h2 className="text-xl font-bold">{t("book.noVehicles")}</h2>
         <p className="text-sm text-zinc-500">{t("book.noVehiclesHint")}</p>
-        <Link to="/app/vehicles" className="inline-block rounded-2xl bg-[#ff4d2e] px-6 py-3 font-semibold text-white">
+        <Link to="/app/vehicles" className="inline-block rounded-2xl bg-brand px-6 py-3 font-semibold text-white">
           {t("book.addVehicle")}
         </Link>
       </div>
@@ -143,7 +143,7 @@ export function Book() {
           <CheckCircle2 size={56} className="mx-auto text-emerald-500" />
           <h2 className="text-2xl font-extrabold">{t("book.confirmed")}</h2>
           <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{t("book.reference")}</p>
-          <p className="text-xl font-black text-[#ff4d2e] bg-[#ff4d2e]/10 py-2 px-4 rounded-2xl inline-block font-mono">
+          <p className="text-xl font-black text-brand-fg bg-brand/10 py-2 px-4 rounded-2xl inline-block font-mono">
             {confirmedBooking.booking_reference || confirmedBooking.booking_id}
           </p>
         </div>
@@ -196,7 +196,7 @@ export function Book() {
           </button>
           <Link
             to="/app/track"
-            className="w-full text-center rounded-2xl bg-[#ff4d2e] py-3 font-semibold text-white block"
+            className="w-full text-center rounded-2xl bg-brand py-3 font-semibold text-white block"
           >
             {t("book.viewBookings")}
           </Link>
@@ -215,7 +215,7 @@ export function Book() {
       {/* Select Vehicle */}
       <label className="block text-xs font-semibold text-zinc-500">
         <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
-          <Car size={16} className="text-[#ff4d2e]" /> {t("book.vehicle")}
+          <Car size={16} className="text-brand-fg" /> {t("book.vehicle")}
         </span>
         <select
           className="w-full rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -233,7 +233,7 @@ export function Book() {
       {/* Select Service Type */}
       <label className="block text-xs font-semibold text-zinc-500">
         <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
-          <Wrench size={16} className="text-[#ff4d2e]" /> {t("book.package")}
+          <Wrench size={16} className="text-brand-fg" /> {t("book.package")}
         </span>
         <select
           className="w-full rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -254,7 +254,7 @@ export function Book() {
       {/* Select Service Center */}
       <label className="block text-xs font-semibold text-zinc-500">
         <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
-          <Building2 size={16} className="text-[#ff4d2e]" /> {t("book.center")}
+          <Building2 size={16} className="text-brand-fg" /> {t("book.center")}
         </span>
         <select
           className="w-full rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
@@ -272,7 +272,7 @@ export function Book() {
       {/* Google Maps Location & Pickup Address Picker */}
       <div className="block text-xs font-semibold text-zinc-500">
         <span className="flex items-center gap-1.5 mb-2 text-zinc-700 dark:text-zinc-300 font-bold">
-          <MapPin size={16} className="text-[#ff4d2e]" /> {t("book.location")}
+          <MapPin size={16} className="text-brand-fg" /> {t("book.location")}
         </span>
         <GoogleLocationPicker
           address={pickupAddress}
@@ -292,7 +292,7 @@ export function Book() {
       <div className="space-y-3">
         <label className="block text-xs font-semibold text-zinc-500">
           <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
-            <Calendar size={16} className="text-[#ff4d2e]" /> {t("book.date")}
+            <Calendar size={16} className="text-brand-fg" /> {t("book.date")}
           </span>
           <input
             type="date"
@@ -307,7 +307,7 @@ export function Book() {
 
         <div className="text-xs font-semibold text-zinc-500">
           <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
-            <Clock size={16} className="text-[#ff4d2e]" /> {t("book.slot")}
+            <Clock size={16} className="text-brand-fg" /> {t("book.slot")}
           </span>
           {loadingSlots ? (
             <Skeleton className="h-20" />
@@ -325,7 +325,7 @@ export function Book() {
                     onClick={() => setPreferredTime(s.time)}
                     className={`rounded-2xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                       selected
-                        ? "border-[#ff4d2e] bg-[#ff4d2e]/10 text-[#ff4d2e]"
+                        ? "border-brand bg-brand/10 text-brand-fg"
                         : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-700"
                     }`}
                   >
@@ -344,7 +344,7 @@ export function Book() {
       {/* Customer Notes */}
       <label className="block text-xs font-semibold text-zinc-500">
         <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
-          <AlertCircle size={16} className="text-[#ff4d2e]" /> {t("book.notes")}
+          <AlertCircle size={16} className="text-brand-fg" /> {t("book.notes")}
         </span>
         <textarea
           rows={2}
@@ -357,10 +357,10 @@ export function Book() {
 
       {/* Price Estimation Preview Card */}
       {effectiveServiceType && (
-        <div className="rounded-2xl bg-[#ff4d2e]/10 border border-[#ff4d2e]/20 p-4 flex items-center justify-between">
+        <div className="rounded-2xl bg-brand/10 border border-brand/20 p-4 flex items-center justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">{t("book.total")}</p>
-            <p className="text-2xl font-black text-[#ff4d2e]">
+            <p className="text-2xl font-black text-brand-fg">
               ₹{Number(effectiveServiceType.base_price).toLocaleString("en-IN")}
             </p>
             <p className="text-xs text-zinc-500">{t("book.includes")}</p>
@@ -373,7 +373,7 @@ export function Book() {
 
       <button
         disabled={submitting}
-        className="w-full rounded-2xl bg-[#ff4d2e] py-3.5 font-bold text-white shadow-lg transition hover:bg-[#e03e21] disabled:opacity-50"
+        className="w-full rounded-2xl bg-brand py-3.5 font-bold text-white shadow-lg transition hover:bg-brand-hover disabled:opacity-50"
         type="submit"
       >
         {submitting ? t("book.submitting") : t("book.submit")}

@@ -7,7 +7,7 @@ import { PasswordField, PASSWORD_HINT } from "../components/PasswordField";
 import { homePathForRole } from "../utils/roles";
 
 const INPUT =
-  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-[#ff4d2e]";
+  "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand";
 
 /** Step 1: send a reset code by email/SMS. Step 2: enter the code and a new password. */
 export function ForgotPassword() {
@@ -55,7 +55,7 @@ export function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f6f3ee] px-4 py-10 dark:bg-[#07080c] dark:text-white flex items-center justify-center">
+    <div className="min-h-dvh bg-canvas px-4 py-10 dark:bg-canvas-dark dark:text-white flex items-center justify-center">
       <div className="w-full max-w-md">
         <Link to="/login" className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300">
           ← Back to sign in
@@ -71,7 +71,7 @@ export function ForgotPassword() {
               <span>Email address or Mobile number</span>
               <input required autoComplete="username" className={INPUT} value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
             </label>
-            <button disabled={busy} type="submit" className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white disabled:opacity-50">
+            <button disabled={busy} type="submit" className="w-full rounded-2xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-50">
               {busy ? "Sending..." : "Send reset code"}
             </button>
           </form>
@@ -92,7 +92,7 @@ export function ForgotPassword() {
             {demoCode && <p className="rounded-xl bg-zinc-100 p-2 text-center text-xs dark:bg-zinc-800">Demo mode: your code is {demoCode}</p>}
             <PasswordField label="New password" value={password} onChange={setPassword} autoComplete="new-password" hint={PASSWORD_HINT} />
             <PasswordField label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
-            <button disabled={busy} type="submit" className="w-full rounded-2xl bg-[#ff4d2e] py-3 text-sm font-semibold text-white disabled:opacity-50">
+            <button disabled={busy} type="submit" className="w-full rounded-2xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-50">
               {busy ? "Saving..." : "Set new password"}
             </button>
             <button type="button" onClick={() => setCodeSent(false)} className="w-full text-xs font-semibold text-zinc-500 underline">
