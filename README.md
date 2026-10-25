@@ -173,7 +173,9 @@ Then run `npm run migrate:django` and `npm run seed` again.
 
 To also sign in to the demo accounts with email + password, set `DEMO_ACCOUNT_PASSWORD` in `backend/.env` to a password of your choice **before** running `npm run seed`. The seed gives each demo account that password, but only if the account has none yet, so a password that was changed is never reset. The password lives only in your `.env`, never in the code.
 
-With `OTP_BYPASS=True` (set in `.env.example`) the login page shows one-click demo buttons for these accounts. With it off, sign-in always uses a one-time code. Without SMS/email configured, the code is printed in the backend console (development only).
+The sign-in page has a tab per role, each with its own address, so staff can bookmark theirs: `/login/customer`, `/login/driver`, `/login/mechanic`, `/login/manager`, `/login/admin`. Signing in on the wrong tab (for example a driver on the Customer tab) is refused, with a link to the right tab.
+
+With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo … account" button. With it off, people sign in with their password or a one-time code. Without SMS/email configured, one-time codes are printed in the backend console (development only).
 
 ## Features at a glance
 

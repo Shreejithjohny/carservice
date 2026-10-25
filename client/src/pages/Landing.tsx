@@ -8,6 +8,7 @@ export function Landing() {
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <div className="text-xl font-extrabold">Door<span className="text-[#ff4d2e]">Step</span></div>
         <div className="flex gap-2">
+          <Link to="/login/driver" className="hidden rounded-full px-4 py-2 text-sm text-white/60 sm:inline-block">Staff sign in</Link>
           <Link to="/login" className="rounded-full px-4 py-2 text-sm text-white/80">Sign in</Link>
           <Link to="/register" className="rounded-full bg-[#ff4d2e] px-4 py-2 text-sm font-semibold">Create account</Link>
         </div>
