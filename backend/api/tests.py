@@ -2030,3 +2030,18 @@ class LearnedCostModelTests(TestCase):
         self.assertEqual(client.post("/api/admin/cost-model/train/").status_code, 201)
         client.force_authenticate(user=self.customer)
         self.assertEqual(client.post("/api/admin/cost-model/train/").status_code, 403)
+
+
+class SyntheticHistoryHiddenTests(TestCase):
+    def test_admin_booking_lists_leave_out_synthetic_jobs(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        ServiceType.objects.create(name="SH Service", base_price=1000)
+        call_command("seed_repair_history", count=5, stdout=StringIO())
+        admin = User.objects.create_user(username="sh_a", email="sh_a@example.com", role=UserRole.ADMIN)
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        for url in ["/api/bookings/", "/api/service-center/bookings/", "/api/driver/pickups/", "/api/mechanic/jobs/"]:
+            self.assertEqual(client.get(url).data, [], url)

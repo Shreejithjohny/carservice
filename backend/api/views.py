@@ -869,7 +869,7 @@ def booking_list_create(request):
     """
     if request.method == "GET":
         if is_admin(request.user):
-            qs = ServiceBooking.objects.all().order_by("-created_at")
+            qs = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER).order_by("-created_at")
         else:
             qs = ServiceBooking.objects.filter(customer=request.user).order_by("-created_at")
         serializer = ServiceBookingSerializer(qs, many=True)
@@ -1048,7 +1048,7 @@ def service_center_bookings_list(request):
     if error:
         return error
 
-    qs = ServiceBooking.objects.all().order_by("-created_at")
+    qs = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER).order_by("-created_at")
     if not is_admin(request.user):
         qs = qs.filter(service_center=manager_center(request.user))
 
@@ -1209,7 +1209,9 @@ def driver_pickups_list(request):
         return Response({"error": "Driver permissions required."}, status=status.HTTP_403_FORBIDDEN)
 
     if is_admin(request.user):
-        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).order_by("-created_at")
+        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).exclude(
+            customer_notes__startswith=SYNTHETIC_MARKER
+        ).order_by("-created_at")
     else:
         qs = ServiceBooking.objects.filter(assigned_driver=request.user).exclude(
             status=BookingStatus.CANCELLED
@@ -1564,7 +1566,9 @@ def mechanic_jobs_list(request):
         return Response({"error": "Mechanic permissions required."}, status=status.HTTP_403_FORBIDDEN)
 
     if is_admin(request.user):
-        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).order_by("-created_at")
+        qs = ServiceBooking.objects.exclude(status=BookingStatus.CANCELLED).exclude(
+            customer_notes__startswith=SYNTHETIC_MARKER
+        ).order_by("-created_at")
     else:
         qs = ServiceBooking.objects.filter(assigned_mechanic=request.user).exclude(
             status=BookingStatus.CANCELLED
