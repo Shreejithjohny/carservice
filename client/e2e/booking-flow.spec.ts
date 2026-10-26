@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 import { signIn, stubMapStyle } from "./helpers";
 
 // One story across three screens: the customer books, the manager confirms (and the app picks the
-// driver), then the customer tracks it. Later steps use the booking made in the first one.
+// driver), then the customer tracks it. Later steps use the booking made in the first one; in serial
+// mode Playwright skips the remaining steps when one fails.
 test.describe.configure({ mode: "serial" });
 
 let reference = "";
@@ -40,7 +41,6 @@ test("customer books a pickup by placing the pin on the map", async ({ page }) =
 });
 
 test("manager confirms it and a driver is assigned automatically", async ({ page }) => {
-  test.skip(!reference, "needs the booking from the previous test");
   await signIn(page, "manager");
   await page.goto("/service-center/bookings");
   const card = page.getByRole("article", { name: `Booking ${reference}` });
@@ -53,7 +53,6 @@ test("manager confirms it and a driver is assigned automatically", async ({ page
 });
 
 test("customer sees the booking on the tracking map", async ({ page }) => {
-  test.skip(!reference, "needs the booking from the previous test");
   await signIn(page, "customer");
   await page.goto("/app/track");
   await page.getByLabel("Select Booking:").selectOption(bookingId);

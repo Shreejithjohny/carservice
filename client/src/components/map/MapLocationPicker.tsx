@@ -38,6 +38,7 @@ export default function MapLocationPicker({ address, latitude, longitude, select
   const [busy, setBusy] = useState<"search" | "address" | "gps" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [mapFailed, setMapFailed] = useState(false);
 
   const point: LngLat = latitude != null && longitude != null ? [longitude, latitude] : DEFAULT;
@@ -78,8 +79,10 @@ export default function MapLocationPicker({ address, latitude, longitude, select
     map.addControl(new NavigationControl({ showCompass: false }), "top-left");
     map.addControl(new AttributionControl({ compact: true }), "bottom-left");
     map.on("dragstart", () => setDragging(true));
+    map.on("movestart", () => setMoving(true));
     map.on("moveend", () => {
       setDragging(false);
+      setMoving(false);
       if (skipNextLookup.current) {
         skipNextLookup.current = false;
         return;
@@ -215,7 +218,13 @@ export default function MapLocationPicker({ address, latitude, longitude, select
             This browser can't show the map (WebGL is off). Search, use your location or pick a preset area instead.
           </div>
         ) : (
-          <div ref={containerRef} className="h-72 w-full" aria-label="Map: move it to place the pin on your pickup point" />
+          <div
+            ref={containerRef}
+            className="h-72 w-full"
+            aria-label="Map: move it to place the pin on your pickup point"
+            // Busy while the map moves or the address under the pin is being looked up
+            aria-busy={moving || busy === "address"}
+          />
         )}
         {!mapFailed && (
           <>

@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run --dir src",
     "test:e2e": "playwright test",
-    "typecheck:e2e": "tsc -p tsconfig.e2e.json"
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json",
+    "e2e:install-browser": "playwright install --with-deps chromium"
   },
   "dependencies": {
     "framer-motion": "^12.23.12",

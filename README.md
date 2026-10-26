@@ -129,9 +129,11 @@ There are three kinds of automated tests. GitHub runs all of them on every pull 
 The browser tests start their own backend and frontend (ports 8001 and 5174) with a fresh, seeded database in `client/e2e/.data/`. Your own database and running dev servers are not touched. The first time, download the test browser with:
 ```bash
 cd client
-npx playwright install chromium
+npm run e2e:install-browser
 cd ..
 ```
+
+CI installs Python packages from `backend/requirements-ci.txt` (exact versions with checked hashes). After changing `backend/requirements*.txt`, regenerate it with the command at the top of that file.
 
 Backend coverage report (which lines the tests run):
 ```bash

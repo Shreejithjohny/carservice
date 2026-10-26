@@ -33,8 +33,9 @@ test("a search result moves the map and fills the address", async ({ page }) => 
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("button", { name: "Koramangala 5th Block, Bengaluru, Karnataka" }).click();
   await expect(addressBox(page)).toHaveValue("Koramangala 5th Block, Bengaluru, Karnataka");
-  // Moving the map for a search result must not replace the chosen address with a lookup
-  await page.waitForTimeout(1500);
+  // Moving the map for a search result must not replace the chosen address with a lookup.
+  // The map stays aria-busy until it has stopped and any lookup has finished.
+  await expect(page.getByLabel(/^Map: move it/)).toHaveAttribute("aria-busy", "false");
   await expect(addressBox(page)).toHaveValue("Koramangala 5th Block, Bengaluru, Karnataka");
 });
 

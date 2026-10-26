@@ -26,7 +26,9 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements*.txt
-      - run: pip install -r requirements-dev.txt
+      # Exact versions with checked hashes, prebuilt wheels only (no package setup scripts run).
+      # Regenerate after changing requirements*.txt; see backend/requirements-ci.txt
+      - run: "pip install --require-hashes --only-binary :all: -r requirements-ci.txt"
       - name: Django system checks
         run: python manage.py check
         env:
@@ -63,7 +65,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
-      - run: npm ci
+      # Locked versions from package-lock.json; package install scripts are not needed and not run
+      - run: npm ci --ignore-scripts
       - run: npm test
       - name: Type-check the browser tests
         run: npm run typecheck:e2e
@@ -86,15 +89,19 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements*.txt
-      - run: pip install -r ../backend/requirements.txt
+      # Exact versions with checked hashes, prebuilt wheels only (no package setup scripts run).
+      # Regenerate after changing requirements*.txt; see backend/requirements-ci.txt
+      - run: "pip install --require-hashes --only-binary :all: -r ../backend/requirements-ci.txt"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: client/package-lock.json
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+      # Locked versions from package-lock.json; package install scripts are not needed and not run
+      - run: npm ci --ignore-scripts
+      # npm scripts run the locked Playwright from node_modules (npx could fetch another version)
+      - run: npm run e2e:install-browser
+      - run: npm run test:e2e
         env:
           PYTHON: python
       - uses: actions/upload-artifact@v4
