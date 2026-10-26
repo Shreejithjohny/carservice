@@ -46,3 +46,14 @@ html:lang(hi) *,
 html:lang(kn) * {
   letter-spacing: normal !important;
 }
+
+/* App-style map markers (MapLibre) */
+.map-driver {
+  display: grid; width: 34px; height: 34px; place-items: center; border-radius: 999px;
+  background: #1da56a; border: 3px solid #fff; box-shadow: 0 4px 12px rgb(21 25 35 / .35);
+}
+.map-center-pin { transition: transform .15s ease; }
+.map-center-pin.lifted { transform: translateY(-10px); }
+.maplibregl-ctrl-attrib { font-size: 10px; }
+/* Inline SVG leaves a baseline gap under the pin; block display puts the tip exactly on the point */
+.map-center-pin svg, .maplibregl-marker svg { display: block; }

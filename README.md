@@ -157,7 +157,8 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | `no such table` or `no such column` errors | Run `npm run migrate:django` |
 | The login page has no demo buttons | `OTP_BYPASS=True` is missing from `backend/.env` |
 | Number plate scanning fails | Run `npm install --prefix client` again, then restart `npm run dev` (it copies the OCR files into `client/public/ocr/`) |
-| Address search on the Book page says it is unavailable | The free OpenStreetMap search needs internet (on the backend). Tap the map, use "Use my location", or pick a preset area instead |
+| Address search on the Book page says it is unavailable | The free OpenStreetMap search needs internet (on the backend). Move the map under the pin, use "Use my location", or pick a preset area instead |
+| The map area is blank or says it could not load | The map style and tiles come from `tiles.openfreemap.org`; check the internet connection (or a college firewall blocking it). If it says WebGL is off, turn on hardware acceleration in the browser settings |
 
 ### Demo accounts
 
@@ -229,13 +230,15 @@ Customers pay invoices from the Invoices page with UPI or card. Only a **mock ga
 
 ## Pickup location (Book page)
 
-Customers pick their pickup point on a free **OpenStreetMap** map: tap the map, drag the pin, search for a place, use the phone's location, or tap a preset area. No API key is needed. Address search and "pin → address" lookups go through the backend (`/api/location/search/`, `/api/location/reverse/`), which follows OpenStreetMap's Nominatim usage policy: at most one request per second, an identifying User-Agent, and results cached for a day. The free search is less precise than Google for small lanes, so the address box stays editable for flat and house numbers. The distance shown is a straight-line estimate.
+Maps use **MapLibre GL** (open-source vector maps, the same kind of map engine delivery apps use) with the free **OpenFreeMap** "Liberty" style: no API key, no sign-up, no usage limit. Map data © OpenStreetMap contributors. To use a different style, set `VITE_MAP_STYLE_URL` in `client/.env`.
+
+Customers pick their pickup point like in Swiggy or Zomato: the pin stays in the middle and they move the map under it; when the map stops, the address under the pin is looked up. They can also search for a place, use the phone's location, or tap a preset area. Address search and "pin → address" lookups go through the backend (`/api/location/search/`, `/api/location/reverse/`), which follows OpenStreetMap's Nominatim usage policy: at most one request per second, an identifying User-Agent, and results cached for a day. The free search is less precise than Google for small lanes, so the address box stays editable for flat and house numbers. The distance shown is a straight-line estimate.
 
 Optional: with `VITE_GOOGLE_MAPS_API_KEY` set in `client/.env` (Google Cloud billing account, Maps JavaScript + Places APIs), the Book page uses Google Maps instead.
 
 ## Live tracking
 
-The driver dashboard posts the phone's GPS position every 10 seconds while "Enable GPS" is on. The customer's Track page shows the pickup point, service center and the driver's recent route on an OpenStreetMap map (Leaflet), refreshing every 10 seconds. The public OpenStreetMap tile servers are fine for development and light use; for production traffic, switch the tile URL in `client/src/components/LiveTrackingMap.tsx` to a tile provider.
+The driver dashboard posts the phone's GPS position every 10 seconds while "Enable GPS" is on. The customer's Track page shows the pickup pin, the service center, the driver as an arrow pointing the way they are driving, the route driven so far, and a dashed line to where the driver is heading (the customer, or the workshop after pickup). It refreshes every 10 seconds. The map code is loaded only on pages that show a map, so other pages stay fast.
 
 ## About the cost estimator
 
