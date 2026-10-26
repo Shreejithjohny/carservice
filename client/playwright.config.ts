@@ -42,7 +42,9 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: `npx vite --port ${WEB_PORT} --strictPort`,
+      // Listen on 127.0.0.1 explicitly: on machines where "localhost" means IPv6 (::1), such as
+      // GitHub's Ubuntu runners, Vite would otherwise not answer at the address checked below
+      command: `npx vite --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       url: `http://127.0.0.1:${WEB_PORT}`,
       env: { VITE_API_PROXY: `http://127.0.0.1:${API_PORT}`, VITE_GOOGLE_MAPS_API_KEY: "" },
       timeout: 120_000,
