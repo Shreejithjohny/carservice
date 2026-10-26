@@ -2235,3 +2235,95 @@ class GeocodingTests(TestCase):
     def test_requires_sign_in(self):
         self.client.force_authenticate(user=None)
         self.assertEqual(self.client.get("/api/location/search/?q=Whitefield").status_code, 401)
+
+
+class AutoAssignmentTests(TestCase):
+    """Driver = nearest free driver, with a 3 km penalty per pickup already that day; mechanic = fewest open jobs."""
+
+    def setUp(self):
+        from datetime import date
+        from api.models import Employee
+
+        self.client = APIClient()
+        self.day = date.today() + timedelta(days=2)
+        # Workshop in Indiranagar; customer in Whitefield (about 12 km east)
+        self.center = ServiceCenter.objects.create(
+            name="AA Hub", address="Indiranagar", phone="+918000000020", email="aa@example.com", latitude=12.9784, longitude=77.6408
+        )
+        self.other_center = ServiceCenter.objects.create(name="AA Far", address="Yelahanka", phone="+918000000021", email="aa2@example.com")
+        self.manager = User.objects.create_user(username="aa_m", email="aa_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        self.customer = User.objects.create_user(username="aa_c", email="aa_c@example.com", role=UserRole.CUSTOMER)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Tiago", registration_number="KA09AA01")
+
+        def staff(name, role, center, employee_type, available=True):
+            user = User.objects.create_user(username=name, email=f"{name}@example.com", role=role, first_name=name)
+            Employee.objects.create(user=user, service_center=center, employee_type=employee_type, is_available=available)
+            return user
+
+        self.near = staff("near", UserRole.DRIVER, self.center, "VALET")
+        self.far = staff("far", UserRole.DRIVER, self.center, "VALET")
+        self.off = staff("off", UserRole.DRIVER, self.center, "VALET", available=False)
+        self.elsewhere = staff("elsewhere", UserRole.DRIVER, self.other_center, "VALET")
+        self.mech_busy = staff("mbusy", UserRole.MECHANIC, self.center, "MECHANIC")
+        self.mech_free = staff("mfree", UserRole.MECHANIC, self.center, "MECHANIC")
+
+        from api.models import DriverLocation
+
+        self.booking = self.make_booking()
+        # near: 1 km from the customer; far: back at the workshop (about 12 km)
+        DriverLocation.objects.create(driver=self.near, booking=self.booking, latitude=12.9698, longitude=77.7400)
+        DriverLocation.objects.create(driver=self.far, booking=self.booking, latitude=12.9784, longitude=77.6408)
+
+    def make_booking(self, slot="09:00:00", **extra):
+        return ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.vehicle, service_center=self.center, pickup_address="Whitefield",
+            pickup_latitude=12.9698, pickup_longitude=77.7499, preferred_date=self.day, preferred_time=slot,
+            status=BookingStatus.PENDING, **extra,
+        )
+
+    def confirm(self, booking):
+        self.client.force_authenticate(user=self.manager)
+        return self.client.patch(f"/api/service-center/bookings/{booking.id}/", {"status": "Confirmed"}, format="json")
+
+    def test_confirm_picks_the_nearest_free_driver_and_least_busy_mechanic(self):
+        self.make_booking(slot="14:00:00", assigned_mechanic=self.mech_busy)  # mbusy has an open job
+        res = self.confirm(self.booking)
+        self.assertEqual(res.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.assigned_driver, self.near)
+        self.assertEqual(self.booking.assigned_mechanic, self.mech_free)
+        self.assertEqual(res.data["auto_assigned"]["driver"]["name"], "near")
+        self.assertTrue(Notification.objects.filter(user=self.near, notification_type="PICKUP_SCHEDULED").exists())
+
+    def test_busy_slot_and_unavailable_drivers_are_skipped(self):
+        self.make_booking(slot="09:00:00", assigned_driver=self.near)  # near already has a 9 AM pickup
+        self.confirm(self.booking)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.assigned_driver, self.far)
+        ranked = {r["name"]: r for r in self.client.get(f"/api/service-center/bookings/{self.booking.id}/staff-suggestions/").data["drivers"]}
+        self.assertFalse(ranked["near"]["eligible"])
+        self.assertIn("time slot", ranked["near"]["reason"])
+        self.assertFalse(ranked["off"]["eligible"])
+        self.assertNotIn("elsewhere", ranked)  # another center's driver is never offered
+
+    def test_workload_penalty_beats_a_small_distance_advantage(self):
+        # near (1 km) already has 4 pickups that day: 1 + 4 x 3 = 13 > far (~11.8 km, 0 pickups)
+        for slot in ["11:00:00", "14:00:00", "16:00:00", "17:00:00"]:
+            self.make_booking(slot=slot, assigned_driver=self.near)
+        self.confirm(self.booking)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.assigned_driver, self.far)
+
+    def test_managers_choice_is_kept(self):
+        self.client.force_authenticate(user=self.manager)
+        res = self.client.patch(
+            f"/api/service-center/bookings/{self.booking.id}/", {"status": "Confirmed", "assigned_driver_id": self.far.id}, format="json"
+        )
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.assigned_driver, self.far)
+        self.assertNotIn("driver", res.data["auto_assigned"])
+
+    def test_suggestions_are_manager_only(self):
+        self.client.force_authenticate(user=self.customer)
+        self.assertEqual(self.client.get(f"/api/service-center/bookings/{self.booking.id}/staff-suggestions/").status_code, 403)

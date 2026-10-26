@@ -4,6 +4,7 @@ import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
 import { Skeleton, Empty } from "../components/States";
 import { Building2 } from "lucide-react";
+import { StaffSuggestions } from "../components/StaffSuggestions";
 import type { Booking, User } from "../types";
 
 const STATUS_TABS = [
@@ -49,12 +50,17 @@ export function ServiceCenterDashboard() {
       if (driverId) payload.assigned_driver_id = driverId;
       if (mechanicId) payload.assigned_mechanic_id = mechanicId;
 
-      await api(`/api/service-center/bookings/${booking.id || booking._id || booking.booking_reference}/`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+      const res = await api<{ auto_assigned?: { driver?: { name: string; reason: string }; mechanic?: { name: string } } }>(
+        `/api/service-center/bookings/${booking.id || booking._id || booking.booking_reference}/`,
+        { method: "PATCH", body: JSON.stringify(payload) }
+      );
 
-      push({ title: "Booking updated successfully" });
+      const auto = res.auto_assigned ?? {};
+      const picked = [
+        auto.driver && `driver ${auto.driver.name} (${auto.driver.reason})`,
+        auto.mechanic && `mechanic ${auto.mechanic.name}`,
+      ].filter(Boolean);
+      push({ title: picked.length ? `Confirmed. Auto-assigned ${picked.join(" and ")}. Change it under Assign Staff if needed.` : "Booking updated successfully" });
       setSelectedBooking(null);
       setDriverId("");
       setMechanicId("");
@@ -253,6 +259,7 @@ export function ServiceCenterDashboard() {
                 {isSelected && (
                   <div className="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-3 mt-3">
                     <h4 className="text-xs font-bold uppercase text-zinc-500">Assign Driver & Mechanic</h4>
+                    <StaffSuggestions bookingId={bId} onPickDriver={setDriverId} onPickMechanic={setMechanicId} />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <label className="block text-xs font-semibold">
                         Assign Valet / Driver

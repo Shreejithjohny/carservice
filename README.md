@@ -186,6 +186,7 @@ With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo �
 | Condition photos & odometer | Driver at pickup and delivery; customer's Track page | Before/after per side, and km driven while the center had the car. |
 | Number plate check | Driver at pickup | OCR runs in the browser (tesseract.js); the backend matches it against the registration. Works on clear photos; glare, dirt and steep angles reduce accuracy. |
 | Service reminders | Customer home page; `python manage.py send_service_reminders` | Due 6 months or 10,000 km after the last service. Run the command once a day (cron / Windows Task Scheduler). |
+| Automatic staff assignment | Manager clicks **Confirm**; **Assign Staff** shows the ranked list | Driver = lowest *distance to the customer (km) + 3 km × pickups already that day*, among available drivers of that center who are free in the booking's time slot. Position = latest GPS if under 2 hours old, else the driver's service center. Mechanic = fewest open jobs. The manager can always pick someone else. Code: `backend/api/dispatch_service.py` |
 | Ratings & reviews | Customer: Track or History after completion | Centers show the real average or "new, no reviews yet". |
 | PDF invoice + QR | Invoices → *Download PDF*; QR opens `/verify/<code>` | Code is signed with `SECRET_KEY`. Titled INVOICE, not TAX INVOICE: the app stores no GSTIN. |
 | Analytics | Manager and admin → Analytics | Revenue, bookings, turnaround, top repairs, approval rate, ratings. |

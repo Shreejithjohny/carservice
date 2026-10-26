@@ -74,6 +74,7 @@ from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
+from .dispatch_service import best_driver, best_mechanic, rank_drivers, rank_mechanics
 from .geocoding_service import GeocodingError, reverse_geocode, search_address
 from .plate_service import LIKELY, MATCH, check_plate
 from .reminder_service import service_due
@@ -1306,6 +1307,40 @@ def service_center_bookings_list(request):
     return Response(serializer.data)
 
 
+def assign_driver(booking, driver):
+    booking.assigned_driver = driver
+    send_notification(
+        user=booking.customer,
+        booking=booking,
+        notification_type=NotificationType.DRIVER_ASSIGNED,
+        title="Valet Assigned for Doorstep Pickup",
+        message=f"Valet {driver.get_full_name() or driver.username} has been assigned to pick up your vehicle.",
+    )
+    send_notification(
+        user=driver,
+        booking=booking,
+        notification_type=NotificationType.PICKUP_SCHEDULED,
+        title="New Doorstep Pickup Assigned",
+        message=f"You have been assigned to pick up vehicle {booking.vehicle.registration_number} at {booking.pickup_address}.",
+    )
+
+
+def auto_assign_staff(booking):
+    """Fills in a driver and a mechanic if none were chosen; returns what was picked and why."""
+    picked = {}
+    if not booking.assigned_driver_id:
+        driver, row = best_driver(booking)
+        if driver:
+            assign_driver(booking, driver)
+            picked["driver"] = row
+    if not booking.assigned_mechanic_id:
+        mechanic, row = best_mechanic(booking)
+        if mechanic:
+            booking.assigned_mechanic = mechanic
+            picked["mechanic"] = row
+    return picked
+
+
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
 def service_center_booking_update(request, pk):
@@ -1364,21 +1399,7 @@ def service_center_booking_update(request, pk):
             return Response({"error": "Invalid driver selection."}, status=status.HTTP_400_BAD_REQUEST)
         if not works_at_this_center(driver):
             return Response({"error": "That driver does not work at this service center."}, status=status.HTTP_400_BAD_REQUEST)
-        booking.assigned_driver = driver
-        send_notification(
-            user=booking.customer,
-            booking=booking,
-            notification_type=NotificationType.DRIVER_ASSIGNED,
-            title="Valet Assigned for Doorstep Pickup",
-            message=f"Valet {driver.get_full_name() or driver.username} has been assigned to pick up your vehicle.",
-        )
-        send_notification(
-            user=driver,
-            booking=booking,
-            notification_type=NotificationType.PICKUP_SCHEDULED,
-            title="New Doorstep Pickup Assigned",
-            message=f"You have been assigned to pick up vehicle {booking.vehicle.registration_number} at {booking.pickup_address}.",
-        )
+        assign_driver(booking, driver)
 
     if assigned_mechanic_id:
         mechanic = User.objects.filter(pk=assigned_mechanic_id).first()
@@ -1388,8 +1409,29 @@ def service_center_booking_update(request, pk):
             return Response({"error": "That mechanic does not work at this service center."}, status=status.HTTP_400_BAD_REQUEST)
         booking.assigned_mechanic = mechanic
 
+    # Confirming a booking fills in any staff the manager did not pick (they can still change it)
+    auto_assigned = auto_assign_staff(booking) if new_status == BookingStatus.CONFIRMED else {}
+
     booking.save()
-    return Response(ServiceBookingSerializer(booking).data)
+    data = dict(ServiceBookingSerializer(booking).data)
+    data["auto_assigned"] = auto_assigned
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def service_center_staff_suggestions(request, pk):
+    """
+    GET /api/service-center/bookings/<id>/staff-suggestions/
+    Drivers ranked by distance and that day's workload, and mechanics by open jobs, with reasons.
+    """
+    booking = find_booking(pk)
+    if not booking:
+        return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+    error = manager_scope_error(request.user, booking)
+    if error:
+        return error
+    return Response({"drivers": rank_drivers(booking), "mechanics": rank_mechanics(booking)})
 
 
 @api_view(["GET"])
