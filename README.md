@@ -118,8 +118,34 @@ npm run dev --prefix client
 ```
 
 ### Tests and checks
+There are three kinds of automated tests. GitHub runs all of them on every pull request and on every push to `main` (the "CI" check, `.github/workflows/ci.yml`).
+
+| Tests | What they cover | Command |
+|---|---|---|
+| Backend (Django) | API rules: bookings, slots, OTPs, passwords, payments, invoices, auto-assignment, ... | `python backend/manage.py test api` (should end with "OK") |
+| Frontend unit (Vitest) | Small helpers: distances, travel time, map arrow direction, sign-in routes | `npm test --prefix client` |
+| Browser (Playwright) | The real app in Chrome: sign in with password, book a pickup on the map, the manager confirms and a driver is auto-assigned, the customer tracks it | `npm run test:e2e --prefix client` |
+
+The browser tests start their own backend and frontend (ports 8001 and 5174) with a fresh, seeded database in `client/e2e/.data/`. Your own database and running dev servers are not touched. The first time, download the test browser with:
 ```bash
-python backend/manage.py test api     # all backend tests (should end with "OK")
+cd client
+npm run e2e:install-browser
+cd ..
+```
+
+CI installs Python packages from `backend/requirements-ci.txt` (exact versions with checked hashes). After changing `backend/requirements*.txt`, regenerate it with the command at the top of that file.
+
+Backend coverage report (which lines the tests run):
+```bash
+pip install -r backend/requirements-dev.txt
+cd backend
+coverage run manage.py test api
+coverage report
+cd ..
+```
+
+Other checks:
+```bash
 python backend/manage.py check        # Django configuration check
 npm run build                         # type-checks and builds the frontend
 ```
@@ -248,6 +274,7 @@ Until a learned model is trained (see above), the repair cost estimator is **rul
 
 ```
 backend/            Django project (config/) and the api app: models, views, services, tests
-client/             React frontend
+client/             React frontend (unit tests next to the code as *.test.ts; browser tests in client/e2e/)
+.github/workflows/  CI: runs all the tests on every pull request
 research_paper/     Benchmark script used for the accompanying paper
 ```

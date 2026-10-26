@@ -131,7 +131,7 @@ export function ServiceCenterDashboard() {
             const isSelected = selectedBooking?.id === b.id;
 
             return (
-              <div key={bId} className="glass rounded-3xl p-5 space-y-4">
+              <article key={bId} aria-label={`Booking ${b.booking_reference || b.booking_id}`} className="glass rounded-3xl p-5 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
                   <div>
                     <span className="text-xs font-mono font-bold text-brand-fg bg-brand/10 px-2.5 py-0.5 rounded-full">
@@ -303,7 +303,7 @@ export function ServiceCenterDashboard() {
                     </button>
                   </div>
                 )}
-              </div>
+              </article>
             );
           })}
         </div>

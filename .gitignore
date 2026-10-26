@@ -43,3 +43,11 @@ Thumbs.db
 
 # OCR engine files copied from node_modules at build time
 client/public/ocr/
+
+# Browser test output and throwaway database
+client/e2e/.data/
+client/test-results/
+client/playwright-report/
+backend/.coverage
+backend/coverage.xml
+backend/htmlcov/

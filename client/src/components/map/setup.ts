@@ -31,11 +31,3 @@ export const PIN_SVG = `<svg width="36" height="46" viewBox="0 0 36 46" aria-hid
 // Navigation arrow for the driver; rotated to the direction of travel
 export const DRIVER_SVG = `<div class="map-driver"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
   <path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff"/></svg></div>`;
-
-/** Compass bearing in degrees from one point to the next (0 = north). */
-export function bearing([lng1, lat1]: LngLat, [lng2, lat2]: LngLat): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
-  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}

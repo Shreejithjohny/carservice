@@ -22,3 +22,11 @@ export const BENGALURU_PRESETS = [
   { name: "Whitefield Main Road", lat: 12.9698, lng: 77.7499 },
   { name: "MG Road Metro Station", lat: 12.9756, lng: 77.6066 },
 ];
+
+/** Compass bearing in degrees from one [lng, lat] point to the next (0 = north, 90 = east). */
+export function bearing([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}

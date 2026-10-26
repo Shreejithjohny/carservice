@@ -1,0 +1,12 @@
+[run]
+source = api, config
+omit =
+    */migrations/*
+    api/tests.py
+    api/management/commands/seed_*.py
+    config/asgi.py
+    config/wsgi.py
+
+[report]
+show_missing = False
+skip_covered = True

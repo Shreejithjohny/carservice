@@ -8,9 +8,9 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 
-# Load environment variables from .env file. Tests skip it so they behave the same on every
-# machine and never use real SMS/email credentials from a developer's .env.
-if not TESTING:
+# Load environment variables from .env file. Tests (and the browser tests, via IGNORE_DOTENV) skip it
+# so they behave the same on every machine and never use real SMS/email credentials from a developer's .env.
+if not TESTING and not os.getenv("IGNORE_DOTENV"):
     dotenv.load_dotenv(BASE_DIR / ".env")
 
 # Production-safe defaults: DEBUG is off unless explicitly enabled (backend/.env.example turns it on for local dev).
@@ -99,7 +99,8 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            # SQLITE_PATH lets the browser tests use their own throwaway database
+            "NAME": os.getenv("SQLITE_PATH") or BASE_DIR / "db.sqlite3",
         }
     }
 
