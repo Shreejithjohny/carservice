@@ -72,7 +72,9 @@ jobs:
 
   e2e:
     name: Browser tests (Playwright)
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.56 can only install its browser on Ubuntu releases it knows (up to 24.04).
+    # Move this to a newer image together with a Playwright upgrade.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
