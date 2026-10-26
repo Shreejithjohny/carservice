@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, type GeoJSONSource } from "maplibre-gl";
 import { Crosshair, MapPin, Navigation2 } from "lucide-react";
 import { BRAND } from "../../utils/theme";
-import { DRIVER_SVG, MAP_STYLE_URL, PIN_SVG, bearing, markerElement, type LngLat } from "./setup";
+import { bearing } from "../../utils/geo";
+import { DRIVER_SVG, MAP_STYLE_URL, PIN_SVG, markerElement, type LngLat } from "./setup";
 
 export type RoutePoint = { latitude: number; longitude: number; timestamp: string };
 type LatLng = [number, number];

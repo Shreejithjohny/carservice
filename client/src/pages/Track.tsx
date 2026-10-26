@@ -133,10 +133,11 @@ export function Track() {
       {/* Booking Selector Dropdown if multiple */}
       {data && data.length > 1 && (
         <div className="flex items-center justify-between gap-3">
-          <label className="text-xs font-semibold text-zinc-500">
+          <label htmlFor="track-booking" className="text-xs font-semibold text-zinc-500">
             {t("track.select")}
           </label>
           <select
+            id="track-booking"
             className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 font-semibold"
             value={String(bookingId)}
             onChange={(e) => setSelectedId(e.target.value)}
