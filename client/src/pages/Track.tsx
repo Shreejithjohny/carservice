@@ -103,6 +103,11 @@ export function Track() {
 
   const isOnTheWay = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"].includes(currentStatus);
 
+  // Where the driver is going now, for the dashed line on the map
+  let driverHeading: "pickup" | "hub" | null = null;
+  if (isOnTheWay) driverHeading = "pickup";
+  else if (currentStatus === "Vehicle Picked Up") driverHeading = "hub";
+
   async function handleCancelBooking() {
     if (!isCancellable) return;
     if (!window.confirm(t("track.cancelConfirm"))) return;
@@ -172,6 +177,7 @@ export function Track() {
               hub={hubPoint}
               hubName={centerName}
               route={(trackingData?.driver_route as RoutePoint[] | undefined) ?? []}
+              heading={driverHeading}
             />
           </div>
 
