@@ -2230,11 +2230,67 @@ class GeocodingTests(TestCase):
         with mock.patch("api.geocoding_service.urllib.request.urlopen", side_effect=OSError("no network")):
             res = self.client.get("/api/location/search/?q=Whitefield")
         self.assertEqual(res.status_code, 502)
-        self.assertIn("Tap the map", res.data["error"])
+        self.assertIn("Move the map", res.data["error"])
 
     def test_requires_sign_in(self):
         self.client.force_authenticate(user=None)
         self.assertEqual(self.client.get("/api/location/search/?q=Whitefield").status_code, 401)
+
+
+class RoutingTests(TestCase):
+    """Road routes for the Track page come from OSRM through the backend, cached."""
+
+    OSRM_REPLY = {
+        "code": "Ok",
+        "routes": [{
+            "distance": 3412.7,
+            "duration": 655.0,
+            "geometry": {"type": "LineString", "coordinates": [[77.6408, 12.9784], [77.6412, 12.9750], [77.6245, 12.9352]]},
+        }],
+    }
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.client = APIClient()
+        self.client.force_authenticate(user=User.objects.create_user(username="route_c", email="route_c@example.com"))
+
+    fake_urlopen = GeocodingTests.fake_urlopen
+
+    def test_route_follows_roads_and_is_cached(self):
+        from unittest import mock
+
+        calls = []
+        with mock.patch("api.routing_service.urllib.request.urlopen", self.fake_urlopen(self.OSRM_REPLY, calls)):
+            res = self.client.get("/api/location/route/?from=12.97841,77.64081&to=12.9352,77.6245")
+            # GPS jitter of a few metres reuses the cached route
+            again = self.client.get("/api/location/route/?from=12.97843,77.64079&to=12.9352,77.6245")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["coordinates"][0], [77.6408, 12.9784])
+        self.assertEqual(len(res.data["coordinates"]), 3)
+        self.assertEqual(res.data["distance_km"], 3.4)
+        self.assertEqual(res.data["duration_min"], 11)
+        self.assertEqual(again.data, res.data)
+        self.assertEqual(len(calls), 1)
+        # OSRM takes lng,lat pairs
+        self.assertIn("/route/v1/driving/77.6408,12.9784;77.6245,12.9352?", calls[0])
+
+    def test_validation(self):
+        for query in ("", "from=12.9,77.6", "from=abc&to=12.9,77.6", "from=95,77.6&to=12.9,77.6", "from=12.9&to=12.9,77.6"):
+            self.assertEqual(self.client.get(f"/api/location/route/?{query}").status_code, 400, query)
+
+    def test_no_route_or_service_down_gives_502(self):
+        from unittest import mock
+
+        with mock.patch("api.routing_service.urllib.request.urlopen", self.fake_urlopen({"code": "NoRoute", "routes": []}, [])):
+            self.assertEqual(self.client.get("/api/location/route/?from=12.97,77.64&to=12.93,77.62").status_code, 502)
+        with mock.patch("api.routing_service.urllib.request.urlopen", side_effect=OSError("no network")):
+            self.assertEqual(self.client.get("/api/location/route/?from=12.98,77.64&to=12.93,77.62").status_code, 502)
+
+    def test_requires_sign_in(self):
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get("/api/location/route/?from=12.97,77.64&to=12.93,77.62").status_code, 401)
 
 
 class AutoAssignmentTests(TestCase):

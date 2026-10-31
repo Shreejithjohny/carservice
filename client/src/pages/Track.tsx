@@ -103,9 +103,10 @@ export function Track() {
 
   const isOnTheWay = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"].includes(currentStatus);
 
-  // Where the driver is going now, for the dashed line on the map
+  // Where the driver is going now: the map draws the route there and shows the ETA. A confirmed
+  // booking with a driver already assigned means the driver is on the way to pick the car up.
   let driverHeading: "pickup" | "hub" | null = null;
-  if (isOnTheWay) driverHeading = "pickup";
+  if (isOnTheWay || (currentStatus === "Confirmed" && driver)) driverHeading = "pickup";
   else if (currentStatus === "Vehicle Picked Up") driverHeading = "hub";
 
   async function handleCancelBooking() {
