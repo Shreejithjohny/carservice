@@ -30,3 +30,52 @@ export function bearing([lng1, lat1]: [number, number], [lng2, lat2]: [number, n
   const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1));
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
+
+type LngLatPair = [number, number];
+
+/** Distance in metres between two [lng, lat] points (not rounded). */
+export function metersBetween([lng1, lat1]: LngLatPair, [lng2, lat2]: LngLatPair): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const a = Math.sin(toRad(lat2 - lat1) / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(toRad(lng2 - lng1) / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Length of a path of [lng, lat] points, in km. */
+export function pathKm(path: LngLatPair[]): number {
+  let m = 0;
+  for (let i = 1; i < path.length; i++) m += metersBetween(path[i - 1], path[i]);
+  return m / 1000;
+}
+
+/**
+ * The part of a road route still ahead of the driver, as delivery apps draw it: from the driver's
+ * position along the route to its end. `offRouteMeters` is how far the driver is from the route,
+ * so the caller can fetch a new route when the driver has turned off it.
+ */
+export function remainingRoute(route: LngLatPair[], position: LngLatPair): { path: LngLatPair[]; offRouteMeters: number } {
+  if (!route.length) return { path: [], offRouteMeters: Infinity };
+  if (route.length === 1) return { path: [position], offRouteMeters: metersBetween(route[0], position) };
+  // Nearest segment, measured on a flat projection (accurate at city scale): long straight roads
+  // have points far apart, so the distance to the nearest point alone would be misleading
+  const kx = Math.cos((position[1] * Math.PI) / 180);
+  let nearest = 0;
+  let best = Infinity;
+  for (let i = 0; i < route.length - 1; i++) {
+    const [ax, ay] = [route[i][0] * kx, route[i][1]];
+    const [bx, by] = [route[i + 1][0] * kx, route[i + 1][1]];
+    const [px, py] = [position[0] * kx, position[1]];
+    const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+    const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / len2)) : 0;
+    const d = metersBetween(lerpPoint(route[i], route[i + 1], t), position);
+    if (d < best) {
+      best = d;
+      nearest = i;
+    }
+  }
+  return { path: [position, ...route.slice(nearest + 1)], offRouteMeters: best };
+}
+
+/** A point part-way between two points (t from 0 to 1), for smooth marker movement. */
+export function lerpPoint([lng1, lat1]: LngLatPair, [lng2, lat2]: LngLatPair, t: number): LngLatPair {
+  return [lng1 + (lng2 - lng1) * t, lat1 + (lat2 - lat1) * t];
+}

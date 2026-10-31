@@ -4,7 +4,7 @@ import { Clock, Crosshair, LoaderCircle, MapPin, Route, Search } from "lucide-re
 import { api, ApiError } from "../../services/api";
 import { BENGALURU_PRESETS, drivingMinutes, haversineKm } from "../../utils/geo";
 import type { ServiceCenter } from "../../types";
-import { MAP_STYLE_URL, PIN_SVG, markerElement, type LngLat } from "./setup";
+import { GPS_DOT_HTML, HUB_PIN_SMALL_SVG, HUB_PIN_SVG, MAP_STYLE_URL, PIN_SVG, markerElement, type LngLat } from "./setup";
 
 const DEFAULT: LngLat = [77.5946, 12.9716]; // Bengaluru centre (MapLibre uses [lng, lat])
 
@@ -26,6 +26,7 @@ type Props = Readonly<{
 export default function MapLocationPicker({ address, latitude, longitude, selectedCenter, serviceCenters, onChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const gpsDot = useRef<Marker | null>(null);
   // The latest props for map event handlers, which are attached once
   const latest = useRef({ address, onChange });
   latest.current = { address, onChange };
@@ -67,7 +68,7 @@ export default function MapLocationPicker({ address, latitude, longitude, select
         container: containerRef.current,
         style: MAP_STYLE_URL,
         center: point,
-        zoom: 15.5,
+        zoom: 16,
         attributionControl: false,
         cooperativeGestures: false,
       });
@@ -95,6 +96,7 @@ export default function MapLocationPicker({ address, latitude, longitude, select
     return () => {
       map.remove();
       mapRef.current = null;
+      gpsDot.current = null;
     };
     // Created once; later position changes are applied below with flyTo
   }, []);
@@ -107,9 +109,9 @@ export default function MapLocationPicker({ address, latitude, longitude, select
       .filter((c) => c.latitude != null && c.longitude != null)
       .map((c) => {
         const selected = c.id === selectedCenter?.id;
-        const el = markerElement("H", `map-pin map-pin-hub${selected ? "" : " map-pin-sm"}`);
+        const el = markerElement(selected ? HUB_PIN_SVG : HUB_PIN_SMALL_SVG, selected ? "" : "opacity-80");
         el.title = c.name;
-        return new Marker({ element: el }).setLngLat([c.longitude!, c.latitude!]).addTo(map);
+        return new Marker({ element: el, anchor: "bottom" }).setLngLat([c.longitude!, c.latitude!]).addTo(map);
       });
     return () => markers.forEach((m) => m.remove());
   }, [serviceCenters, selectedCenter]);
@@ -119,7 +121,7 @@ export default function MapLocationPicker({ address, latitude, longitude, select
     onChange(place);
     skipNextLookup.current = !lookUp;
     const map = mapRef.current;
-    if (map) map.flyTo({ center: [place.longitude, place.latitude], zoom: Math.max(map.getZoom(), 15.5), duration: 900 });
+    if (map) map.flyTo({ center: [place.longitude, place.latitude], zoom: Math.max(map.getZoom(), 16), duration: 900 });
     else if (lookUp) void lookUpAddress(place.longitude, place.latitude);
   }
 
@@ -145,6 +147,10 @@ export default function MapLocationPicker({ address, latitude, longitude, select
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setBusy(null);
+        // Blue dot where the phone is, like map apps; the pin can still be moved away from it
+        const at: LngLat = [pos.coords.longitude, pos.coords.latitude];
+        const map = mapRef.current;
+        if (map) gpsDot.current = (gpsDot.current ?? new Marker({ element: markerElement(GPS_DOT_HTML) }).setLngLat(at).addTo(map)).setLngLat(at);
         moveTo({ address: latest.current.address, latitude: pos.coords.latitude, longitude: pos.coords.longitude }, true);
       },
       () => {
@@ -214,13 +220,13 @@ export default function MapLocationPicker({ address, latitude, longitude, select
       {/* Map with a fixed centre pin */}
       <div className="relative overflow-hidden rounded-3xl border border-zinc-200 shadow-sm dark:border-zinc-700">
         {mapFailed ? (
-          <div className="flex h-72 items-center justify-center bg-zinc-100 p-6 text-center text-xs text-zinc-500 dark:bg-zinc-800">
+          <div className="flex h-80 items-center justify-center bg-zinc-100 p-6 text-center text-xs text-zinc-500 dark:bg-zinc-800">
             This browser can't show the map (WebGL is off). Search, use your location or pick a preset area instead.
           </div>
         ) : (
           <div
             ref={containerRef}
-            className="h-72 w-full"
+            className="h-80 w-full"
             aria-label="Map: move it to place the pin on your pickup point"
             // Busy while the map moves or the address under the pin is being looked up
             aria-busy={moving || busy === "address"}
@@ -228,20 +234,28 @@ export default function MapLocationPicker({ address, latitude, longitude, select
         )}
         {!mapFailed && (
           <>
+            {/* "Picked up here" bubble above the pin, as delivery apps show; hidden while the map moves */}
+            <div
+              className={`map-pin-bubble pointer-events-none absolute left-1/2 top-1/2 z-10 ${moving ? "hidden-while-moving" : ""}`}
+              style={{ translate: "-50% calc(-100% - 56px)" }}
+            >
+              <div className="relative rounded-xl bg-zinc-900 px-3 py-1.5 text-center text-white shadow-lg">
+                <p className="whitespace-nowrap text-xs font-bold">Your car will be picked up here</p>
+                <p className="whitespace-nowrap text-[10px] text-zinc-300">Move the map to adjust the pin</p>
+                <span className="absolute -bottom-1 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-zinc-900" />
+              </div>
+            </div>
             <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-full">
               <div className={`map-center-pin drop-shadow-lg ${dragging ? "lifted" : ""}`} dangerouslySetInnerHTML={{ __html: PIN_SVG }} />
             </div>
             <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-1.5 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/30 blur-[1px]" />
-            <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-zinc-900/80 px-3 py-1 text-[11px] font-semibold text-white">
-              Move the map to place the pin
-            </div>
             <button
               type="button"
               onClick={useMyLocation}
               disabled={busy !== null}
-              className="absolute bottom-8 right-3 z-10 flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 shadow-md disabled:opacity-60 dark:bg-zinc-900 dark:text-zinc-200"
+              className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-brand/30 bg-white px-4 py-2 text-xs font-bold text-brand-fg shadow-lg hover:bg-blue-50 disabled:opacity-60 dark:bg-zinc-900 dark:hover:bg-zinc-800"
             >
-              {busy === "gps" ? <LoaderCircle size={14} className="animate-spin" /> : <Crosshair size={14} />} Use my location
+              {busy === "gps" ? <LoaderCircle size={14} className="animate-spin" /> : <Crosshair size={14} />} Use current location
             </button>
           </>
         )}

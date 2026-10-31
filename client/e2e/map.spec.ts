@@ -16,6 +16,7 @@ test.beforeEach(async ({ page }) => {
 const addressBox = (page: import("@playwright/test").Page) => page.getByLabel("Full pickup address (add flat / house number)");
 
 test("dragging the map under the pin looks up the address", async ({ page }) => {
+  await page.locator(".maplibregl-canvas").scrollIntoViewIfNeeded();
   const box = (await page.locator(".maplibregl-canvas").boundingBox())!;
   const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
   await page.mouse.move(x, y);
@@ -39,8 +40,8 @@ test("a search result moves the map and fills the address", async ({ page }) => 
   await expect(addressBox(page)).toHaveValue("Koramangala 5th Block, Bengaluru, Karnataka");
 });
 
-test("'Use my location' moves the pin to the phone's GPS position", async ({ page }) => {
-  await page.getByRole("button", { name: /Use my location/ }).click();
+test("'Use current location' moves the pin to the phone's GPS position", async ({ page }) => {
+  await page.getByRole("button", { name: /Use current location/ }).click();
   await expect(addressBox(page)).toHaveValue("17th Main Road, HSR Layout, Bengaluru");
   // Straight-line distance card is shown for the selected workshop
   await expect(page.getByText(/km/).first()).toBeVisible();

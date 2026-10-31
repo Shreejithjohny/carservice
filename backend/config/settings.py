@@ -170,6 +170,9 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL") or "noreply@smartdoorstep.c
 # Set OTP_BYPASS=true only in local/dev environments when debug bypass codes are intentionally enabled.
 OTP_BYPASS = os.getenv("OTP_BYPASS", "False").lower() in ("true", "1", "t")
 
+# Road routes on the Track page (OSRM). Empty = the free public demo server; set your own for heavy use.
+ROUTING_URL = os.getenv("ROUTING_URL", "").strip()
+
 # When no SMS/email provider is configured, print OTPs to the server console instead of failing.
 # On by default only in DEBUG; in production a missing provider is reported as an error.
 OTP_CONSOLE_FALLBACK = os.getenv("OTP_CONSOLE_FALLBACK", str(DEBUG)).lower() in ("true", "1", "t")

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BENGALURU_PRESETS, bearing, drivingMinutes, haversineKm } from "./geo";
+import { BENGALURU_PRESETS, bearing, drivingMinutes, haversineKm, lerpPoint, metersBetween, pathKm, remainingRoute } from "./geo";
 
 describe("haversineKm", () => {
   it("is zero for the same point", () => {
@@ -62,5 +62,56 @@ describe("BENGALURU_PRESETS", () => {
       expect(p.lng).toBeGreaterThan(77.3);
       expect(p.lng).toBeLessThan(77.9);
     }
+  });
+});
+
+describe("road route helpers", () => {
+  // A route going east along one street, then north: about 111 m per 0.001 degree of latitude
+  const route: [number, number][] = [
+    [77.6, 12.97],
+    [77.601, 12.97],
+    [77.602, 12.97],
+    [77.602, 12.971],
+    [77.602, 12.972],
+  ];
+
+  it("measures metres consistently with haversineKm", () => {
+    expect(metersBetween([77.6, 12], [77.6, 13]) / 1000).toBeCloseTo(haversineKm(12, 77.6, 13, 77.6), 1);
+  });
+
+  it("adds up a path's length", () => {
+    // 2 x 0.001 deg of longitude at 12.97 N (about 108.4 m each) + 2 x 0.001 deg of latitude (111.2 m each)
+    expect(pathKm(route)).toBeCloseTo(0.439, 2);
+    expect(pathKm([[77.6, 12.97]])).toBe(0);
+  });
+
+  it("keeps only the part ahead of the driver, starting at the driver", () => {
+    const driver: [number, number] = [77.6021, 12.9702]; // just past the corner
+    const { path, offRouteMeters } = remainingRoute(route, driver);
+    expect(path[0]).toEqual(driver);
+    expect(path.slice(1)).toEqual([route[3], route[4]]);
+    expect(offRouteMeters).toBeLessThan(30);
+  });
+
+  it("reports how far off the route the driver is", () => {
+    expect(remainingRoute(route, [77.61, 12.98]).offRouteMeters).toBeGreaterThan(1000);
+    expect(remainingRoute([], [77.6, 12.97]).offRouteMeters).toBe(Infinity);
+  });
+
+  it("measures distance to the road, not to its nearest point", () => {
+    // Halfway along a 2 km straight road with points only at its ends, 10 m to the side
+    const road: [number, number][] = [[77.6, 12.97], [77.6185, 12.97]];
+    const { path, offRouteMeters } = remainingRoute(road, [77.60925, 12.97009]);
+    expect(offRouteMeters).toBeGreaterThan(8);
+    expect(offRouteMeters).toBeLessThan(12);
+    expect(path).toEqual([[77.60925, 12.97009], road[1]]);
+  });
+
+  it("interpolates between two points", () => {
+    expect(lerpPoint([77.6, 12.9], [77.8, 13.1], 0)).toEqual([77.6, 12.9]);
+    expect(lerpPoint([77.6, 12.9], [77.8, 13.1], 1)).toEqual([77.8, 13.1]);
+    const mid = lerpPoint([77.6, 12.9], [77.8, 13.1], 0.5);
+    expect(mid[0]).toBeCloseTo(77.7);
+    expect(mid[1]).toBeCloseTo(13.0);
   });
 });

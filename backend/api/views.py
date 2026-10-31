@@ -76,6 +76,7 @@ from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
 from .dispatch_service import best_driver, best_mechanic, rank_drivers, rank_mechanics
 from .geocoding_service import GeocodingError, reverse_geocode, search_address
+from .routing_service import RoutingError, driving_route
 from .plate_service import LIKELY, MATCH, check_plate
 from .reminder_service import service_due
 from .analytics_service import center_analytics
@@ -1250,7 +1251,7 @@ def calculate_distance_view(request):
     return Response(route_info)
 
 
-GEOCODING_DOWN = "Address search is unavailable right now. Tap the map or pick a preset area instead."
+GEOCODING_DOWN = "Address search is unavailable right now. Move the map or pick a preset area instead."
 
 
 @api_view(["GET"])
@@ -1281,6 +1282,28 @@ def location_reverse(request):
         return Response({"address": reverse_geocode(lat, lng)})
     except GeocodingError:
         return Response({"error": GEOCODING_DOWN}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+def _point(value):
+    """'12.97,77.64' -> (12.97, 77.64), or None when it is not a valid point."""
+    try:
+        lat, lng = (float(part) for part in str(value or "").split(","))
+    except ValueError:
+        return None
+    return (lat, lng) if -90 <= lat <= 90 and -180 <= lng <= 180 else None
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def location_route(request):
+    """GET /api/location/route/?from=12.97,77.64&to=12.93,77.62 -> driving route along roads (OSRM)"""
+    start, end = _point(request.query_params.get("from")), _point(request.query_params.get("to"))
+    if not start or not end:
+        return Response({"error": "Valid from and to points (lat,lng) are required."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        return Response(driving_route(*start, *end))
+    except RoutingError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
 
 # ==========================================

@@ -57,3 +57,14 @@ html:lang(kn) * {
 .maplibregl-ctrl-attrib { font-size: 10px; }
 /* Inline SVG leaves a baseline gap under the pin; block display puts the tip exactly on the point */
 .map-center-pin svg, .maplibregl-marker svg { display: block; }
+
+/* Driver car on the tracking map */
+.map-car { filter: drop-shadow(0 3px 6px rgb(15 23 42 / .35)); }
+/* The phone's location: blue dot with a pulsing halo */
+.map-gps-dot { position: relative; display: block; width: 16px; height: 16px; border: 3px solid #fff; border-radius: 999px; background: #2563eb; box-shadow: 0 1px 4px rgb(15 23 42 / .4); }
+.map-gps-dot::after { content: ""; position: absolute; inset: -10px; border-radius: 999px; background: rgb(37 99 235 / .25); animation: map-gps-pulse 2s ease-out infinite; }
+@keyframes map-gps-pulse { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .map-gps-dot::after { animation: none; } }
+/* "Your car will be picked up here" bubble above the centre pin */
+.map-pin-bubble { transition: opacity .15s ease, transform .15s ease; }
+.map-pin-bubble.hidden-while-moving { opacity: 0; transform: translateY(6px); }
