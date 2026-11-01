@@ -5,7 +5,7 @@ const COLORS = ["#2563eb", "#047857", "#7c3aed", "#e11d48", "#b45309", "#0f766e"
 
 export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length > 1 ? words[0][0] + words[words.length - 1][0] : (words[0] ?? "?").slice(0, 2);
+  const letters = words.length > 1 ? words[0][0] + (words.at(-1) ?? "")[0] : (words[0] ?? "?").slice(0, 2);
   return letters.toUpperCase();
 }
 

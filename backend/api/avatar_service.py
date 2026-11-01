@@ -6,7 +6,7 @@ position where the picture was taken.
 """
 import io
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_PIXELS = 40_000_000  # refuse "decompression bomb" images before decoding them fully
@@ -33,7 +33,8 @@ def process_avatar(upload) -> bytes:
         with Image.open(upload) as image:
             image = ImageOps.exif_transpose(image)  # phone photos taken sideways
             square = ImageOps.fit(image.convert("RGB"), (SIZE, SIZE), Image.Resampling.LANCZOS)
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+    # OSError also covers UnidentifiedImageError (not an image) and truncated files
+    except (OSError, Image.DecompressionBombError) as exc:
         raise AvatarError("That file isn't a photo we can read.") from exc
 
     out = io.BytesIO()
