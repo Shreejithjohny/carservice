@@ -41,7 +41,7 @@ const STEP_OF_STATUS: Record<string, number> = {
   Delivered: 9,
 };
 
-const ON_THE_WAY = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"];
+const ON_THE_WAY = new Set(["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"]);
 
 function toPoint(lat: unknown, lng: unknown): [number, number] | null {
   return lat != null && lng != null ? [Number(lat), Number(lng)] : null;
@@ -52,7 +52,7 @@ function toPoint(lat: unknown, lng: unknown): [number, number] | null {
  * booking with a driver already assigned means the driver is on the way to pick the car up.
  */
 function headingFor(status: string, hasDriver: boolean): "pickup" | "hub" | null {
-  if (ON_THE_WAY.includes(status) || (status === "Confirmed" && hasDriver)) return "pickup";
+  if (ON_THE_WAY.has(status) || (status === "Confirmed" && hasDriver)) return "pickup";
   if (status === "Vehicle Picked Up") return "hub";
   return null;
 }
@@ -156,7 +156,7 @@ export function Track() {
   const deliveryOtp: string | null = trackingData?.delivery_otp_code ?? null;
   const pickupPoint = toPoint(booking.pickup_latitude, booking.pickup_longitude);
   const hubPoint = toPoint(booking.service_center_details?.latitude, booking.service_center_details?.longitude);
-  const isOnTheWay = ON_THE_WAY.includes(currentStatus);
+  const isOnTheWay = ON_THE_WAY.has(currentStatus);
   const driverHeading = headingFor(currentStatus, !!driver);
 
   async function handleCancelBooking() {

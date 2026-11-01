@@ -108,13 +108,14 @@ export function SimulateDrive({ booking, onRunningChange }: Readonly<{ booking: 
         </button>
       </div>
       {(state === "driving" || state === "done") && (
-        <div role="status" className="space-y-1">
+        <div className="space-y-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
             <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <p className="text-[11px] text-zinc-500">
+          {/* <output> is announced by screen readers as it changes */}
+          <output className="block text-[11px] text-zinc-500">
             {state === "done" ? `Arrived: drove ${progress.km} km.` : `Driving… position ${progress.step} of ${progress.steps} · ${progress.km} km route`}
-          </p>
+          </output>
         </div>
       )}
       {message && <p className="text-[11px] text-amber-700 dark:text-amber-400">{message}</p>}

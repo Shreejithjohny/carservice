@@ -97,8 +97,8 @@ export function pointsAlong(path: LngLatPair[], stepMeters: number): LngLatPair[
     }
     carried = segment - (at - stepMeters);
   }
-  const end = path[path.length - 1];
-  const last = out[out.length - 1];
-  if (last[0] !== end[0] || last[1] !== end[1]) out.push(end);
+  const end = path.at(-1);
+  const last = out.at(-1);
+  if (end && last && (last[0] !== end[0] || last[1] !== end[1])) out.push(end);
   return out;
 }

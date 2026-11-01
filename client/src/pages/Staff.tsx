@@ -157,7 +157,7 @@ export function Staff() {
           </div>
         </div>
         {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
-        <button disabled={saving} className="rounded-2xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-hover disabled:opacity-50">
+        <button type="submit" disabled={saving} className="rounded-2xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-hover disabled:opacity-50">
           {saving ? "Adding…" : `Add ${ROLE_LABEL[form.role].toLowerCase()}`}
         </button>
       </form>

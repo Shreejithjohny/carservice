@@ -422,10 +422,10 @@ function GpsStatusLine({ status, lastSentAt, screenKeptOn }: Readonly<{ status: 
   const { text, tone } = GPS_MESSAGES[status];
   const color = { muted: "text-zinc-500", ok: "text-emerald-600 dark:text-emerald-400", warn: "text-amber-700 dark:text-amber-400" }[tone];
   return (
-    <span role="status" className={`block text-[11px] ${color}`}>
+    <output className={`block text-[11px] ${color}`}>
       {text}
       {status === "live" && lastSentAt && ` · last sent ${new Date(lastSentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`}
       {status === "live" && (screenKeptOn ? " · screen kept on" : " · keep this page open and the screen on")}
-    </span>
+    </output>
   );
 }
