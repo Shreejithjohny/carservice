@@ -2,6 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { ShieldCheck, ShieldX } from "lucide-react";
 import { useApi } from "../hooks/useApi";
 import { Skeleton } from "../components/States";
+import { Logo } from "../components/Logo";
 
 interface Verification {
   valid: boolean;
@@ -18,22 +19,24 @@ interface Verification {
 export function VerifyInvoice() {
   const { token = "" } = useParams();
   const { data, error, loading } = useApi<Verification>(`/api/invoices/verify/${encodeURIComponent(token)}/`);
+  const valid = !error && data?.valid === true;
 
   return (
     <div className="min-h-dvh bg-canvas px-4 py-12 text-zinc-900 dark:bg-canvas-dark dark:text-zinc-100">
       <div className="glass mx-auto max-w-md rounded-3xl p-8 space-y-5">
-        <p className="text-center text-xl font-extrabold">
-          Door<span className="text-brand-fg">Step</span> invoice check
-        </p>
-        {loading ? (
-          <Skeleton className="h-40" />
-        ) : error || !data?.valid ? (
+        <div className="flex flex-col items-center gap-2 text-center text-xl font-extrabold">
+          <Logo size={40} />
+          <p>Invoice check</p>
+        </div>
+        {loading && <Skeleton className="h-40" />}
+        {!loading && !valid && (
           <div className="space-y-2 text-center">
             <ShieldX size={56} className="mx-auto text-red-500" />
             <h1 className="text-xl font-bold">Not a valid DoorStep invoice</h1>
             <p className="text-sm text-zinc-500">This code does not match any invoice we issued. The document may have been altered.</p>
           </div>
-        ) : (
+        )}
+        {!loading && valid && data && (
           <div className="space-y-4">
             <div className="space-y-2 text-center">
               <ShieldCheck size={56} className="mx-auto text-emerald-500" />

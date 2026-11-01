@@ -229,6 +229,7 @@ With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo �
 | Learned cost estimator | Admin overview → *Repair cost model*; `python manage.py train_cost_model` | Used once 30+ completed, approved repairs exist; otherwise the rule formula. See below. |
 | Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. "Forgot password" sends a 6-digit code by email/SMS. Sign-in with a one-time code still works. |
 | Staff accounts | Admin or manager → **Staff** | Add drivers and mechanics (admins: any center; managers: their own) with a first password (or **Generate**), shown once to share with them. Mark staff on/off duty; automatic assignment skips off-duty staff. Staff change their password from the key icon. |
+| Profile photos | Click your picture (top right) | Upload a photo or remove it; without one, your initials are shown. The server resizes it to a 256×256 JPEG, turns phone photos the right way up and removes location data (EXIF). Stored in the database, so it works on hosts without a disk. |
 | Hindi / Kannada | Language menu (customer screens) | Navigation, home, booking, tracking, reminders, reviews. Staff screens stay in English. Translations need a native speaker's review. |
 
 ### The learned cost estimator, honestly
@@ -295,6 +296,10 @@ Road routes come from **OSRM** (free, no API key) through the backend (`/api/loc
 ## About the cost estimator
 
 Until a learned model is trained (see above), the repair cost estimator is **rule-based**: base service price × severity multiplier × fuel-type adjustment, plus labour at ₹500/hour, shown as a range of 85–125% of that figure. See `backend/api/ai_cost_service.py`. Every estimate reports which method produced it.
+
+## Logo
+
+The logo (a map pin with a front door: service at your doorstep) is drawn in `client/src/components/Logo.tsx`; the same drawing is the browser-tab icon `client/public/favicon.svg` and the phone home-screen icon `client/public/apple-touch-icon.png`. `docs/social-preview.png` is the picture GitHub shows when the repository link is shared: upload it under the repository's **Settings → General → Social preview**.
 
 ## Project layout
 

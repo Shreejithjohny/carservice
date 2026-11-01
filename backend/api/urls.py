@@ -13,6 +13,8 @@ urlpatterns = [
     path("auth/password-reset/request/", views.password_reset_request, name="password_reset_request"),
     path("auth/password-reset/confirm/", views.password_reset_confirm, name="password_reset_confirm"),
     path("auth/change-password/", views.change_password, name="change_password"),
+    path("auth/avatar/", views.my_avatar, name="my_avatar"),
+    path("avatars/<str:token>.jpg", views.avatar_image, name="avatar_image"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", views.me, name="auth_me"),
 

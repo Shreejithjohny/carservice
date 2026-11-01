@@ -34,16 +34,20 @@ from .otp_service import normalize_phone_number
 class UserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     has_password = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "phone", "role", "is_verified", "name", "has_password"]
+        fields = ["id", "username", "email", "phone", "role", "is_verified", "name", "has_password", "avatar_url"]
 
     def get_name(self, obj):
         return obj.get_full_name() or obj.username or obj.email.split("@")[0]
 
     def get_has_password(self, obj):
         return obj.has_password()
+
+    def get_avatar_url(self, obj):
+        return f"/api/avatars/{obj.avatar_token}.jpg" if obj.avatar_token else None
 
 
 class PasswordRegisterSerializer(serializers.Serializer):

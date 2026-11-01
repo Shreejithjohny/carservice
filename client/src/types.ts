@@ -7,7 +7,8 @@ export interface User {
   phone: string;
   email?: string;
   role: Role;
-  avatarUrl?: string;
+  /** Profile photo; without one, initials are shown. */
+  avatar_url?: string | null;
   is_verified?: boolean;
   has_password?: boolean;
 }

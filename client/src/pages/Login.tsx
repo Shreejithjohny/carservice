@@ -7,6 +7,7 @@ import { ApiError } from "../services/api";
 import { PasswordField } from "../components/PasswordField";
 import { homePathForRole } from "../utils/roles";
 import type { Role } from "../types";
+import { Logo } from "../components/Logo";
 
 // One sign-in page, one tab per role; each tab has its own URL (/login/driver ...) staff can bookmark.
 const SIGN_IN_TABS = [
@@ -84,8 +85,8 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
     <div className="min-h-dvh bg-canvas px-4 py-10 text-zinc-900 dark:bg-canvas-dark dark:text-white">
       <div className="mx-auto w-full max-w-md">
         <div className="flex items-center justify-between">
-          <Link to="/" className="text-xl font-extrabold">
-            Door<span className="text-brand-fg">Step</span>
+          <Link to="/" className="text-xl" aria-label="DoorStep home">
+            <Logo size={34} />
           </Link>
           <Link to="/" className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300">
             ← Home
