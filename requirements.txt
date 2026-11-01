@@ -1,0 +1,2 @@
+# Python packages for the Vercel deployment (Vercel reads this file at the repository root).
+-r backend/requirements.txt

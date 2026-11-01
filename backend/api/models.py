@@ -229,7 +229,7 @@ class ServiceCenter(models.Model):
     )
     name = models.CharField(max_length=150)
     address = models.TextField()
-    phone = models.CharField(max_length=15)
+    phone = models.CharField(max_length=20)  # room for spaces, e.g. "+91 80 2525 1111"
     email = models.EmailField()
     latitude = models.FloatField(default=12.9716)
     longitude = models.FloatField(default=77.5946)

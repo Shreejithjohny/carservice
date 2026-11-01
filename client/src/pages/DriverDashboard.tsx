@@ -28,7 +28,7 @@ export function DriverDashboard() {
   // Test code returned by the backend only when OTP_BYPASS (demo mode) is on
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const { demoMode } = useAuth();
+  const { demoTools } = useAuth();
   // Jobs whose GPS is shared: at a stage where the customer tracks the car
   const gpsJobIds = (pickups ?? []).filter((b) => GPS_STAGE.includes(b.status)).map((b) => String(b.id || b._id || b.booking_reference));
   const gps = useGpsSharing(gpsJobIds);
@@ -175,7 +175,7 @@ export function DriverDashboard() {
               lastSentAt={gps.lastSentAt}
               screenKeptOn={gps.screenKeptOn}
               simulating={!!simulating[jobId]}
-              demoMode={demoMode}
+              demoTools={demoTools}
               onToggle={() => toggleGps(jobId)}
               onSimulatingChange={(running) => {
                 setSimulating((prev) => ({ ...prev, [jobId]: running }));
@@ -367,7 +367,7 @@ function GpsPanel({
   lastSentAt,
   screenKeptOn,
   simulating,
-  demoMode,
+  demoTools,
   onToggle,
   onSimulatingChange,
 }: Readonly<{
@@ -377,7 +377,7 @@ function GpsPanel({
   lastSentAt: number | null;
   screenKeptOn: boolean;
   simulating: boolean;
-  demoMode: boolean;
+  demoTools: boolean;
   onToggle: () => void;
   onSimulatingChange: (running: boolean) => void;
 }>) {
@@ -402,7 +402,7 @@ function GpsPanel({
           {sharing ? "Stop sharing" : "Enable GPS"}
         </button>
       </div>
-      {demoMode && <SimulateDrive booking={booking} onRunningChange={onSimulatingChange} />}
+      {demoTools && <SimulateDrive booking={booking} onRunningChange={onSimulatingChange} />}
     </div>
   );
 }

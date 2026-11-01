@@ -77,10 +77,17 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Database Configuration (MySQL with SQLite fallback)
+# Database: DATABASE_URL (e.g. a Neon Postgres URL when hosting on Vercel), else MySQL when
+# USE_MYSQL is on, else a local SQLite file
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 USE_MYSQL = os.getenv("USE_MYSQL", "False").lower() in ("true", "1", "t")
 
-if USE_MYSQL:
+if DATABASE_URL:
+    import dj_database_url
+
+    # Short-lived serverless instances: keep a connection for a minute, check it before reuse
+    DATABASES = {"default": dj_database_url.parse(DATABASE_URL, conn_max_age=60, conn_health_checks=True)}
+elif USE_MYSQL:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.mysql",
@@ -131,6 +138,17 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Hosted on Vercel (it sets VERCEL=1): the site and the API share one *.vercel.app address,
+# behind Vercel's HTTPS proxy, on a read-only filesystem
+if os.getenv("VERCEL"):
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, ".vercel.app"]
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    if not os.getenv("FRONTEND_URL") and os.getenv("VERCEL_PROJECT_PRODUCTION_URL"):
+        FRONTEND_URL = f"https://{os.environ['VERCEL_PROJECT_PRODUCTION_URL']}"
+    # Only /tmp is writable there, and it is wiped between requests: uploaded condition photos and
+    # repair evidence don't last (profile photos are kept in the database and do)
+    MEDIA_ROOT = Path("/tmp/media")
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -169,6 +187,9 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL") or "noreply@smartdoorstep.c
 # OTP Verification Mode: disabled by default for secure production behavior.
 # Set OTP_BYPASS=true only in local/dev environments when debug bypass codes are intentionally enabled.
 OTP_BYPASS = os.getenv("OTP_BYPASS", "False").lower() in ("true", "1", "t")
+# Demo tools (the driver's "Simulate drive") without OTP_BYPASS's password-free sign-in, which must
+# never be on for a public site. Demo mode includes them.
+DEMO_TOOLS = OTP_BYPASS or os.getenv("DEMO_TOOLS", "False").lower() in ("true", "1", "t")
 
 # Road routes on the Track page (OSRM). Empty = the free public demo server; set your own for heavy use.
 ROUTING_URL = os.getenv("ROUTING_URL", "").strip()

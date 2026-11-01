@@ -314,6 +314,7 @@ def health_check(request):
         "service": "Smart Doorstep Vehicle Service Management System API",
         "backend": "Django REST Framework",
         "demo_login": getattr(settings, "OTP_BYPASS", False),
+        "demo_tools": getattr(settings, "DEMO_TOOLS", False),
         "payment_gateway": payment_gateway() or None,
     })
 

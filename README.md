@@ -240,6 +240,54 @@ evidence. `python manage.py seed_repair_history --count 200` creates **synthetic
 pipeline can be demonstrated; a model trained on it only learns that made-up generator. The admin panel
 and every estimate state the synthetic share, and synthetic jobs are hidden from analytics and booking lists.
 
+## Host it on Vercel (free)
+
+The whole app runs as **one Vercel project**: the React site, plus the Django API as a Python function under `/api` (`vercel.json`, `api/index.py`). Vercel keeps no files, so the data lives in a free **Neon** Postgres database. Total cost: ₹0 on both free plans.
+
+**1. Create the database (Neon)**
+1. Sign up at **neon.tech** (Continue with GitHub).
+2. **Create project**: any name, region **Asia Pacific (Singapore)** (closest to India).
+3. On the project dashboard, click **Connect**, tick **Connection pooling**, and copy the connection string. It looks like `postgresql://user:password@ep-xxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`. Keep it secret.
+
+**2. Fill the database from your laptop (once)**
+In `backend/.env`, add (temporarily):
+```
+DATABASE_URL=<the Neon connection string>
+DEMO_ACCOUNT_PASSWORD=<a password for the demo accounts>
+```
+Then, from the project folder:
+```bash
+pip install -r backend/requirements.txt
+npm run migrate:django
+npm run seed
+```
+Afterwards **delete the `DATABASE_URL` line** from `backend/.env`, so your laptop goes back to its own SQLite database.
+
+**3. Create the Vercel project**
+1. Sign up at **vercel.com** (Continue with GitHub) and allow it to see the `carservice` repository.
+2. **Add New → Project → Import** `carservice`. Leave **Framework Preset: Other** and **Root Directory: ./**; build settings come from `vercel.json`.
+3. Under **Environment Variables**, add:
+
+| Name | Value |
+|---|---|
+| `DATABASE_URL` | The Neon connection string |
+| `SECRET_KEY` | A long random value: `python -c "import secrets; print(secrets.token_urlsafe(50))"` |
+| `DEBUG` | `False` |
+| `DEMO_TOOLS` | `True` to show **Simulate drive** for demos (optional) |
+
+4. Click **Deploy**. After a few minutes you get an address like `https://carservice-xyz.vercel.app`. Every push to `main` deploys again automatically.
+
+**4. Try it**: open the address and sign in on each tab with the demo emails (see "Demo accounts") and your `DEMO_ACCOUNT_PASSWORD`.
+
+**Do not set `OTP_BYPASS=True` on Vercel.** Its demo buttons sign anyone in to existing accounts, admin included, without a password. `DEMO_TOOLS` gives you Simulate drive without that.
+
+**Limits of the free hosting**
+- **Photos taken by drivers and mechanics** (condition photos, repair evidence) are not kept: Vercel's disk is wiped between requests. Profile photos are kept (they are stored in the database). Keeping the others needs file storage such as Vercel Blob or Cloudinary.
+- **One-time codes by SMS/email** need Twilio or email settings in the Vercel environment variables; without them, sign in with passwords.
+- **First request after a quiet period** takes a few seconds while Vercel and Neon wake up.
+- **The Django admin** at `/admin/` is not styled there; use the app's own Staff and Car Catalog pages.
+- **Booking and status changes** made by the API are stored in Neon, so they survive redeploys.
+
 ## Deploying to production
 
 Set these in `backend/.env` (or the server environment):
@@ -254,6 +302,8 @@ Set these in `backend/.env` (or the server environment):
 | `OTP_BYPASS` | `False` — **never** enable in production; it allows signing in to any existing account without a code |
 | `PAYMENT_GATEWAY` | Leave empty: online payment is turned off and customers pay at the service center. `mock` is a test gateway only — it moves no real money. |
 | `TWILIO_*` and/or `EMAIL_*` | An SMS or email provider. Without one, OTP requests fail with an error in production. |
+| `DATABASE_URL` | Postgres connection URL (e.g. Neon); takes priority over MySQL and SQLite |
+| `DEMO_TOOLS` | `True` shows the driver's **Simulate drive** without enabling `OTP_BYPASS` |
 | `USE_MYSQL`, `DB_*` | Optional MySQL connection |
 
 The frontend's `predev`/`prebuild` scripts copy the OCR engine and English language data from

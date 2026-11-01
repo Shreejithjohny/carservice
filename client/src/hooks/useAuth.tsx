@@ -22,6 +22,8 @@ type AuthCtx = {
   loading: boolean;
   /** True only when the backend has OTP_BYPASS on (local demo); hides demo logins otherwise. */
   demoMode: boolean;
+  /** Demo tools such as the driver's "Simulate drive": on in demo mode, or with DEMO_TOOLS on a hosted site. */
+  demoTools: boolean;
   sendOtp: (identifier: string) => Promise<SendOtpResponse>;
   verifyOtp: (identifier: string, otpCode: string, name?: string) => Promise<User>;
   bypassLogin: (identifier?: string, role?: Role, name?: string) => Promise<User>;
@@ -41,6 +43,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [user, setUser] = useState<User | null>(readUser());
   const [loading, setLoading] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
+  const [demoTools, setDemoTools] = useState(false);
 
   // Ask the backend whether demo sign-in is on. When the page opens before the backend has
   // started (common with `npm run dev`), keep asking every 3 seconds for up to 2 minutes instead
@@ -50,8 +53,10 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const check = async (attempt: number) => {
       try {
-        const res = await api<{ demo_login?: boolean }>("/api/health-check/");
-        if (!stopped) setDemoMode(Boolean(res.demo_login));
+        const res = await api<{ demo_login?: boolean; demo_tools?: boolean }>("/api/health-check/");
+        if (stopped) return;
+        setDemoMode(Boolean(res.demo_login));
+        setDemoTools(Boolean(res.demo_tools ?? res.demo_login));
       } catch {
         if (!stopped && attempt < 40) timer = setTimeout(check, 3000, attempt + 1);
       }
@@ -104,6 +109,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
       user,
       loading,
       demoMode,
+      demoTools,
       async sendOtp(identifier) {
         return api<SendOtpResponse>("/api/auth/send-otp/", {
           method: "POST",
@@ -193,7 +199,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
         }
       },
     }),
-    [user, loading, demoMode],
+    [user, loading, demoMode, demoTools],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

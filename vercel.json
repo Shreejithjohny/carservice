@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci --prefix client",
+  "buildCommand": "npm run build --prefix client",
+  "outputDirectory": "client/dist",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30,
+      "excludeFiles": "{client/**,docs/**,research_paper/**,.github/**,node_modules/**,backend/db.sqlite3,backend/media/**,backend/staticfiles/**,**/__pycache__/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}
