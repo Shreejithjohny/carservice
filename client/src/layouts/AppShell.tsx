@@ -26,7 +26,10 @@ import { useTheme } from "../hooks/useTheme";
 import type { Role } from "../types";
 import { useLanguage } from "../hooks/useLanguage";
 import { ChangePasswordDialog } from "../components/ChangePasswordDialog";
+import { ProfilePhotoDialog } from "../components/ProfilePhotoDialog";
+import { Avatar } from "../components/Avatar";
 import { LANGUAGES, type Language, type StringKey } from "../i18n/strings";
+import { Logo, LogoMark } from "../components/Logo";
 
 interface NavItem {
   to: string;
@@ -82,6 +85,7 @@ export function AppShell() {
   const { lang, setLang, t } = useLanguage();
   const navigate = useNavigate();
   const [changingPassword, setChangingPassword] = useState(false);
+  const [editingPhoto, setEditingPhoto] = useState(false);
   const isCustomer = user?.role.toLowerCase() === "customer";
   const label = (l: NavItem) => (isCustomer && l.labelKey ? t(l.labelKey) : l.label);
 
@@ -95,8 +99,8 @@ export function AppShell() {
     <div className="min-h-dvh bg-canvas text-zinc-900 dark:bg-canvas-dark dark:text-zinc-100">
       <div className="mx-auto flex max-w-7xl">
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-1 border-r border-zinc-200/70 p-4 dark:border-zinc-800 md:flex">
-          <div className="mb-4 px-2 text-xl font-extrabold tracking-tight">
-            Door<span className="text-brand-fg">Step</span>
+          <div className="mb-4 px-2 text-xl">
+            <Logo size={34} />
           </div>
           {links.map((l) => (
             <NavLink
@@ -130,9 +134,13 @@ export function AppShell() {
         </aside>
         <main className="min-w-0 flex-1 p-4 pb-24 md:p-8">
           <div className="mb-6 flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{user?.role.replace(/_/g, " ")}</p>
-              <h1 className="text-2xl font-bold">{user?.name}</h1>
+            <div className="flex items-center gap-3">
+              {/* The sidebar with the full logo is hidden on phones */}
+              <LogoMark size={36} className="shrink-0 md:hidden" />
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{user?.role.replace(/_/g, " ")}</p>
+                <h1 className="text-2xl font-bold">{user?.name}</h1>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -161,13 +169,22 @@ export function AppShell() {
                   </select>
                 </label>
               )}
-              <img src={user?.avatarUrl || `https://api.dicebear.com/9.x/adventurer/svg?seed=${user?.name}`} alt="" className="h-11 w-11 rounded-full bg-zinc-200" />
+              <button
+                type="button"
+                onClick={() => setEditingPhoto(true)}
+                aria-label="Profile photo"
+                title="Profile photo"
+                className="rounded-full ring-brand/40 transition hover:ring-4"
+              >
+                <Avatar name={user?.name ?? "?"} url={user?.avatar_url} size={44} />
+              </button>
             </div>
           </div>
           <Outlet />
         </main>
       </div>
       {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
+      {editingPhoto && <ProfilePhotoDialog onClose={() => setEditingPhoto(false)} />}
       <nav className="fixed bottom-0 left-0 right-0 z-30 flex justify-around border-t border-zinc-200 bg-white/90 py-2 dark:border-zinc-800 dark:bg-zinc-950/90 md:hidden">
         {links.slice(0, 5).map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => `flex flex-col items-center text-[10px] ${isActive ? "text-brand-fg" : "text-zinc-500"}`}>

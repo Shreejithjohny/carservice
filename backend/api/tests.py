@@ -2451,3 +2451,76 @@ class StaffManagementTests(TestCase):
 
         self.client.force_authenticate(user=self.admin)
         self.assertEqual(len(self.client.get("/api/staff/").data), 2)
+
+
+class AvatarTests(TestCase):
+    """Profile photos: resized to a square JPEG, stored in the database, served by token."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="av_u", email="av_u@example.com", role=UserRole.CUSTOMER)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def photo(self, size=(800, 600), fmt="JPEG", exif=None, name="me.jpg", color=(200, 30, 30)):
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+
+        buf = BytesIO()
+        mode = "RGBA" if fmt == "PNG" else "RGB"
+        Image.new(mode, size, color).save(buf, format=fmt, **({"exif": exif} if exif else {}))
+        return SimpleUploadedFile(name, buf.getvalue(), content_type=f"image/{fmt.lower()}")
+
+    def upload(self, file):
+        return self.client.post("/api/auth/avatar/", {"photo": file}, format="multipart")
+
+    def test_upload_resizes_strips_location_and_serves_by_token(self):
+        from io import BytesIO
+        from PIL import Image
+
+        # A phone photo taken sideways, with its GPS position in the EXIF data
+        exif = Image.Exif()
+        exif[0x0112] = 6  # orientation: rotate 90 degrees
+        exif[0x8825] = {1: "N", 2: (12.0, 58.0, 0.0), 3: "E", 4: (77.0, 38.0, 0.0)}  # GPS
+        res = self.upload(self.photo(size=(800, 600), exif=exif))
+        self.assertEqual(res.status_code, 200, res.data)
+        url = res.data["avatar_url"]
+        self.assertRegex(url, r"^/api/avatars/[0-9a-f]{32}\.jpg$")
+
+        self.client.force_authenticate(user=None)  # <img> tags load it without a token
+        img = self.client.get(url)
+        self.assertEqual(img.status_code, 200)
+        self.assertEqual(img["Content-Type"], "image/jpeg")
+        stored = Image.open(BytesIO(b"".join(img.streaming_content) if img.streaming else img.content))
+        self.assertEqual(stored.format, "JPEG")
+        self.assertEqual(stored.size, (256, 256))
+        self.assertEqual(len(stored.getexif()), 0)  # no GPS position, no orientation flag left
+        self.assertLess(len(img.content), 40_000)
+
+    def test_new_upload_changes_the_address_and_delete_removes_it(self):
+        first = self.upload(self.photo()).data["avatar_url"]
+        second = self.upload(self.photo(fmt="PNG", name="me.png")).data["avatar_url"]
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.client.get(first).status_code, 404)
+        self.assertEqual(self.client.get("/api/auth/me/").data["avatar_url"], second)
+
+        res = self.client.delete("/api/auth/avatar/")
+        self.assertIsNone(res.data["avatar_url"])
+        self.assertEqual(self.client.get(second).status_code, 404)
+
+    def test_rejects_files_that_are_not_photos(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.assertEqual(self.client.post("/api/auth/avatar/", {}, format="multipart").status_code, 400)
+        fake = SimpleUploadedFile("me.jpg", b"not really an image", content_type="image/jpeg")
+        res = self.upload(fake)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("isn't a photo", res.data["error"])
+        gif = self.photo(fmt="GIF", name="me.gif")
+        self.assertEqual(self.upload(gif).status_code, 400)
+        big = SimpleUploadedFile("big.jpg", b"0" * (5 * 1024 * 1024 + 1), content_type="image/jpeg")
+        self.assertIn("too large", self.upload(big).data["error"])
+
+    def test_requires_sign_in(self):
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.upload(self.photo()).status_code, 401)

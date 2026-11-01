@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowRight, CarFront, ChevronRight, MapPin, ShieldCheck, Sparkles, Video } from "lucide-react";
+import { Logo } from "../components/Logo";
 
 export function Landing() {
   return (
     <div className="min-h-dvh bg-ink text-white">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <div className="text-xl font-extrabold">Door<span className="text-brand-fg">Step</span></div>
+        <Logo size={34} className="text-xl" />
         <div className="flex gap-2">
           <Link to="/login/driver" className="hidden rounded-full px-4 py-2 text-sm text-white/60 sm:inline-block">Staff sign in</Link>
           <Link to="/login" className="rounded-full px-4 py-2 text-sm text-white/80">Sign in</Link>

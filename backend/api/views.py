@@ -1,3 +1,4 @@
+import secrets
 from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Avg, Q
@@ -79,6 +80,7 @@ from .payment_service import PaymentError, pay_invoice, payment_gateway
 from .dispatch_service import best_driver, best_mechanic, rank_drivers, rank_mechanics
 from .geocoding_service import GeocodingError, reverse_geocode, search_address
 from .routing_service import RoutingError, driving_route
+from .avatar_service import AvatarError, process_avatar
 from .plate_service import LIKELY, MATCH, check_plate
 from .reminder_service import service_due
 from .analytics_service import center_analytics
@@ -791,6 +793,46 @@ def change_password(request):
     user.set_password(new_password)
     user.save(update_fields=["password"])
     return Response({"message": "Password updated.", "user": UserSerializer(user).data})
+
+
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAuthenticated])
+def my_avatar(request):
+    """
+    POST   /api/auth/avatar/  multipart "photo" -> sets the profile photo (any phone photo)
+    DELETE /api/auth/avatar/                    -> removes it (initials are shown instead)
+    """
+    user = request.user
+    if request.method == "DELETE":
+        user.avatar, user.avatar_token = None, ""
+        user.save(update_fields=["avatar", "avatar_token"])
+        return Response(UserSerializer(user).data)
+
+    upload = request.FILES.get("photo")
+    if not upload:
+        return Response({"error": "Choose a photo to upload."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        user.avatar = process_avatar(upload)
+    except AvatarError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    user.avatar_token = secrets.token_hex(16)
+    user.save(update_fields=["avatar", "avatar_token"])
+    return Response(UserSerializer(user).data)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def avatar_image(request, token):
+    """
+    GET /api/avatars/<token>.jpg -> a profile photo. Public so <img> tags can load it, but the
+    32-character random token can't be guessed, and it changes with every upload.
+    """
+    user = User.objects.filter(avatar_token=token).exclude(avatar=None).only("avatar").first()
+    if not user:
+        return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    response = HttpResponse(bytes(user.avatar), content_type="image/jpeg")
+    response["Cache-Control"] = "public, max-age=31536000, immutable"  # a new photo gets a new address
+    return response
 
 
 @api_view(["GET"])

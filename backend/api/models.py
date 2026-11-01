@@ -32,6 +32,11 @@ class User(AbstractUser):
     password_attempts = models.PositiveIntegerField(default=0)
     password_locked_until = models.DateTimeField(null=True, blank=True)
 
+    # Profile photo: a small square JPEG kept in the database (so it works on hosts without a
+    # disk), served at /api/avatars/<token>.jpg. A new token per upload changes the address.
+    avatar = models.BinaryField(null=True, blank=True, editable=False)
+    avatar_token = models.CharField(max_length=32, blank=True, default="", db_index=True)
+
     def has_password(self):
         """
         Accounts made through OTP sign-in have an empty password field, which Django still counts
