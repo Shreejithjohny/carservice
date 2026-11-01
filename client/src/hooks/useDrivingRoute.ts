@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
-import { remainingRoute } from "../utils/geo";
+import { drivingMinutes, haversineKm, pathKm, remainingRoute } from "../utils/geo";
 
 type LngLat = [number, number];
 export type DrivingRoute = { coordinates: LngLat[]; distance_km: number; duration_min: number };
@@ -48,4 +48,21 @@ export function useDrivingRoute(from: LngLat | null, to: LngLat | null): Driving
   }, [from?.[0], from?.[1], toKey]);
 
   return route;
+}
+
+export type Trip = { minutes: number; km: number; byRoad: boolean };
+
+/**
+ * Time and distance from `from` to `to`: the road route's duration scaled to the part still
+ * ahead of `from`, or, without a road route, a straight-line estimate at city speed.
+ * `ahead` may be passed when already worked out.
+ */
+export function estimateTrip(from: LngLat, to: LngLat, road: DrivingRoute | null, ahead?: LngLat[] | null): Trip {
+  if (road) {
+    const km = pathKm(ahead ?? remainingRoute(road.coordinates, from).path);
+    const minutes = Math.max(1, Math.round(road.duration_min * Math.min(1, km / Math.max(road.distance_km, 0.1))));
+    return { minutes, km: Math.round(km * 10) / 10, byRoad: true };
+  }
+  const km = haversineKm(from[1], from[0], to[1], to[0]);
+  return { minutes: drivingMinutes(km), km, byRoad: false };
 }

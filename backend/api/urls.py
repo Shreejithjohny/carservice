@@ -52,6 +52,8 @@ urlpatterns = [
     path("service-center/bookings/<str:pk>/staff-suggestions/", views.service_center_staff_suggestions, name="sc_staff_suggestions"),
     path("service-center/analytics/", views.service_center_analytics, name="sc_analytics"),
     path("service-center/employees/", views.service_center_employees_list, name="sc_employees_list"),
+    path("staff/", views.staff_list_create, name="staff_list_create"),
+    path("staff/<int:pk>/", views.staff_update, name="staff_update"),
 
     # Phase 7 Driver / Valet Endpoints
     path("driver/pickups/", views.driver_pickups_list, name="driver_pickups_list"),

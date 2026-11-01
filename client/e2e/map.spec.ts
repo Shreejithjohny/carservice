@@ -8,6 +8,10 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/location/search/**", (route) =>
     route.fulfill({ json: { results: [{ label: "Koramangala 5th Block, Bengaluru, Karnataka", latitude: 12.9345, longitude: 77.6186 }] } })
   );
+  // Road route to the workshop: answered here, so the test never depends on the outside routing server
+  await page.route("**/api/location/route/**", (route) =>
+    route.fulfill({ json: { coordinates: [[77.7499, 12.9698], [77.70, 12.975], [77.6408, 12.9784]], distance_km: 11.9, duration_min: 31 } })
+  );
   await signIn(page, "customer");
   await page.goto("/app/book");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
@@ -43,6 +47,8 @@ test("a search result moves the map and fills the address", async ({ page }) => 
 test("'Use current location' moves the pin to the phone's GPS position", async ({ page }) => {
   await page.getByRole("button", { name: /Use current location/ }).click();
   await expect(addressBox(page)).toHaveValue("17th Main Road, HSR Layout, Bengaluru");
-  // Straight-line distance card is shown for the selected workshop
-  await expect(page.getByText(/km/).first()).toBeVisible();
+  // Distance to the selected workshop, by road
+  const distance = page.getByLabel("Distance to the workshop");
+  await expect(distance).toContainText("by road");
+  await expect(distance).toContainText("~31 mins");
 });

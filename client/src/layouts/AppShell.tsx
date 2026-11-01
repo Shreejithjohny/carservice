@@ -19,6 +19,7 @@ import {
   BarChart3,
   Languages,
   KeyRound,
+  Users,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
@@ -52,6 +53,7 @@ const admin = [
   { to: "/admin", label: "Overview", icon: LayoutGrid, end: true },
   { to: "/admin/catalog", label: "Car Catalog", icon: Layers },
   { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/admin/staff", label: "Staff", icon: Users },
   { to: "/admin/bookings", label: "Bookings", icon: Gauge },
   { to: "/admin/invoices", label: "Invoices", icon: Receipt },
 ];
@@ -60,6 +62,7 @@ const manager = [
   { to: "/service-center", label: "Center Dashboard", icon: Building2, end: true },
   { to: "/service-center/bookings", label: "Manage Bookings", icon: Gauge },
   { to: "/service-center/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/service-center/staff", label: "Staff", icon: Users },
   { to: "/service-center/invoices", label: "Invoices", icon: Receipt },
 ];
 
@@ -84,6 +87,10 @@ export function AppShell() {
 
   const links = user ? linksByRole[user.role.toLowerCase() as Role] ?? customer : customer;
 
+  const themeKey = dark ? "shell.light" : "shell.dark";
+  const themeEnglish = dark ? "Light mode" : "Dark mode";
+  const themeLabel = isCustomer ? t(themeKey) : themeEnglish;
+
   return (
     <div className="min-h-dvh bg-canvas text-zinc-900 dark:bg-canvas-dark dark:text-zinc-100">
       <div className="mx-auto flex max-w-7xl">
@@ -107,14 +114,14 @@ export function AppShell() {
           ))}
           <div className="mt-auto space-y-2">
             <button type="button" className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-sm hover:bg-zinc-200/60 dark:hover:bg-zinc-800" onClick={toggle}>
-              {dark ? <Sun size={16} /> : <Moon size={16} />} {isCustomer ? t(dark ? "shell.light" : "shell.dark") : `${dark ? "Light" : "Dark"} mode`}
+              {dark ? <Sun size={16} /> : <Moon size={16} />} {themeLabel}
             </button>
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-sm text-red-600"
               onClick={() => {
                 logout();
-                navigate("/");
+                void navigate("/");
               }}
             >
               <LogOut size={16} /> {isCustomer ? t("shell.signOut") : "Sign out"}

@@ -37,15 +37,30 @@ type AuthCtx = {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [user, setUser] = useState<User | null>(readUser());
   const [loading, setLoading] = useState(true);
   const [demoMode, setDemoMode] = useState(false);
 
+  // Ask the backend whether demo sign-in is on. When the page opens before the backend has
+  // started (common with `npm run dev`), keep asking every 3 seconds for up to 2 minutes instead
+  // of hiding the demo buttons for good.
   useEffect(() => {
-    api<{ demo_login?: boolean }>("/api/health-check/")
-      .then((res) => setDemoMode(Boolean(res.demo_login)))
-      .catch(() => setDemoMode(false));
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async (attempt: number) => {
+      try {
+        const res = await api<{ demo_login?: boolean }>("/api/health-check/");
+        if (!stopped) setDemoMode(Boolean(res.demo_login));
+      } catch {
+        if (!stopped && attempt < 40) timer = setTimeout(check, 3000, attempt + 1);
+      }
+    };
+    void check(1);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {

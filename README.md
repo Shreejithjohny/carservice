@@ -16,7 +16,7 @@ A car-service platform where a driver collects the customer's car from their doo
 | Mechanic | `/mechanic` | Inspect cars, upload photo/video evidence, raise repair requests |
 | Admin | `/admin` | Platform stats, analytics for any center, the repair-cost model, car catalog, all bookings and invoices |
 
-Anyone who signs up gets a **Customer** account. Staff accounts are created by an admin (Django admin at `/admin/` on the backend) or by the seed script.
+Anyone who signs up gets a **Customer** account. Drivers and mechanics are added by an admin or a manager on the **Staff** page; the seed script also creates one demo account per role.
 
 ## Run it locally (step by step, VS Code)
 
@@ -123,8 +123,8 @@ There are three kinds of automated tests. GitHub runs all of them on every pull 
 | Tests | What they cover | Command |
 |---|---|---|
 | Backend (Django) | API rules: bookings, slots, OTPs, passwords, payments, invoices, auto-assignment, ... | `python backend/manage.py test api` (should end with "OK") |
-| Frontend unit (Vitest) | Small helpers: distances, travel time, map arrow direction, sign-in routes | `npm test --prefix client` |
-| Browser (Playwright) | The real app in Chrome: sign in with password, book a pickup on the map, the manager confirms and a driver is auto-assigned, the customer tracks it | `npm run test:e2e --prefix client` |
+| Frontend unit (Vitest) | Small helpers: distances, road-route maths, ETAs, map arrow direction, simulated-drive spacing, sign-in routes | `npm test --prefix client` (with coverage: `npm run test:coverage --prefix client`) |
+| Browser (Playwright) | The real app in Chrome: sign in, book a pickup on the map, the manager confirms and a driver is auto-assigned, the driver shares GPS or simulates the drive, the customer tracks it, a manager adds staff | `npm run test:e2e --prefix client` |
 
 The browser tests start their own backend and frontend (ports 8001 and 5174) with a fresh, seeded database in `client/e2e/.data/`. Your own database and running dev servers are not touched. The first time, download the test browser with:
 ```bash
@@ -143,6 +143,14 @@ coverage run manage.py test api
 coverage report
 cd ..
 ```
+
+#### Test coverage in SonarCloud (optional, repository owner only)
+CI already measures coverage (backend `coverage.xml`, frontend `lcov.info`). The **SonarCloud coverage** job sends it to SonarCloud once you switch it on; until then it is skipped with a note. To switch it on:
+1. On sonarcloud.io, open the project → **Administration → Analysis Method** and turn **off** Automatic Analysis.
+2. Under **Administration → Information**, check that the project key and organization key match `sonar-project.properties` (correct the file if not).
+3. Create a token (**My Account → Security**) and add it on GitHub: repository **Settings → Secrets and variables → Actions → New repository secret**, name `SONAR_TOKEN`.
+
+The next pull request then shows coverage on SonarCloud.
 
 Other checks:
 ```bash
@@ -181,7 +189,8 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | `SECRET_KEY must be set when DEBUG is off` | `backend/.env` is missing. Do Step 3 |
 | `Port 5173 is already in use` or `port 8000 is already in use` | The app is already running in another terminal. Close it with Ctrl + C, or close that terminal |
 | `no such table` or `no such column` errors | Run `npm run migrate:django` |
-| The login page has no demo buttons | `OTP_BYPASS=True` is missing from `backend/.env` |
+| The login page has no demo buttons | Open http://localhost:8000/api/health-check/. If `"demo_login"` is `false`, add `OTP_BYPASS=True` to `backend/.env` and restart. If the page doesn't open, the backend isn't running. (The sign-in page keeps checking for 2 minutes, so a backend that starts late is fine.) |
+| A driver's phone says "Browsers only allow GPS on https://" | Use `npm run dev:phone` (see "Live tracking") |
 | Number plate scanning fails | Run `npm install --prefix client` again, then restart `npm run dev` (it copies the OCR files into `client/public/ocr/`) |
 | Address search on the Book page says it is unavailable | The free OpenStreetMap search needs internet (on the backend). Move the map under the pin, use "Use current location", or pick a preset area instead |
 | The map area is blank or says it could not load | The map style and tiles come from `tiles.openfreemap.org`; check the internet connection (or a college firewall blocking it). If it says WebGL is off, turn on hardware acceleration in the browser settings |
@@ -219,6 +228,7 @@ With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo �
 | Analytics | Manager and admin → Analytics | Revenue, bookings, turnaround, top repairs, approval rate, ratings. |
 | Learned cost estimator | Admin overview → *Repair cost model*; `python manage.py train_cost_model` | Used once 30+ completed, approved repairs exist; otherwise the rule formula. See below. |
 | Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. "Forgot password" sends a 6-digit code by email/SMS. Sign-in with a one-time code still works. |
+| Staff accounts | Admin or manager → **Staff** | Add drivers and mechanics (admins: any center; managers: their own) with a first password (or **Generate**), shown once to share with them. Mark staff on/off duty; automatic assignment skips off-duty staff. Staff change their password from the key icon. |
 | Hindi / Kannada | Language menu (customer screens) | Navigation, home, booking, tracking, reminders, reviews. Staff screens stay in English. Translations need a native speaker's review. |
 
 ### The learned cost estimator, honestly
@@ -258,13 +268,27 @@ Customers pay invoices from the Invoices page with UPI or card. Only a **mock ga
 
 Maps use **MapLibre GL** (open-source vector maps, the same kind of map engine delivery apps use) with the free **OpenFreeMap** "Liberty" style: no API key, no sign-up, no usage limit. Map data © OpenStreetMap contributors. To use a different style, set `VITE_MAP_STYLE_URL` in `client/.env`.
 
-Customers pick their pickup point like in Swiggy or Zomato: the pin stays in the middle with a "Your car will be picked up here" bubble, and they move the map under it; when the map stops, the address under the pin is looked up. "Use current location" shows the phone's position as a pulsing blue dot. They can also search for a place or tap a preset area. Address search and "pin → address" lookups go through the backend (`/api/location/search/`, `/api/location/reverse/`), which follows OpenStreetMap's Nominatim usage policy: at most one request per second, an identifying User-Agent, and results cached for a day. The free search is less precise than Google for small lanes, so the address box stays editable for flat and house numbers. The distance shown is a straight-line estimate.
+Customers pick their pickup point like in Swiggy or Zomato: the pin stays in the middle with a "Your car will be picked up here" bubble, and they move the map under it; when the map stops, the address under the pin is looked up. "Use current location" shows the phone's position as a pulsing blue dot. They can also search for a place or tap a preset area. Address search and "pin → address" lookups go through the backend (`/api/location/search/`, `/api/location/reverse/`), which follows OpenStreetMap's Nominatim usage policy: at most one request per second, an identifying User-Agent, and results cached for a day. The free search is less precise than Google for small lanes, so the address box stays editable for flat and house numbers. The distance to the chosen workshop is shown **by road** (OSRM, see "Live tracking"), or as a labelled straight-line estimate if routing is unavailable.
 
 Optional: with `VITE_GOOGLE_MAPS_API_KEY` set in `client/.env` (Google Cloud billing account, Maps JavaScript + Places APIs), the Book page uses Google Maps instead.
 
 ## Live tracking
 
-The driver dashboard posts the phone's GPS position every 10 seconds while "Enable GPS" is on. The customer's Track page works like delivery-app order tracking: a home pin for the customer, a wrench pin for the workshop, and the driver as a car that glides smoothly to each new GPS position and turns the way it is driving. The route still ahead follows the actual roads, and a card shows "Driver arriving in X min" with the distance by road. The map follows the driver until the customer moves it; "Re-centre" turns following back on. It refreshes every 10 seconds.
+**Driver side.** On a job, the driver taps **Enable GPS**. The phone's GPS is watched continuously and a position is sent at most every 10 seconds; when the driver stands still, the last position is re-sent so the customer still sees "Live". The choice is remembered if the page is reloaded, and the screen is kept awake while sharing (on browsers that support it). Problems are shown instead of hidden: location permission blocked, no GPS signal, server unreachable, or a page that is not on `https://`/`localhost`.
+
+Limits: this is a web page, not an installed app, so tracking stops when the driver locks the phone or switches apps (the **Simulate drive** button below avoids this for demos).
+
+**Using a real phone as the driver.** Phone browsers only allow GPS on `https://` addresses (or `localhost`), so `http://192.168.x.x:5173` cannot share its location. Run the app in phone mode instead:
+```bash
+npm run dev:phone
+```
+It serves the frontend over `https://` on your Wi-Fi network and prints a **Network** address such as `https://192.168.1.20:5173`. Open that on the phone (same Wi-Fi as the laptop). The certificate is self-signed, so the phone warns once: tap **Advanced → Proceed**. Then sign in as the driver and tap **Enable GPS**. If your network blocks phone-to-laptop traffic (common on college Wi-Fi), use your phone's hotspot for both devices.
+
+If GPS is still refused on Android Chrome, open `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on the phone, add the address (for example `http://192.168.1.20:5173`), enable it and restart Chrome. For that plain-`http` setup, run `npm run dev:django` in one terminal and `npm run dev --prefix client -- --host` in another. This is for testing only.
+
+**Demo: simulate the drive.** With `OTP_BYPASS=True` (demo mode), each job also has a **Simulate drive** button. It sends pretend GPS positions every 3 seconds along the road route (workshop → customer, or customer → workshop after pickup), taking about 2 minutes, so you can show the customer's Track page with the car moving without driving anywhere. Open the driver in one browser window and the customer's Track page in another (e.g. an Incognito window).
+
+**Customer side.** The customer's Track page works like delivery-app order tracking: a home pin for the customer, a wrench pin for the workshop, and the driver as a car that glides smoothly to each new GPS position and turns the way it is driving. The route still ahead follows the actual roads, and a card shows "Driver arriving in X min" with the distance by road. The map follows the driver until the customer moves it; "Re-centre" turns following back on. It refreshes every 10 seconds.
 
 Road routes come from **OSRM** (free, no API key) through the backend (`/api/location/route/`), cached for 10 minutes and limited to one request per second. A new route is fetched only when the driver leaves the current one. The public server (router.project-osrm.org) is a demo service with no uptime promise, and its times assume no traffic. If it is unreachable, the map shows a dashed straight line and the ETA is marked as a straight-line estimate. For heavier use, run your own OSRM server and set `ROUTING_URL` in `backend/.env`.
 

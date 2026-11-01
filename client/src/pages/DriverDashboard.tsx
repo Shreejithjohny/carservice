@@ -1,7 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, type ReactNode } from "react";
 import { useApi } from "../hooks/useApi";
 import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
+import { useAuth } from "../hooks/useAuth";
+import { useGpsSharing, type GpsStatus } from "../hooks/useGpsSharing";
+import { SimulateDrive } from "../components/SimulateDrive";
 import { Skeleton, Empty } from "../components/States";
 import { CarFront, Navigation, KeyRound, CheckCircle2, ShieldCheck, ExternalLink, Truck } from "lucide-react";
 import { ConditionCapture } from "../components/ConditionCapture";
@@ -25,47 +28,11 @@ export function DriverDashboard() {
   // Test code returned by the backend only when OTP_BYPASS (demo mode) is on
   const [demoCode, setDemoCode] = useState<string | null>(null);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const [gpsTrackingActive, setGpsTrackingActive] = useState<Record<string | number, boolean>>({});
-
-  const activeJob = pickups?.find((b) => GPS_STAGE.includes(b.status));
-
-  // Geolocation post helper
-  const sendLocationUpdate = useCallback(
-    async (bookingId: string | number, lat: number, lng: number) => {
-      try {
-        await api(`/api/driver/pickups/${bookingId}/location/`, {
-          method: "POST",
-          body: JSON.stringify({ latitude: lat, longitude: lng }),
-        });
-      } catch (err) {
-        // Silent location post error fallback
-      }
-    },
-    []
-  );
-
-  // Periodically send GPS location if tracking active for job
-  useEffect(() => {
-    if (!activeJob) return;
-    const bId = activeJob.id || activeJob._id || activeJob.booking_reference;
-    if (!gpsTrackingActive[bId]) return;
-
-    const interval = setInterval(() => {
-      if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            sendLocationUpdate(bId, pos.coords.latitude, pos.coords.longitude);
-          },
-          () => {
-            // Geolocation error fallback
-          },
-          { enableHighAccuracy: true }
-        );
-      }
-    }, 10000); // Every 10 seconds
-
-    return () => clearInterval(interval);
-  }, [activeJob, gpsTrackingActive, sendLocationUpdate]);
+  const { demoMode } = useAuth();
+  // Jobs whose GPS is shared: at a stage where the customer tracks the car
+  const gpsJobIds = (pickups ?? []).filter((b) => GPS_STAGE.includes(b.status)).map((b) => String(b.id || b._id || b.booking_reference));
+  const gps = useGpsSharing(gpsJobIds);
+  const [simulating, setSimulating] = useState<Record<string, boolean>>({});
 
   async function handleStatusUpdate(booking: Booking, newStatus: string) {
     const bId = booking.id || booking._id || booking.booking_reference;
@@ -124,19 +91,15 @@ export function DriverDashboard() {
     }
   }
 
-  const toggleGps = (bookingId: string | number) => {
-    // Side effects stay outside the state updater: React may run updaters twice in development.
-    const next = !gpsTrackingActive[bookingId];
-    setGpsTrackingActive((prev) => ({ ...prev, [bookingId]: next }));
-    if (next && "geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        sendLocationUpdate(bookingId, pos.coords.latitude, pos.coords.longitude);
-      });
-      push({ title: "GPS location tracking enabled" });
+  function toggleGps(bookingId: string) {
+    if (gps.isSharing(bookingId)) {
+      gps.stop(bookingId);
+      push({ title: "Live location sharing stopped" });
     } else {
-      push({ title: "GPS location tracking disabled" });
+      gps.start(bookingId);
+      push({ title: "Sharing your live location with the customer" });
     }
-  };
+  }
 
   if (loading) return <Skeleton className="h-96" />;
   if (!pickups?.length) return <Empty title="No assigned pickups" hint="You currently have no pending vehicle pickup jobs." />;
@@ -182,7 +145,7 @@ export function DriverDashboard() {
                 onClick={() => handleVerifyOtp()}
                 className="w-full rounded-2xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                {verifyingOtp ? "Verifying..." : otpKind === "handover" ? "Verify & Pick Up" : "Verify & Hand Back"}
+                {verifyLabel(verifyingOtp, otpKind)}
               </button>
             </div>
 
@@ -203,33 +166,27 @@ export function DriverDashboard() {
       <div className="space-y-4">
         {pickups.map((b) => {
           const bId = b.id || b._id || b.booking_reference;
-          const isTracking = gpsTrackingActive[bId];
+          const jobId = String(bId);
           const gpsToggle = (
-            <div className="flex items-center justify-between rounded-2xl border border-zinc-200 p-3 dark:border-zinc-700 text-xs">
-              <div className="flex items-center gap-2">
-                <Navigation size={16} className={isTracking ? "text-emerald-500 animate-pulse" : "text-zinc-400"} />
-                <div>
-                  <span className="font-bold block">Live GPS Location Sharing</span>
-                  <span className="text-[11px] text-zinc-500">
-                    {isTracking ? "Transmitting real-time GPS coordinates to customer map" : "GPS tracking inactive"}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => toggleGps(bId)}
-                className={`rounded-xl px-3 py-1.5 font-bold transition ${
-                  isTracking ? "bg-emerald-600 text-white" : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                }`}
-              >
-                {isTracking ? "Tracking Active" : "Enable GPS"}
-              </button>
-            </div>
+            <GpsPanel
+              booking={b}
+              sharing={gps.isSharing(jobId)}
+              status={gps.status}
+              lastSentAt={gps.lastSentAt}
+              screenKeptOn={gps.screenKeptOn}
+              simulating={!!simulating[jobId]}
+              demoMode={demoMode}
+              onToggle={() => toggleGps(jobId)}
+              onSimulatingChange={(running) => {
+                setSimulating((prev) => ({ ...prev, [jobId]: running }));
+                // Pretend positions and the phone's real GPS would fight over the map
+                if (running && gps.isSharing(jobId)) gps.stop(jobId);
+              }}
+            />
           );
 
           return (
-            <div key={bId} className="glass rounded-3xl p-6 space-y-4">
+            <article key={bId} aria-label={`Job ${b.booking_reference || b.booking_id}`} className="glass rounded-3xl p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
                 <div>
                   <span className="text-xs font-mono font-bold text-brand-fg bg-brand/10 px-2.5 py-0.5 rounded-full">
@@ -286,78 +243,189 @@ export function DriverDashboard() {
                 )}
               </div>
 
-              {PICKUP_STAGE.includes(b.status) ? (
-                <>
-                  {gpsToggle}
-
-                  <PlateScanner bookingId={bId} verified={b.plate_verified} onVerified={reload} />
-
-                  <ConditionCapture bookingId={bId} stage="PICKUP" />
-
-                  {/* Workflow Step Actions */}
-                  <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                      Pickup Workflow Stage Controls
-                    </span>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                      <button
-                        onClick={() => handleStatusUpdate(b, "En Route for Pickup")}
-                        className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
-                      >
-                        En Route
-                      </button>
-
-                      <button
-                        onClick={() => handleStatusUpdate(b, "Arrived at Pickup")}
-                        className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
-                      >
-                        Arrived at Location
-                      </button>
-
-                      <button
-                        onClick={() => handleRequestOtp(b, "handover")}
-                        className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-brand py-2 font-bold text-white hover:bg-brand-hover"
-                      >
-                        <KeyRound size={14} /> Handover OTP
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : b.status === "Ready for Delivery" ? (
-                <button
-                  onClick={() => handleStatusUpdate(b, "Out for Delivery")}
-                  className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700"
-                >
-                  <Truck size={16} /> Start Return Delivery
-                </button>
-              ) : b.status === "Out for Delivery" ? (
-                <>
-                  {gpsToggle}
-                  <ConditionCapture bookingId={bId} stage="DELIVERY" />
-                  <button
-                    onClick={() => handleRequestOtp(b, "delivery")}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-brand py-3 text-sm font-bold text-white hover:bg-brand-hover"
-                  >
-                    <KeyRound size={16} /> Hand Back Car (Delivery OTP)
-                  </button>
-                </>
-              ) : (
-                <>
-                  {b.status === "Vehicle Picked Up" && gpsToggle}
-                  <p className="rounded-2xl bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-800/60">
-                    {b.status === "Completed"
-                      ? "Car delivered back to the customer — job complete."
-                      : b.handover_otp_verified
-                        ? "Vehicle handed over — pickup complete. You will be notified when it is ready to deliver back."
-                        : `No driver actions while the booking is "${b.status}".`}
-                  </p>
-                </>
-              )}
-            </div>
+              <JobActions
+                booking={b}
+                bookingId={bId}
+                gpsPanel={gpsToggle}
+                onVerified={reload}
+                onStatus={(status) => void handleStatusUpdate(b, status)}
+                onOtp={(kind) => void handleRequestOtp(b, kind)}
+              />
+            </article>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function verifyLabel(verifying: boolean, kind: OtpKind) {
+  if (verifying) return "Verifying...";
+  return kind === "handover" ? "Verify & Pick Up" : "Verify & Hand Back";
+}
+
+function idleMessage(booking: Booking) {
+  if (booking.status === "Completed") return "Car delivered back to the customer — job complete.";
+  if (booking.handover_otp_verified) return "Vehicle handed over — pickup complete. You will be notified when it is ready to deliver back.";
+  return `No driver actions while the booking is "${booking.status}".`;
+}
+
+/** What the driver can do on a job at its current stage. */
+function JobActions({
+  booking,
+  bookingId,
+  gpsPanel,
+  onVerified,
+  onStatus,
+  onOtp,
+}: Readonly<{
+  booking: Booking;
+  bookingId: string | number;
+  gpsPanel: ReactNode;
+  onVerified: () => void;
+  onStatus: (status: string) => void;
+  onOtp: (kind: OtpKind) => void;
+}>) {
+  if (PICKUP_STAGE.includes(booking.status)) {
+    return (
+      <>
+        {gpsPanel}
+
+        <PlateScanner bookingId={bookingId} verified={booking.plate_verified} onVerified={onVerified} />
+
+        <ConditionCapture bookingId={bookingId} stage="PICKUP" />
+
+        {/* Workflow Step Actions */}
+        <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+            Pickup Workflow Stage Controls
+          </span>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <button
+              onClick={() => onStatus("En Route for Pickup")}
+              className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
+            >
+              En Route
+            </button>
+
+            <button
+              onClick={() => onStatus("Arrived at Pickup")}
+              className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
+            >
+              Arrived at Location
+            </button>
+
+            <button
+              onClick={() => onOtp("handover")}
+              className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-brand py-2 font-bold text-white hover:bg-brand-hover"
+            >
+              <KeyRound size={14} /> Handover OTP
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+  if (booking.status === "Ready for Delivery") {
+    return (
+      <button
+        onClick={() => onStatus("Out for Delivery")}
+        className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700"
+      >
+        <Truck size={16} /> Start Return Delivery
+      </button>
+    );
+  }
+  if (booking.status === "Out for Delivery") {
+    return (
+      <>
+        {gpsPanel}
+        <ConditionCapture bookingId={bookingId} stage="DELIVERY" />
+        <button
+          onClick={() => onOtp("delivery")}
+          className="w-full flex items-center justify-center gap-2 rounded-2xl bg-brand py-3 text-sm font-bold text-white hover:bg-brand-hover"
+        >
+          <KeyRound size={16} /> Hand Back Car (Delivery OTP)
+        </button>
+      </>
+    );
+  }
+  return (
+    <>
+      {booking.status === "Vehicle Picked Up" && gpsPanel}
+      <p className="rounded-2xl bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-800/60">{idleMessage(booking)}</p>
+    </>
+  );
+}
+
+/** Live GPS sharing for one job, plus the demo drive simulator in demo mode. */
+function GpsPanel({
+  booking,
+  sharing,
+  status,
+  lastSentAt,
+  screenKeptOn,
+  simulating,
+  demoMode,
+  onToggle,
+  onSimulatingChange,
+}: Readonly<{
+  booking: Booking;
+  sharing: boolean;
+  status: GpsStatus;
+  lastSentAt: number | null;
+  screenKeptOn: boolean;
+  simulating: boolean;
+  demoMode: boolean;
+  onToggle: () => void;
+  onSimulatingChange: (running: boolean) => void;
+}>) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 p-3 text-xs dark:border-zinc-700">
+        <div className="flex items-center gap-2">
+          <Navigation size={16} className={sharing && status === "live" ? "text-emerald-500 animate-pulse" : "text-zinc-400"} />
+          <div>
+            <span className="font-bold block">Live GPS Location Sharing</span>
+            <GpsStatusLine status={sharing ? status : "off"} lastSentAt={lastSentAt} screenKeptOn={screenKeptOn} />
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={simulating}
+          onClick={onToggle}
+          className={`shrink-0 rounded-xl px-3 py-1.5 font-bold transition disabled:opacity-50 ${
+            sharing ? "bg-emerald-600 text-white" : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          }`}
+        >
+          {sharing ? "Stop sharing" : "Enable GPS"}
+        </button>
+      </div>
+      {demoMode && <SimulateDrive booking={booking} onRunningChange={onSimulatingChange} />}
+    </div>
+  );
+}
+
+const GPS_MESSAGES: Record<GpsStatus, { text: string; tone: "muted" | "ok" | "warn" }> = {
+  off: { text: "Not sharing. Turn on when you start driving.", tone: "muted" },
+  starting: { text: "Getting a GPS fix…", tone: "muted" },
+  live: { text: "Customer can see you live", tone: "ok" },
+  denied: { text: "Location permission is blocked. Allow location for this site in the browser's settings, then press Stop sharing and Enable GPS again.", tone: "warn" },
+  "no-fix": { text: "No GPS signal right now. Move to open sky; it keeps trying.", tone: "warn" },
+  offline: { text: "Can't reach the server. Retrying every 10 seconds.", tone: "warn" },
+  insecure: { text: "Browsers only allow GPS on https:// or localhost. Open the app through an https:// address.", tone: "warn" },
+  unsupported: { text: "This browser can't share its location.", tone: "warn" },
+};
+
+function GpsStatusLine({ status, lastSentAt, screenKeptOn }: Readonly<{ status: GpsStatus; lastSentAt: number | null; screenKeptOn: boolean }>) {
+  const { text, tone } = GPS_MESSAGES[status];
+  const color = { muted: "text-zinc-500", ok: "text-emerald-600 dark:text-emerald-400", warn: "text-amber-700 dark:text-amber-400" }[tone];
+  return (
+    <output className={`block text-[11px] ${color}`}>
+      {text}
+      {status === "live" && lastSentAt && ` · last sent ${new Date(lastSentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`}
+      {status === "live" && (screenKeptOn ? " · screen kept on" : " · keep this page open and the screen on")}
+    </output>
   );
 }

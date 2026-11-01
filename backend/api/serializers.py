@@ -80,6 +80,21 @@ class PasswordRegisterSerializer(serializers.Serializer):
         return attrs
 
 
+
+class StaffCreateSerializer(PasswordRegisterSerializer):
+    """A driver or mechanic account, created by an admin or a service center manager."""
+
+    role = serializers.ChoiceField(choices=[UserRole.DRIVER, UserRole.MECHANIC])
+    service_center = serializers.PrimaryKeyRelatedField(queryset=ServiceCenter.objects.all(), required=False)
+    speciality = serializers.CharField(required=False, allow_blank=True, max_length=100)
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        return value
+
+
 class SendOTPSerializer(serializers.Serializer):
     identifier = serializers.CharField(required=True)
 
