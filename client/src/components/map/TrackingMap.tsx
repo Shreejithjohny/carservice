@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, type GeoJSONSource } from "maplibre-gl";
 import { Car, Crosshair, House, Wrench } from "lucide-react";
 import { BRAND } from "../../utils/theme";
-import { bearing, drivingMinutes, haversineKm, lerpPoint, metersBetween, pathKm, remainingRoute } from "../../utils/geo";
-import { useDrivingRoute, type DrivingRoute } from "../../hooks/useDrivingRoute";
+import { bearing, lerpPoint, metersBetween, remainingRoute } from "../../utils/geo";
+import { estimateTrip, useDrivingRoute, type Trip } from "../../hooks/useDrivingRoute";
 import { CAR_SVG, HOME_PIN_SVG, HUB_PIN_SVG, MAP_STYLE_URL, markerElement, type LngLat } from "./setup";
 
 export type RoutePoint = { latitude: number; longitude: number; timestamp: string };
@@ -52,23 +52,6 @@ function timeAgo(iso: string, now: number) {
   return `${Math.round(secs / 3600)} h ago`;
 }
 
-type Eta = { minutes: number; km: number; byRoad: boolean };
-
-/**
- * Time and distance left: the road route's duration scaled to the part still ahead, or, without a
- * road route, a straight-line estimate at city speed.
- */
-function estimateArrival(driver: LngLat | null, target: LngLat | null, road: DrivingRoute | null, ahead: LngLat[] | null): Eta | null {
-  if (!driver || !target) return null;
-  if (road && ahead) {
-    const km = pathKm(ahead);
-    const minutes = Math.max(1, Math.round(road.duration_min * Math.min(1, km / Math.max(road.distance_km, 0.1))));
-    return { minutes, km: Math.round(km * 10) / 10, byRoad: true };
-  }
-  const km = haversineKm(driver[1], driver[0], target[1], target[0]);
-  return { minutes: drivingMinutes(km), km, byRoad: false };
-}
-
 type Car = { marker: Marker; shown: LngLat; frame: number };
 
 /** Glide the car from where it is shown to `to` (ease in-out); jump for big gaps or reduced motion. */
@@ -108,7 +91,7 @@ function GpsBadge({ lastUpdate, now }: Readonly<{ lastUpdate: string | null; now
 }
 
 /** "Driver arriving in 7 min", as the delivery apps show over the map. */
-function EtaCard({ eta, title }: Readonly<{ eta: Eta; title: string }>) {
+function EtaCard({ eta, title }: Readonly<{ eta: Trip; title: string }>) {
   return (
     <section
       aria-label="Estimated arrival"
@@ -173,7 +156,7 @@ export default function TrackingMap({ pickup, hub, hubName, route, heading = nul
   // Road route to where the driver is going; until it loads (or if routing is down) a straight line
   const road = useDrivingRoute(driver, target);
   const ahead = useMemo(() => (road && driver ? remainingRoute(road.coordinates, driver).path : null), [road, driver]);
-  const eta = estimateArrival(driver, target, road, ahead);
+  const eta = driver && target ? estimateTrip(driver, target, road, ahead) : null;
 
   const points = [pickupLL, hubLL, driver].filter((p): p is LngLat => p !== null);
   const hasPoints = points.length > 0;

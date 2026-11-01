@@ -67,7 +67,14 @@ jobs:
           cache-dependency-path: client/package-lock.json
       # Locked versions from package-lock.json; package install scripts are not needed and not run
       - run: npm ci --ignore-scripts
-      - run: npm test
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+      # SonarCloud reads paths from the repository root
+      - run: sed -i 's#^SF:src/#SF:client/src/#' coverage/lcov.info
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: client/coverage/lcov.info
       - name: Type-check the browser tests
         run: npm run typecheck:e2e
       - name: Type-check and build
@@ -112,3 +119,32 @@ jobs:
             client/playwright-report
             client/test-results
           retention-days: 7
+
+  sonarcloud:
+    name: SonarCloud coverage
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    # Runs only after the repository owner switches SonarCloud to CI-based analysis and adds the
+    # SONAR_TOKEN secret (see README, "Test coverage in SonarCloud"). Until then it just says so.
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Not set up yet
+        if: env.SONAR_TOKEN == ''
+        run: echo "SONAR_TOKEN is not set, so coverage is not sent to SonarCloud. See README." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        if: env.SONAR_TOKEN != ''
+        with:
+          fetch-depth: 0 # full history, so SonarCloud can tell new code from old
+      - uses: actions/download-artifact@v4
+        if: env.SONAR_TOKEN != ''
+        with:
+          name: backend-coverage
+          path: backend
+      - uses: actions/download-artifact@v4
+        if: env.SONAR_TOKEN != ''
+        with:
+          name: frontend-coverage
+          path: client/coverage
+      - uses: SonarSource/sonarqube-scan-action@v5
+        if: env.SONAR_TOKEN != ''

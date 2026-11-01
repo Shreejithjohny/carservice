@@ -24,6 +24,89 @@ const STEPS = [
   "Completed",
 ];
 
+// Which timeline step each booking status belongs to
+const STEP_OF_STATUS: Record<string, number> = {
+  Pending: 0,
+  Confirmed: 1,
+  "Pickup Scheduled": 2,
+  "Driver Assigned": 3,
+  "En Route for Pickup": 3,
+  "Arrived at Pickup": 3,
+  "Vehicle Picked Up": 4,
+  "In Service": 5,
+  "Repair Approval Required": 6,
+  "Ready for Delivery": 7,
+  "Out for Delivery": 8,
+  Completed: 9,
+  Delivered: 9,
+};
+
+const ON_THE_WAY = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"];
+
+function toPoint(lat: unknown, lng: unknown): [number, number] | null {
+  return lat != null && lng != null ? [Number(lat), Number(lng)] : null;
+}
+
+/**
+ * Where the driver is going now: the map draws the route there and shows the ETA. A confirmed
+ * booking with a driver already assigned means the driver is on the way to pick the car up.
+ */
+function headingFor(status: string, hasDriver: boolean): "pickup" | "hub" | null {
+  if (ON_THE_WAY.includes(status) || (status === "Confirmed" && hasDriver)) return "pickup";
+  if (status === "Vehicle Picked Up") return "hub";
+  return null;
+}
+
+/** Display text for a booking, with fallbacks for older records. */
+function describe(booking: Booking, bookingId: string | number | undefined) {
+  const vehicle = booking.vehicle_details;
+  return {
+    serviceName: booking.service_type_details?.name || booking.serviceType || "Vehicle Service",
+    vehicleName: vehicle ? `${vehicle.brand} ${vehicle.model}` : "Your Vehicle",
+    regNumber: vehicle?.registration_number || vehicle?.registration || "",
+    centerName: booking.service_center_details?.name || "Doorstep Service Hub",
+    address: booking.pickup_address || booking.address || "Pickup address shared",
+    cost: booking.estimated_cost || booking.estimatedCost || "0",
+    refCode: booking.booking_reference || booking.booking_id || `#${bookingId}`,
+  };
+}
+
+function stepStyles(i: number, current: number) {
+  if (i === current) return { dot: "bg-brand ring-4 ring-brand/20", text: "font-bold text-brand-fg" };
+  if (i < current) return { dot: "bg-brand", text: "font-semibold text-zinc-700 dark:text-zinc-300" };
+  return { dot: "bg-zinc-300 dark:bg-zinc-700", text: "text-zinc-400" };
+}
+
+function Timeline({ current, title, label }: Readonly<{ current: number; title: string; label: (status: string) => string }>) {
+  return (
+    <div className="glass rounded-3xl p-6">
+      <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-4">{title}</h3>
+      {STEPS.map((s, i) => {
+        const style = stepStyles(i, current);
+        return (
+          <div key={s} className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <span className={`h-3.5 w-3.5 rounded-full ${style.dot}`} />
+              {i < STEPS.length - 1 && <span className={`h-6 w-0.5 ${i <= current ? "bg-brand" : "bg-zinc-200 dark:bg-zinc-800"}`} />}
+            </div>
+            <p className={`pb-4 text-sm ${style.text}`}>{label(s)}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StaffBadge({ title, person, phone, fallback }: Readonly<{ title: string; person?: { name?: string; email?: string } | null; phone?: string | null; fallback: string }>) {
+  return (
+    <div className="rounded-2xl bg-zinc-100/70 p-3 dark:bg-zinc-800/70">
+      <span className="text-zinc-400 font-bold uppercase block mb-0.5">{title}</span>
+      <p className="font-bold text-sm text-zinc-800 dark:text-zinc-100">{person ? person.name || person.email : fallback}</p>
+      {phone && <p className="text-zinc-500 font-mono mt-0.5">Phone: {phone}</p>}
+    </div>
+  );
+}
+
 export function Track() {
   const { data, loading, reload } = useApi<Booking[]>("/api/bookings/");
   const { push } = useToast();
@@ -62,52 +145,19 @@ export function Track() {
   if (loading) return <Skeleton className="h-64" />;
   if (!booking) return <Empty title={t("track.none")} hint={t("track.noneHint")} />;
 
-  const serviceName = booking.service_type_details?.name || booking.serviceType || "Vehicle Service";
-  const vehicleName = booking.vehicle_details
-    ? `${booking.vehicle_details.brand} ${booking.vehicle_details.model}`
-    : "Your Vehicle";
-  const regNumber = booking.vehicle_details?.registration_number || booking.vehicle_details?.registration || "";
-  const centerName = booking.service_center_details?.name || "Doorstep Service Hub";
-  const address = booking.pickup_address || booking.address || "Pickup address shared";
-  const cost = booking.estimated_cost || booking.estimatedCost || "0";
-  const refCode = booking.booking_reference || booking.booking_id || `#${bookingId}`;
-
+  const { serviceName, vehicleName, regNumber, centerName, address, cost, refCode } = describe(booking, bookingId);
   const currentStatus = booking.status || "Pending";
   const isCancellable = ["Pending", "Confirmed", "PENDING", "CONFIRMED"].includes(currentStatus);
-
-  // Status mapping to the timeline steps
-  let currentStepIdx = 0;
-  if (currentStatus === "Pending") currentStepIdx = 0;
-  else if (currentStatus === "Confirmed") currentStepIdx = 1;
-  else if (currentStatus === "Pickup Scheduled") currentStepIdx = 2;
-  else if (currentStatus === "Driver Assigned" || currentStatus === "En Route for Pickup" || currentStatus === "Arrived at Pickup") currentStepIdx = 3;
-  else if (currentStatus === "Vehicle Picked Up") currentStepIdx = 4;
-  else if (currentStatus === "In Service") currentStepIdx = 5;
-  else if (currentStatus === "Repair Approval Required") currentStepIdx = 6;
-  else if (currentStatus === "Ready for Delivery") currentStepIdx = 7;
-  else if (currentStatus === "Out for Delivery") currentStepIdx = 8;
-  else if (currentStatus === "Completed" || currentStatus === "Delivered") currentStepIdx = 9;
+  const currentStepIdx = STEP_OF_STATUS[currentStatus] ?? 0;
 
   const driver = trackingData?.assigned_driver || booking.assigned_driver_details;
   const mechanic = trackingData?.assigned_mechanic || booking.assigned_mechanic_details;
   const otpCode = trackingData?.handover_otp_code || booking.handover_otp;
   const deliveryOtp: string | null = trackingData?.delivery_otp_code ?? null;
-  const pickupPoint: [number, number] | null =
-    booking.pickup_latitude != null && booking.pickup_longitude != null
-      ? [Number(booking.pickup_latitude), Number(booking.pickup_longitude)]
-      : null;
-  const hubPoint: [number, number] | null =
-    booking.service_center_details?.latitude != null && booking.service_center_details?.longitude != null
-      ? [Number(booking.service_center_details.latitude), Number(booking.service_center_details.longitude)]
-      : null;
-
-  const isOnTheWay = ["Pickup Scheduled", "Driver Assigned", "En Route for Pickup", "Arrived at Pickup", "Out for Delivery"].includes(currentStatus);
-
-  // Where the driver is going now: the map draws the route there and shows the ETA. A confirmed
-  // booking with a driver already assigned means the driver is on the way to pick the car up.
-  let driverHeading: "pickup" | "hub" | null = null;
-  if (isOnTheWay || (currentStatus === "Confirmed" && driver)) driverHeading = "pickup";
-  else if (currentStatus === "Vehicle Picked Up") driverHeading = "hub";
+  const pickupPoint = toPoint(booking.pickup_latitude, booking.pickup_longitude);
+  const hubPoint = toPoint(booking.service_center_details?.latitude, booking.service_center_details?.longitude);
+  const isOnTheWay = ON_THE_WAY.includes(currentStatus);
+  const driverHeading = headingFor(currentStatus, !!driver);
 
   async function handleCancelBooking() {
     if (!isCancellable) return;
@@ -237,20 +287,8 @@ export function Track() {
 
         {/* Driver & Mechanic Staff Badges */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div className="rounded-2xl bg-zinc-100/70 p-3 dark:bg-zinc-800/70">
-            <span className="text-zinc-400 font-bold uppercase block mb-0.5">{t("track.valet")}</span>
-            <p className="font-bold text-sm text-zinc-800 dark:text-zinc-100">
-              {driver ? (driver.name || driver.email) : t("track.unassigned")}
-            </p>
-            {driver?.phone && <p className="text-zinc-500 font-mono mt-0.5">Phone: {driver.phone}</p>}
-          </div>
-
-          <div className="rounded-2xl bg-zinc-100/70 p-3 dark:bg-zinc-800/70">
-            <span className="text-zinc-400 font-bold uppercase block mb-0.5">{t("track.mechanic")}</span>
-            <p className="font-bold text-sm text-zinc-800 dark:text-zinc-100">
-              {mechanic ? (mechanic.name || mechanic.email) : t("track.unassigned")}
-            </p>
-          </div>
+          <StaffBadge title={t("track.valet")} person={driver} phone={driver?.phone} fallback={t("track.unassigned")} />
+          <StaffBadge title={t("track.mechanic")} person={mechanic} fallback={t("track.unassigned")} />
         </div>
 
         {/* Action Controls & Cancellation Button */}
@@ -286,44 +324,7 @@ export function Track() {
 
       {bookingId && <ConditionReportView key={String(bookingId)} bookingId={bookingId} />}
 
-      {/* Visual Timeline Tracker */}
-      <div className="glass rounded-3xl p-6">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-4">{t("track.timeline")}</h3>
-        {STEPS.map((s, i) => {
-          const stepDone = currentStepIdx >= 0 && i <= currentStepIdx;
-          const isCurrent = currentStepIdx >= 0 && i === currentStepIdx;
-
-          return (
-            <div key={s} className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <span
-                  className={`h-3.5 w-3.5 rounded-full ${
-                    isCurrent
-                      ? "bg-brand ring-4 ring-brand/20"
-                      : stepDone
-                      ? "bg-brand"
-                      : "bg-zinc-300 dark:bg-zinc-700"
-                  }`}
-                />
-                {i < STEPS.length - 1 && (
-                  <span className={`h-6 w-0.5 ${stepDone ? "bg-brand" : "bg-zinc-200 dark:bg-zinc-800"}`} />
-                )}
-              </div>
-              <p
-                className={`pb-4 text-sm ${
-                  isCurrent
-                    ? "font-bold text-brand-fg"
-                    : stepDone
-                    ? "font-semibold text-zinc-700 dark:text-zinc-300"
-                    : "text-zinc-400"
-                }`}
-              >
-                {statusLabel(s)}
-              </p>
-            </div>
-          );
-        })}
-      </div>
+      <Timeline current={currentStepIdx} title={t("track.timeline")} label={statusLabel} />
     </div>
   );
 }

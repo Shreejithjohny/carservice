@@ -21,11 +21,12 @@ import { MechanicDashboard } from "./pages/MechanicDashboard";
 import { Invoices } from "./pages/Invoices";
 import { VerifyInvoice } from "./pages/VerifyInvoice";
 import { Analytics } from "./pages/Analytics";
+import { Staff } from "./pages/Staff";
 import { ForgotPassword } from "./pages/ForgotPassword";
 import { Guard } from "./layouts/Guard";
 import { AppShell } from "./layouts/AppShell";
 
-function Fade({ children }: { children: ReactNode }) {
+function Fade({ children }: Readonly<{ children: ReactNode }>) {
   const loc = useLocation();
   return (
     <AnimatePresence mode="wait">
@@ -69,6 +70,7 @@ export function App() {
           <Route index element={<Fade><ServiceCenterDashboard /></Fade>} />
           <Route path="bookings" element={<Fade><ServiceCenterDashboard /></Fade>} />
           <Route path="analytics" element={<Fade><Analytics /></Fade>} />
+          <Route path="staff" element={<Fade><Staff /></Fade>} />
           <Route path="invoices" element={<Fade><Invoices /></Fade>} />
         </Route>
       </Route>
@@ -79,6 +81,7 @@ export function App() {
           <Route index element={<Fade><AdminHome /></Fade>} />
           <Route path="catalog" element={<Fade><AdminCatalog /></Fade>} />
           <Route path="analytics" element={<Fade><Analytics /></Fade>} />
+          <Route path="staff" element={<Fade><Staff /></Fade>} />
           <Route path="bookings" element={<Fade><ServiceCenterDashboard /></Fade>} />
           <Route path="invoices" element={<Fade><Invoices /></Fade>} />
         </Route>

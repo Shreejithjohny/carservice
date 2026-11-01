@@ -2383,3 +2383,71 @@ class AutoAssignmentTests(TestCase):
     def test_suggestions_are_manager_only(self):
         self.client.force_authenticate(user=self.customer)
         self.assertEqual(self.client.get(f"/api/service-center/bookings/{self.booking.id}/staff-suggestions/").status_code, 403)
+
+
+class StaffManagementTests(TestCase):
+    """Admins add drivers/mechanics to any center; managers only to their own; staff then sign in."""
+
+    PASSWORD = "Valet-Route-2048"
+
+    def setUp(self):
+        from api.models import Employee
+
+        self.center = ServiceCenter.objects.create(name="SM Central", address="Indiranagar", phone="+918000000031", email="sm1@example.com")
+        self.other = ServiceCenter.objects.create(name="SM North", address="Yelahanka", phone="+918000000032", email="sm2@example.com")
+        self.admin = User.objects.create_user(username="sm_a", email="sm_a@example.com", role=UserRole.ADMIN)
+        self.manager = User.objects.create_user(username="sm_m", email="sm_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        self.customer = User.objects.create_user(username="sm_c", email="sm_c@example.com", role=UserRole.CUSTOMER)
+        self.client = APIClient()
+
+    def add(self, user, **extra):
+        self.client.force_authenticate(user=user)
+        data = {"name": "Ravi Kumar", "email": "ravi@example.com", "phone": "9876500001", "password": self.PASSWORD, "role": "DRIVER", **extra}
+        return self.client.post("/api/staff/", data, format="json")
+
+    def test_manager_adds_a_driver_to_their_own_center_who_can_then_sign_in(self):
+        res = self.add(self.manager, service_center=self.other.id)  # another center is ignored for a manager
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["role"], UserRole.DRIVER)
+        self.assertEqual(res.data["service_center"]["id"], self.center.id)
+        self.assertEqual(res.data["phone"], "+919876500001")
+        self.assertTrue(res.data["is_available"])
+
+        self.client.force_authenticate(user=None)
+        login = self.client.post("/api/auth/login/", {"identifier": "ravi@example.com", "password": self.PASSWORD, "role": "DRIVER"}, format="json")
+        self.assertEqual(login.status_code, 200, login.data)
+        self.assertIn("access", login.data)
+
+    def test_admin_chooses_the_center_and_can_add_mechanics(self):
+        self.assertEqual(self.add(self.admin, role="MECHANIC").status_code, 400)  # no center chosen
+        res = self.add(self.admin, role="MECHANIC", service_center=self.other.id, speciality="AC and electricals")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["service_center"]["name"], "SM North")
+        self.assertEqual(res.data["speciality"], "AC and electricals")
+
+    def test_validation(self):
+        self.assertEqual(self.add(self.manager, role="ADMIN").status_code, 400)  # only drivers and mechanics
+        self.assertEqual(self.add(self.manager, role="SERVICE_CENTER_MANAGER").status_code, 400)
+        self.assertEqual(self.add(self.manager, password="12345678").status_code, 400)  # Django password rules
+        self.assertEqual(self.add(self.manager, email="sm_c@example.com").status_code, 400)  # email taken
+        self.assertEqual(self.add(self.manager, phone="12").status_code, 400)
+
+    def test_only_admins_and_managers(self):
+        self.assertEqual(self.add(self.customer).status_code, 403)
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get("/api/staff/").status_code, 401)
+
+    def test_managers_see_and_change_only_their_own_staff(self):
+        mine = self.add(self.manager).data
+        theirs = self.add(self.admin, email="far@example.com", phone="9876500002", service_center=self.other.id).data
+
+        self.client.force_authenticate(user=self.manager)
+        self.assertEqual([s["id"] for s in self.client.get("/api/staff/").data], [mine["id"]])
+        off = self.client.patch(f"/api/staff/{mine['id']}/", {"is_available": False}, format="json")
+        self.assertEqual(off.status_code, 200)
+        self.assertFalse(off.data["is_available"])
+        self.assertEqual(self.client.patch(f"/api/staff/{theirs['id']}/", {"is_available": False}, format="json").status_code, 404)
+
+        self.client.force_authenticate(user=self.admin)
+        self.assertEqual(len(self.client.get("/api/staff/").data), 2)

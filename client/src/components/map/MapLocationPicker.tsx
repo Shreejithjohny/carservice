@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AttributionControl, Map as MapLibreMap, Marker, NavigationControl } from "maplibre-gl";
 import { Clock, Crosshair, LoaderCircle, MapPin, Route, Search } from "lucide-react";
 import { api, ApiError } from "../../services/api";
-import { BENGALURU_PRESETS, drivingMinutes, haversineKm } from "../../utils/geo";
+import { BENGALURU_PRESETS } from "../../utils/geo";
+import { estimateTrip, useDrivingRoute } from "../../hooks/useDrivingRoute";
 import type { ServiceCenter } from "../../types";
 import { GPS_DOT_HTML, HUB_PIN_SMALL_SVG, HUB_PIN_SVG, MAP_STYLE_URL, PIN_SVG, markerElement, type LngLat } from "./setup";
 
@@ -161,9 +162,12 @@ export default function MapLocationPicker({ address, latitude, longitude, select
     );
   }
 
-  const centerPoint =
-    selectedCenter?.latitude != null && selectedCenter?.longitude != null ? ([selectedCenter.latitude, selectedCenter.longitude] as const) : null;
-  const km = centerPoint ? haversineKm(point[1], point[0], centerPoint[0], centerPoint[1]) : null;
+  const centerLL: LngLat | null =
+    selectedCenter?.latitude != null && selectedCenter?.longitude != null ? [Number(selectedCenter.longitude), Number(selectedCenter.latitude)] : null;
+  // Road distance once a pickup point is chosen (the default map centre isn't one)
+  const picked = latitude != null && longitude != null;
+  const road = useDrivingRoute(picked ? point : null, centerLL);
+  const trip = picked && centerLL ? estimateTrip(point, centerLL, road) : null;
   const [mainLine, ...rest] = address.split(",");
 
   return (
@@ -299,15 +303,17 @@ export default function MapLocationPicker({ address, latitude, longitude, select
         ))}
       </div>
 
-      {selectedCenter && km != null && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200/80 bg-white p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900">
-          <span className="font-semibold text-zinc-600 dark:text-zinc-400">To {selectedCenter.name} (straight line):</span>
+      {selectedCenter && trip && (
+        <div aria-label="Distance to the workshop" className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200/80 bg-white p-3 text-xs dark:border-zinc-800 dark:bg-zinc-900">
+          <span className="font-semibold text-zinc-600 dark:text-zinc-400">
+            To {selectedCenter.name} ({trip.byRoad ? "by road" : "straight line"}):
+          </span>
           <span className="flex items-center gap-3 font-bold">
             <span className="flex items-center gap-1 text-brand-fg">
-              <Route size={14} /> {km} km
+              <Route size={14} /> {trip.km} km
             </span>
             <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-              <Clock size={14} /> ~{drivingMinutes(km)} mins
+              <Clock size={14} /> ~{trip.minutes} mins
             </span>
           </span>
         </div>

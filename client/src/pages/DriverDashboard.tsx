@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useApi } from "../hooks/useApi";
 import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
@@ -145,7 +145,7 @@ export function DriverDashboard() {
                 onClick={() => handleVerifyOtp()}
                 className="w-full rounded-2xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                {verifyingOtp ? "Verifying..." : otpKind === "handover" ? "Verify & Pick Up" : "Verify & Hand Back"}
+                {verifyLabel(verifyingOtp, otpKind)}
               </button>
             </div>
 
@@ -243,79 +243,119 @@ export function DriverDashboard() {
                 )}
               </div>
 
-              {PICKUP_STAGE.includes(b.status) ? (
-                <>
-                  {gpsToggle}
-
-                  <PlateScanner bookingId={bId} verified={b.plate_verified} onVerified={reload} />
-
-                  <ConditionCapture bookingId={bId} stage="PICKUP" />
-
-                  {/* Workflow Step Actions */}
-                  <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                      Pickup Workflow Stage Controls
-                    </span>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                      <button
-                        onClick={() => handleStatusUpdate(b, "En Route for Pickup")}
-                        className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
-                      >
-                        En Route
-                      </button>
-
-                      <button
-                        onClick={() => handleStatusUpdate(b, "Arrived at Pickup")}
-                        className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
-                      >
-                        Arrived at Location
-                      </button>
-
-                      <button
-                        onClick={() => handleRequestOtp(b, "handover")}
-                        className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-brand py-2 font-bold text-white hover:bg-brand-hover"
-                      >
-                        <KeyRound size={14} /> Handover OTP
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : b.status === "Ready for Delivery" ? (
-                <button
-                  onClick={() => handleStatusUpdate(b, "Out for Delivery")}
-                  className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700"
-                >
-                  <Truck size={16} /> Start Return Delivery
-                </button>
-              ) : b.status === "Out for Delivery" ? (
-                <>
-                  {gpsToggle}
-                  <ConditionCapture bookingId={bId} stage="DELIVERY" />
-                  <button
-                    onClick={() => handleRequestOtp(b, "delivery")}
-                    className="w-full flex items-center justify-center gap-2 rounded-2xl bg-brand py-3 text-sm font-bold text-white hover:bg-brand-hover"
-                  >
-                    <KeyRound size={16} /> Hand Back Car (Delivery OTP)
-                  </button>
-                </>
-              ) : (
-                <>
-                  {b.status === "Vehicle Picked Up" && gpsToggle}
-                  <p className="rounded-2xl bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-800/60">
-                    {b.status === "Completed"
-                      ? "Car delivered back to the customer — job complete."
-                      : b.handover_otp_verified
-                        ? "Vehicle handed over — pickup complete. You will be notified when it is ready to deliver back."
-                        : `No driver actions while the booking is "${b.status}".`}
-                  </p>
-                </>
-              )}
+              <JobActions
+                booking={b}
+                bookingId={bId}
+                gpsPanel={gpsToggle}
+                onVerified={reload}
+                onStatus={(status) => void handleStatusUpdate(b, status)}
+                onOtp={(kind) => void handleRequestOtp(b, kind)}
+              />
             </article>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function verifyLabel(verifying: boolean, kind: OtpKind) {
+  if (verifying) return "Verifying...";
+  return kind === "handover" ? "Verify & Pick Up" : "Verify & Hand Back";
+}
+
+function idleMessage(booking: Booking) {
+  if (booking.status === "Completed") return "Car delivered back to the customer — job complete.";
+  if (booking.handover_otp_verified) return "Vehicle handed over — pickup complete. You will be notified when it is ready to deliver back.";
+  return `No driver actions while the booking is "${booking.status}".`;
+}
+
+/** What the driver can do on a job at its current stage. */
+function JobActions({
+  booking,
+  bookingId,
+  gpsPanel,
+  onVerified,
+  onStatus,
+  onOtp,
+}: Readonly<{
+  booking: Booking;
+  bookingId: string | number;
+  gpsPanel: ReactNode;
+  onVerified: () => void;
+  onStatus: (status: string) => void;
+  onOtp: (kind: OtpKind) => void;
+}>) {
+  if (PICKUP_STAGE.includes(booking.status)) {
+    return (
+      <>
+        {gpsPanel}
+
+        <PlateScanner bookingId={bookingId} verified={booking.plate_verified} onVerified={onVerified} />
+
+        <ConditionCapture bookingId={bookingId} stage="PICKUP" />
+
+        {/* Workflow Step Actions */}
+        <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+            Pickup Workflow Stage Controls
+          </span>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <button
+              onClick={() => onStatus("En Route for Pickup")}
+              className="rounded-xl border border-blue-200 bg-blue-50 py-2 font-bold text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400"
+            >
+              En Route
+            </button>
+
+            <button
+              onClick={() => onStatus("Arrived at Pickup")}
+              className="rounded-xl border border-amber-200 bg-amber-50 py-2 font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400"
+            >
+              Arrived at Location
+            </button>
+
+            <button
+              onClick={() => onOtp("handover")}
+              className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 rounded-xl bg-brand py-2 font-bold text-white hover:bg-brand-hover"
+            >
+              <KeyRound size={14} /> Handover OTP
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+  if (booking.status === "Ready for Delivery") {
+    return (
+      <button
+        onClick={() => onStatus("Out for Delivery")}
+        className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700"
+      >
+        <Truck size={16} /> Start Return Delivery
+      </button>
+    );
+  }
+  if (booking.status === "Out for Delivery") {
+    return (
+      <>
+        {gpsPanel}
+        <ConditionCapture bookingId={bookingId} stage="DELIVERY" />
+        <button
+          onClick={() => onOtp("delivery")}
+          className="w-full flex items-center justify-center gap-2 rounded-2xl bg-brand py-3 text-sm font-bold text-white hover:bg-brand-hover"
+        >
+          <KeyRound size={16} /> Hand Back Car (Delivery OTP)
+        </button>
+      </>
+    );
+  }
+  return (
+    <>
+      {booking.status === "Vehicle Picked Up" && gpsPanel}
+      <p className="rounded-2xl bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-800/60">{idleMessage(booking)}</p>
+    </>
   );
 }
 

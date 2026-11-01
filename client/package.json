@@ -12,7 +12,9 @@
     "test": "vitest run --dir src",
     "test:e2e": "playwright test",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json",
-    "e2e:install-browser": "playwright install --with-deps chromium"
+    "e2e:install-browser": "playwright install --with-deps chromium",
+    "dev:phone": "vite --mode phone",
+    "test:coverage": "vitest run --dir src --coverage.enabled --coverage.provider=v8 --coverage.include=src/** --coverage.reporter=lcov --coverage.reporter=text-summary --coverage.reportsDirectory=coverage"
   },
   "dependencies": {
     "framer-motion": "^12.23.12",
@@ -31,7 +33,9 @@
     "@types/node": "^22.20.5",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^5.0.2",
+    "@vitest/coverage-v8": "^3.2.7",
     "tailwindcss": "^4.1.12",
     "typescript": "^5.9.2",
     "vite": "^7.1.3",

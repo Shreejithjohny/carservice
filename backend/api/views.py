@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Avg, Q
+from django.db import transaction
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -45,6 +46,7 @@ from .serializers import (
     SendOTPSerializer,
     VerifyOTPSerializer,
     PasswordRegisterSerializer,
+    StaffCreateSerializer,
     UserSerializer,
     CarBrandSerializer,
     CarModelSerializer,
@@ -1507,6 +1509,95 @@ def service_center_employees_list(request):
         "drivers": UserSerializer(drivers, many=True).data,
         "mechanics": UserSerializer(mechanics, many=True).data,
     })
+
+
+def _staff_row(user):
+    employee = getattr(user, "employee_profile", None)
+    center = employee.service_center if employee else None
+    return {
+        "id": user.id,
+        "name": user.get_full_name() or user.username,
+        "email": user.email,
+        "phone": user.phone,
+        "role": user.role,
+        "service_center": {"id": center.id, "name": center.name} if center else None,
+        "speciality": employee.speciality if employee else "",
+        "is_available": employee.is_available if employee else True,
+    }
+
+
+def _staff_in_scope(user):
+    """Drivers and mechanics the user may see and manage: all for an admin, their center's for a manager."""
+    qs = User.objects.filter(role__in=[UserRole.DRIVER, UserRole.MECHANIC]).select_related("employee_profile__service_center")
+    if is_admin(user):
+        return qs
+    return qs.filter(employee_profile__service_center=manager_center(user))
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def staff_list_create(request):
+    """
+    GET  /api/staff/  -> the drivers and mechanics the admin or manager manages
+    POST /api/staff/  {"name", "email", "phone"?, "password", "role": DRIVER|MECHANIC,
+                       "service_center" (admin only; a manager always adds to their own), "speciality"?}
+    Staff then sign in on their own tab with that email and password, and can change the password.
+    """
+    error = manager_scope_error(request.user)
+    if error:
+        return error
+
+    if request.method == "GET":
+        return Response([_staff_row(u) for u in _staff_in_scope(request.user).order_by("role", "first_name", "id")])
+
+    serializer = StaffCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        errors = serializer.errors
+        first = next(iter(errors.values()))[0] if errors else "Invalid details."
+        return Response({"error": str(first), **errors}, status=status.HTTP_400_BAD_REQUEST)
+    data = serializer.validated_data
+
+    center = data.get("service_center") if is_admin(request.user) else manager_center(request.user)
+    if not center:
+        return Response({"error": "Choose the service center this person works at."}, status=status.HTTP_400_BAD_REQUEST)
+
+    first_name, _, last_name = data["name"].strip().partition(" ")
+    with transaction.atomic():
+        user = User(
+            email=data["email"],
+            username=f"{data['email'].split('@')[0]}_{timezone.now().strftime('%M%S%f')[:8]}",
+            phone=data.get("phone") or None,
+            first_name=first_name,
+            last_name=last_name,
+            role=data["role"],
+            is_verified=True,
+        )
+        user.set_password(data["password"])
+        user.save()
+        Employee.objects.create(
+            user=user,
+            service_center=center,
+            employee_type=Employee.EmployeeType.VALET if data["role"] == UserRole.DRIVER else Employee.EmployeeType.MECHANIC,
+            speciality=data.get("speciality", ""),
+        )
+    return Response(_staff_row(user), status=status.HTTP_201_CREATED)
+
+
+@api_view(["PATCH"])
+@permission_classes([IsAuthenticated])
+def staff_update(request, pk):
+    """PATCH /api/staff/<id>/ {"is_available": false} -> off duty (auto-assignment skips them)"""
+    error = manager_scope_error(request.user)
+    if error:
+        return error
+    member = _staff_in_scope(request.user).filter(pk=pk).first()
+    employee = getattr(member, "employee_profile", None) if member else None
+    if not employee:
+        return Response({"error": "Staff member not found."}, status=status.HTTP_404_NOT_FOUND)
+    if "is_available" in request.data:
+        employee.is_available = str(request.data["is_available"]).lower() in ("true", "1")
+        employee.save(update_fields=["is_available"])
+    return Response(_staff_row(member))
 
 
 # ==========================================

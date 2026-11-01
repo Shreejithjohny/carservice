@@ -21,3 +21,16 @@ test("each role has its own sign-in tab", async ({ page }) => {
   await page.getByRole("navigation", { name: "Sign in as" }).getByRole("link", { name: "Manager" }).click();
   await expect(page.getByRole("heading", { name: "Manager sign in" })).toBeVisible();
 });
+
+test("the demo button still appears when the page opens before the backend is ready", async ({ page }) => {
+  let calls = 0;
+  await page.route("**/api/health-check/", async (route) => {
+    calls += 1;
+    // The first two checks fail as if the backend were still starting
+    if (calls <= 2) await route.fulfill({ status: 502, body: "Bad Gateway" });
+    else await route.continue();
+  });
+  await page.goto("/login/driver");
+  await expect(page.getByRole("button", { name: /Try the demo driver account/ })).toBeVisible({ timeout: 15_000 });
+  expect(calls).toBeGreaterThanOrEqual(3);
+});

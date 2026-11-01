@@ -51,3 +51,4 @@ client/playwright-report/
 backend/.coverage
 backend/coverage.xml
 backend/htmlcov/
+client/coverage/
