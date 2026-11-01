@@ -79,3 +79,26 @@ export function remainingRoute(route: LngLatPair[], position: LngLatPair): { pat
 export function lerpPoint([lng1, lat1]: LngLatPair, [lng2, lat2]: LngLatPair, t: number): LngLatPair {
   return [lng1 + (lng2 - lng1) * t, lat1 + (lat2 - lat1) * t];
 }
+
+/**
+ * Points every `stepMeters` along a path, from its start to its end (both included), for a
+ * simulated drive that moves at an even pace along the road.
+ */
+export function pointsAlong(path: LngLatPair[], stepMeters: number): LngLatPair[] {
+  if (!path.length) return [];
+  const out: LngLatPair[] = [path[0]];
+  let carried = 0; // metres already travelled along the current segment towards the next point
+  for (let i = 1; i < path.length; i++) {
+    const segment = metersBetween(path[i - 1], path[i]);
+    let at = stepMeters - carried;
+    while (at <= segment) {
+      out.push(lerpPoint(path[i - 1], path[i], at / segment));
+      at += stepMeters;
+    }
+    carried = segment - (at - stepMeters);
+  }
+  const end = path[path.length - 1];
+  const last = out[out.length - 1];
+  if (last[0] !== end[0] || last[1] !== end[1]) out.push(end);
+  return out;
+}

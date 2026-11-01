@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BENGALURU_PRESETS, bearing, drivingMinutes, haversineKm, lerpPoint, metersBetween, pathKm, remainingRoute } from "./geo";
+import { BENGALURU_PRESETS, bearing, drivingMinutes, haversineKm, lerpPoint, metersBetween, pathKm, pointsAlong, remainingRoute } from "./geo";
 
 describe("haversineKm", () => {
   it("is zero for the same point", () => {
@@ -113,5 +113,36 @@ describe("road route helpers", () => {
     const mid = lerpPoint([77.6, 12.9], [77.8, 13.1], 0.5);
     expect(mid[0]).toBeCloseTo(77.7);
     expect(mid[1]).toBeCloseTo(13.0);
+  });
+});
+
+describe("pointsAlong", () => {
+  // About 1.11 km due north, as two segments of different length
+  const path: [number, number][] = [[77.6, 12.97], [77.6, 12.973], [77.6, 12.98]];
+
+  it("starts at the start, ends at the end, and keeps an even spacing", () => {
+    const pts = pointsAlong(path, 100);
+    expect(pts[0]).toEqual(path[0]);
+    expect(pts[pts.length - 1]).toEqual(path[2]);
+    // 1112 m at 100 m steps: 11 steps of 100 m plus the end point
+    expect(pts).toHaveLength(13);
+    for (let i = 1; i < pts.length - 1; i++) expect(metersBetween(pts[i - 1], pts[i])).toBeCloseTo(100, 0);
+    expect(metersBetween(pts[pts.length - 2], pts[pts.length - 1])).toBeLessThan(100);
+  });
+
+  it("keeps the spacing across a corner between segments", () => {
+    // 55.6 m north, then 162.6 m east
+    const corner: [number, number][] = [[77.6, 12.97], [77.6, 12.9705], [77.6015, 12.9705]];
+    const pts = pointsAlong(corner, 50);
+    // The second step (100 m along) is past the corner: 100 - 55.6 = 44.4 m along the east segment
+    expect(pts[2][1]).toBeCloseTo(12.9705, 6);
+    expect(metersBetween(corner[1], pts[2])).toBeCloseTo(44.4, 0);
+    expect(pts).toHaveLength(6); // 0, 50, 100, 150, 200 m and the end at 218 m
+  });
+
+  it("handles short and empty paths", () => {
+    expect(pointsAlong([], 100)).toEqual([]);
+    expect(pointsAlong([[77.6, 12.97]], 100)).toEqual([[77.6, 12.97]]);
+    expect(pointsAlong([[77.6, 12.97], [77.6, 12.9701]], 100)).toEqual([[77.6, 12.97], [77.6, 12.9701]]);
   });
 });

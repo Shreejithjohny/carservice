@@ -104,3 +104,52 @@ test("without a road route the ETA falls back to a labelled straight-line estima
   const eta = page.getByRole("region", { name: "Estimated arrival" });
   await expect(eta).toContainText("straight-line estimate");
 });
+
+test("the driver shares live GPS from the dashboard, and it stays on after a reload", async ({ page }) => {
+  await signIn(page, "driver");
+  const job = page.getByRole("article", { name: `Job ${reference}` });
+  const [sent] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith(`/api/driver/pickups/${bookingId}/location/`) && r.request().method() === "POST"),
+    job.getByRole("button", { name: "Enable GPS" }).click(),
+  ]);
+  expect(sent.status()).toBe(201);
+  // The test browser is placed at the Whitefield pickup point (playwright.config.ts)
+  expect(sent.request().postDataJSON()).toEqual({ latitude: 12.9698, longitude: 77.7499 });
+  await expect(job.getByText(/Customer can see you live/)).toBeVisible();
+
+  await page.reload();
+  await expect(job.getByRole("button", { name: "Stop sharing" })).toBeVisible();
+  await job.getByRole("button", { name: "Stop sharing" }).click();
+  await expect(job.getByText(/Not sharing/)).toBeVisible();
+});
+
+test("a blocked location permission is reported instead of pretending to track", async ({ page, context }) => {
+  await context.clearPermissions();
+  await signIn(page, "driver");
+  const job = page.getByRole("article", { name: `Job ${reference}` });
+  await job.getByRole("button", { name: "Enable GPS" }).click();
+  await expect(job.getByText(/Location permission is blocked/)).toBeVisible();
+  await job.getByRole("button", { name: "Stop sharing" }).click();
+});
+
+test("demo mode can simulate the drive along the road route", async ({ page, request }) => {
+  await page.route("**/api/location/route/**", (route) =>
+    route.fulfill({ json: { coordinates: [[77.6408, 12.9784], [77.7, 12.975], [77.7499, 12.9698]], distance_km: 12.1, duration_min: 30 } })
+  );
+  await signIn(page, "driver");
+  const job = page.getByRole("article", { name: `Job ${reference}` });
+  await job.getByRole("button", { name: "Simulate drive" }).click();
+  await expect(job.getByText(/Driving… position 3 of/)).toBeVisible({ timeout: 15_000 });
+  // GPS sharing is paused while the simulation runs
+  await expect(job.getByRole("button", { name: "Enable GPS" })).toBeDisabled();
+  await job.getByRole("button", { name: "Stop simulation" }).click();
+
+  // The customer's tracking data now holds the simulated positions, starting at the workshop
+  const login = await request.post("/api/auth/login/", { data: { identifier: ACCOUNTS.customer, password: PASSWORD } });
+  const headers = { Authorization: `Bearer ${(await login.json()).access}` };
+  const tracking = await (await request.get(`/api/bookings/${bookingId}/tracking/`, { headers })).json();
+  const simulated = tracking.driver_route.filter((p: { longitude: number }) => p.longitude < 77.72);
+  expect(simulated.length).toBeGreaterThanOrEqual(3);
+  expect(simulated[0].latitude).toBeCloseTo(12.9784, 3);
+  expect(simulated[0].longitude).toBeCloseTo(77.6408, 3);
+});

@@ -264,7 +264,13 @@ Optional: with `VITE_GOOGLE_MAPS_API_KEY` set in `client/.env` (Google Cloud bil
 
 ## Live tracking
 
-The driver dashboard posts the phone's GPS position every 10 seconds while "Enable GPS" is on. The customer's Track page works like delivery-app order tracking: a home pin for the customer, a wrench pin for the workshop, and the driver as a car that glides smoothly to each new GPS position and turns the way it is driving. The route still ahead follows the actual roads, and a card shows "Driver arriving in X min" with the distance by road. The map follows the driver until the customer moves it; "Re-centre" turns following back on. It refreshes every 10 seconds.
+**Driver side.** On a job, the driver taps **Enable GPS**. The phone's GPS is watched continuously and a position is sent at most every 10 seconds; when the driver stands still, the last position is re-sent so the customer still sees "Live". The choice is remembered if the page is reloaded, and the screen is kept awake while sharing (on browsers that support it). Problems are shown instead of hidden: location permission blocked, no GPS signal, server unreachable, or a page that is not on `https://`/`localhost`.
+
+Limits: this is a web page, not an installed app, so tracking stops when the driver locks the phone or switches apps. Browsers only allow GPS on `https://` addresses or `localhost`, so a phone opening the laptop's `http://192.168.x.x` address cannot share its location.
+
+**Demo: simulate the drive.** With `OTP_BYPASS=True` (demo mode), each job also has a **Simulate drive** button. It sends pretend GPS positions every 3 seconds along the road route (workshop → customer, or customer → workshop after pickup), taking about 2 minutes, so you can show the customer's Track page with the car moving without driving anywhere. Open the driver in one browser window and the customer's Track page in another (e.g. an Incognito window).
+
+**Customer side.** The customer's Track page works like delivery-app order tracking: a home pin for the customer, a wrench pin for the workshop, and the driver as a car that glides smoothly to each new GPS position and turns the way it is driving. The route still ahead follows the actual roads, and a card shows "Driver arriving in X min" with the distance by road. The map follows the driver until the customer moves it; "Re-centre" turns following back on. It refreshes every 10 seconds.
 
 Road routes come from **OSRM** (free, no API key) through the backend (`/api/location/route/`), cached for 10 minutes and limited to one request per second. A new route is fetched only when the driver leaves the current one. The public server (router.project-osrm.org) is a demo service with no uptime promise, and its times assume no traffic. If it is unreachable, the map shows a dashed straight line and the ETA is marked as a straight-line estimate. For heavier use, run your own OSRM server and set `ROUTING_URL` in `backend/.env`.
 
