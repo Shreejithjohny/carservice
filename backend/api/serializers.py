@@ -2,6 +2,7 @@ import re
 import uuid
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db.models import Avg, Count
 from rest_framework import serializers
 from .models import (
@@ -104,10 +105,14 @@ class SendOTPSerializer(serializers.Serializer):
 
     def validate_identifier(self, value):
         val = value.strip()
-        is_email = "@" in val
+        if "@" in val:
+            try:
+                validate_email(val)
+            except DjangoValidationError:
+                raise serializers.ValidationError("Please provide a valid email address or mobile phone number.")
+            return val
         cleaned_num = re.sub(r"[\s\-\(\)\.]+", "", val)
-        is_phone = bool(re.match(r"^\+?[0-9]{10,15}$", cleaned_num))
-        if not is_email and not is_phone:
+        if not re.match(r"^\+?[0-9]{10,15}$", cleaned_num):
             raise serializers.ValidationError("Please provide a valid email address or mobile phone number.")
         return val
 

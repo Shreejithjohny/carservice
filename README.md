@@ -253,7 +253,9 @@ Set these in `backend/.env` (or the server environment):
 | `FRONTEND_URL` | Public URL of the React app (invoice QR codes link to `FRONTEND_URL/verify/...`) |
 | `OTP_BYPASS` | `False` — **never** enable in production; it allows signing in to any existing account without a code |
 | `PAYMENT_GATEWAY` | Leave empty: online payment is turned off and customers pay at the service center. `mock` is a test gateway only — it moves no real money. |
-| `TWILIO_*` and/or `EMAIL_*` | An SMS or email provider. Without one, OTP requests fail with an error in production. |
+| `EMAIL_*` and/or `TWILIO_*` | How one-time codes are delivered. Email (e.g. Gmail SMTP with an App Password) is free; Twilio sends SMS and costs money per message. Without SMS, people who enter a mobile number are asked to use their email instead; without either, code requests fail with an error. |
+| `OTP_SEND_LIMIT_*`, `OTP_SEND_DAILY_LIMIT`, `OTP_VERIFY_LIMIT_PER_IP` | Rate limits on sending and checking codes, so nobody can run up your email/SMS bill or guess codes. The defaults (5 codes per address per hour, 10 per IP per hour, 400 per day in total, 30 code checks per IP per hour) suit a small launch; keep the daily total under your provider's quota. |
+| `NUM_PROXIES` | `1` if the API runs behind one reverse proxy or load balancer (most hosts), so the limits see each visitor's real IP. Leave `0` when Django is reached directly. |
 | `USE_MYSQL`, `DB_*` | Optional MySQL connection |
 
 The frontend's `predev`/`prebuild` scripts copy the OCR engine and English language data from
