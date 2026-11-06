@@ -44,8 +44,6 @@ from .models import (
     ServiceReview,
 )
 from .serializers import (
-    SendOTPSerializer,
-    VerifyOTPSerializer,
     PasswordRegisterSerializer,
     StaffCreateSerializer,
     UserSerializer,
@@ -70,8 +68,8 @@ from .serializers import (
     NotificationSerializer,
     ServiceReviewSerializer,
 )
-from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number, otp_delivery_error
-from .otp_rate_limit import otp_send_limit_error, otp_verify_limit_error, record_otp_send
+from .otp_service import generate_otp_code, normalize_phone_number
+from .google_auth_service import GoogleSignInError, GoogleUnavailableError, verify_google_credential
 from .ai_cost_service import estimate_repair_cost
 from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .invoice_pdf import build_invoice_pdf, invoice_from_token
@@ -316,6 +314,7 @@ def health_check(request):
         "backend": "Django REST Framework",
         "demo_login": getattr(settings, "OTP_BYPASS", False),
         "payment_gateway": payment_gateway() or None,
+        "google_client_id": settings.GOOGLE_CLIENT_ID or None,
     })
 
 
@@ -328,11 +327,11 @@ def health_check(request):
 def bypass_login(request):
     """
     POST /api/auth/bypass-login/
-    Demo login without OTP. Only available when settings.OTP_BYPASS is enabled.
+    Demo login without a password. Only available when settings.OTP_BYPASS is enabled.
     Existing accounts keep their own role; new accounts may take any non-admin role.
     """
     if not getattr(settings, "OTP_BYPASS", False):
-        return Response({"error": "Demo login is disabled. Please sign in with an OTP."}, status=status.HTTP_403_FORBIDDEN)
+        return Response({"error": "Demo login is disabled. Please sign in with your password or Google."}, status=status.HTTP_403_FORBIDDEN)
 
     identifier = str(request.data.get("identifier") or "").strip()
     requested_role = str(request.data.get("role") or UserRole.CUSTOMER).upper()
@@ -385,9 +384,6 @@ def bypass_login(request):
             )
 
     user.is_verified = True
-    user.otp_code = None
-    user.otp_expires_at = None
-    user.otp_attempts = 0
     if provided_name:
         user.first_name = provided_name
     user.save()
@@ -410,198 +406,6 @@ def bypass_login(request):
     }, status=status.HTTP_200_OK)
 
 
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def send_otp(request):
-    serializer = SendOTPSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({"error": serializer.errors.get("identifier", ["Invalid request"])[0]}, status=status.HTTP_400_BAD_REQUEST)
-
-    identifier = serializer.validated_data["identifier"]
-    bypass_active = getattr(settings, "OTP_BYPASS", False)
-
-    # Before any account is looked up or created: can a code be delivered, and is this caller
-    # within the rate limits (per email/number, per IP, and for the whole server)?
-    delivery_error = None if bypass_active else otp_delivery_error(identifier)
-    if delivery_error:
-        return Response({"error": delivery_error}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-    limit_error = otp_send_limit_error(request, identifier)
-    if limit_error:
-        return limit_error
-
-    # Self sign-up always creates a customer; staff accounts are created by an admin.
-    is_email = "@" in identifier
-
-    if is_email:
-        user = User.objects.filter(email__iexact=identifier).first()
-        if not user:
-            username = identifier.split("@")[0] + f"_{timezone.now().strftime('%M%S')}"
-            user = User.objects.create(email=identifier.lower(), username=username, role=UserRole.CUSTOMER)
-        target_identifier = identifier
-    else:
-        norm_phone = normalize_phone_number(identifier)
-        clean_phone = identifier.replace(" ", "").replace("-", "")
-        user = User.objects.filter(phone=norm_phone).first() or User.objects.filter(phone=clean_phone).first()
-        if not user:
-            clean_digits = re.sub(r"\D", "", norm_phone)
-            username = f"user_{clean_digits[-4:]}_{timezone.now().strftime('%M%S')}"
-            dummy_email = f"{clean_digits}@smartdoorstep.local"
-            user = User.objects.create(phone=norm_phone, email=dummy_email, username=username, role=UserRole.CUSTOMER)
-        else:
-            if user.phone != norm_phone:
-                user.phone = norm_phone
-                user.save(update_fields=["phone"])
-        target_identifier = norm_phone
-
-    # In production, check cooldown. In bypass/dev mode, allow instant resend.
-    if not bypass_active and user.otp_last_sent_at:
-        elapsed = (timezone.now() - user.otp_last_sent_at).total_seconds()
-        if elapsed < 60:
-            remaining = int(60 - elapsed)
-            return Response(
-                {"error": f"Please wait {remaining} seconds before requesting a new OTP.", "cooldown_seconds": remaining},
-                status=status.HTTP_429_TOO_MANY_REQUESTS
-            )
-
-    record_otp_send(request, identifier)
-    otp_code = generate_otp_code()
-    user.otp_code = otp_code
-    user.otp_expires_at = timezone.now() + timedelta(minutes=5)
-    user.otp_attempts = 0
-    user.otp_last_sent_at = timezone.now()
-    user.save()
-
-    send_result = send_otp_to_identifier(target_identifier, otp_code)
-
-    if not send_result.get("success", False) and not bypass_active:
-        user.otp_last_sent_at = None
-        user.save(update_fields=["otp_last_sent_at"])
-        return Response(
-            {"error": send_result.get("error", "Unable to send OTP. Please try again.")},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-    resp_data = {
-        "message": (
-            f"Verification code sent to {identifier}."
-            if send_result.get("provider") != "console"
-            else "Email/SMS sending isn't set up on the server, so the code was printed in the backend terminal "
-                 "(development mode). See EMAIL_* in backend/.env.example."
-        ),
-        "identifier": identifier,
-        "cooldown_seconds": 0 if bypass_active else 60,
-        "expires_in_minutes": 5,
-        "provider": send_result.get("provider", "console"),
-    }
-    if bypass_active:
-        resp_data["otp_code"] = otp_code
-        resp_data["bypass_code"] = "123456"
-
-    return Response(resp_data, status=status.HTTP_200_OK)
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def verify_otp(request):
-    serializer = VerifyOTPSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response({"error": "Invalid request payload. Please provide identifier and 6-digit OTP code."}, status=status.HTTP_400_BAD_REQUEST)
-
-    identifier = serializer.validated_data["identifier"]
-    otp_code = serializer.validated_data["otp_code"].strip()
-    provided_name = serializer.validated_data.get("name", "").strip()
-
-    limit_error = otp_verify_limit_error(request, identifier)
-    if limit_error:
-        return limit_error
-
-    bypass_active = getattr(settings, "OTP_BYPASS", False)
-    is_universal_bypass = bypass_active and (
-        otp_code in ["123456", "000000", "999999", "111111"] or otp_code.lower() == "bypass"
-    )
-
-    is_email = "@" in identifier
-    if is_email:
-        user = User.objects.filter(email__iexact=identifier).first()
-    else:
-        norm_phone = normalize_phone_number(identifier)
-        clean_phone = identifier.replace(" ", "").replace("-", "")
-        user = User.objects.filter(phone=norm_phone).first() or User.objects.filter(phone=clean_phone).first()
-
-    if not user:
-        if bypass_active:
-            # Auto-create user on the fly in bypass mode
-            if is_email:
-                username = identifier.split("@")[0] + f"_{timezone.now().strftime('%M%S')}"
-                user = User.objects.create(email=identifier.lower(), username=username, role=UserRole.CUSTOMER)
-            else:
-                clean_digits = re.sub(r"\D", "", norm_phone) or "0000"
-                username = f"user_{clean_digits[-4:]}_{timezone.now().strftime('%M%S')}"
-                dummy_email = f"{clean_digits}@smartdoorstep.local"
-                user = User.objects.create(phone=norm_phone, email=dummy_email, username=username, role=UserRole.CUSTOMER)
-        else:
-            return Response({"error": "No user found with this identifier. Please request an OTP first."}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Verification checks
-    if not is_universal_bypass:
-        if not user.otp_code or not user.otp_expires_at:
-            if not bypass_active:
-                return Response({"error": "No active OTP request found. Please request a new OTP code."}, status=status.HTTP_400_BAD_REQUEST)
-
-        elif timezone.now() > user.otp_expires_at:
-            if not bypass_active:
-                user.otp_code = None
-                user.otp_expires_at = None
-                user.save()
-                return Response({"error": "OTP has expired. Please request a new code."}, status=status.HTTP_400_BAD_REQUEST)
-
-        elif user.otp_attempts >= 5:
-            if not bypass_active:
-                user.otp_code = None
-                user.otp_expires_at = None
-                user.save()
-                return Response({"error": "Maximum verification attempts exceeded. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
-
-        elif user.otp_code != otp_code:
-            if not bypass_active:
-                user.otp_attempts += 1
-                user.save()
-                remaining_attempts = 5 - user.otp_attempts
-                if remaining_attempts <= 0:
-                    user.otp_code = None
-                    user.otp_expires_at = None
-                    user.save()
-                    return Response({"error": "Maximum verification attempts exceeded. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
-                return Response({"error": f"Invalid OTP code. {remaining_attempts} attempt(s) remaining.", "remaining_attempts": remaining_attempts}, status=status.HTTP_400_BAD_REQUEST)
-
-    user.otp_code = None
-    user.otp_expires_at = None
-    user.otp_attempts = 0
-    user.is_verified = True
-
-    if provided_name:
-        user.first_name = provided_name
-    user.save()
-
-    if user.role == UserRole.CUSTOMER and not hasattr(user, "customer_profile"):
-        CustomerProfile.objects.create(user=user)
-
-    refresh = RefreshToken.for_user(user)
-    access_token = str(refresh.access_token)
-    refresh_token = str(refresh)
-
-    user_data = UserSerializer(user).data
-
-    return Response({
-        "message": "OTP verified successfully.",
-        "token": access_token,
-        "access": access_token,
-        "refresh": refresh_token,
-        "user": user_data
-    }, status=status.HTTP_200_OK)
-
-
-
 # ==========================================
 # EMAIL + PASSWORD SIGN-IN
 # ==========================================
@@ -610,9 +414,18 @@ MAX_PASSWORD_ATTEMPTS = 5
 PASSWORD_LOCK_MINUTES = 15
 
 
-def auth_tokens_response(user, message, status_code=status.HTTP_200_OK):
+# A Google sign-in less than this long ago may set a new password without the current one
+# ("Forgot password?": prove you own the email with Google, then choose a new password).
+GOOGLE_PASSWORD_RESET_WINDOW = timedelta(minutes=15)
+
+
+def auth_tokens_response(user, message, status_code=status.HTTP_200_OK, google=False):
     refresh = RefreshToken.for_user(user)
-    access_token = str(refresh.access_token)
+    access = refresh.access_token
+    if google:
+        # Only on this access token, not the refresh token, so it can't be renewed past the window
+        access["google_signin_at"] = int(timezone.now().timestamp())
+    access_token = str(access)
     return Response({
         "message": message,
         "token": access_token,
@@ -620,6 +433,22 @@ def auth_tokens_response(user, message, status_code=status.HTTP_200_OK):
         "refresh": str(refresh),
         "user": UserSerializer(user).data,
     }, status=status_code)
+
+
+def wrong_sign_in_tab(request, user):
+    """
+    When the sign-in page sends the role of the tab used (e.g. DRIVER), an account of another role
+    is refused and told which tab to use. Only call this once the user has proved who they are.
+    """
+    expected_role = str(request.data.get("role") or "").upper()
+    account_role = UserRole.ADMIN if is_admin(user) else user.role
+    if expected_role in UserRole.values and expected_role != account_role:
+        label = UserRole(account_role).label
+        return Response(
+            {"error": f"This is a {label} account. Please use the {label} sign-in.", "account_role": account_role},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
 
 
 def find_user_by_identifier(identifier):
@@ -712,14 +541,9 @@ def password_login(request):
     user.password_locked_until = None
     user.save(update_fields=["password_attempts", "password_locked_until"])
 
-    expected_role = str(request.data.get("role") or "").upper()
-    account_role = UserRole.ADMIN if is_admin(user) else user.role
-    if expected_role in UserRole.values and expected_role != account_role:
-        label = UserRole(account_role).label
-        return Response(
-            {"error": f"This is a {label} account. Please use the {label} sign-in.", "account_role": account_role},
-            status=status.HTTP_403_FORBIDDEN,
-        )
+    wrong_tab = wrong_sign_in_tab(request, user)
+    if wrong_tab:
+        return wrong_tab
 
     if user.role == UserRole.CUSTOMER and not hasattr(user, "customer_profile"):
         CustomerProfile.objects.create(user=user)
@@ -728,82 +552,70 @@ def password_login(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
-def password_reset_request(request):
+def google_login(request):
     """
-    POST /api/auth/password-reset/request/  {"identifier"}
-    Sends a 6-digit reset code by SMS/email. The reply is the same whether or not the account
-    exists, so this cannot be used to find out who is registered.
+    POST /api/auth/google/  {"credential": ID token from Google's sign-in button, "role" (optional)}
+    Signs in the account with the Google account's (verified) email. With no such account, a
+    customer account is created; staff accounts are still created by an admin.
     """
-    identifier = str(request.data.get("identifier") or "").strip()
-    if not identifier:
-        return Response({"error": "Enter your email or mobile number."}, status=status.HTTP_400_BAD_REQUEST)
+    client_id = settings.GOOGLE_CLIENT_ID
+    if not client_id:
+        return Response({"error": "Google sign-in is not set up on this server."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    credential = str(request.data.get("credential") or "").strip()
+    if not credential:
+        return Response({"error": "Missing Google credential."}, status=status.HTTP_400_BAD_REQUEST)
 
-    reply = {"message": "If an account exists for that email or number, a reset code has been sent.", "expires_in_minutes": 10}
-    # Limits are checked before the account lookup, so a 429 says nothing about who is registered
-    limit_error = otp_send_limit_error(request, identifier)
-    if limit_error:
-        return limit_error
-    # Every request counts, whether or not the account exists or is in its cooldown, so the limits
-    # behave identically for registered and unregistered addresses.
-    record_otp_send(request, identifier)
-    user = find_user_by_identifier(identifier)
+    try:
+        claims = verify_google_credential(credential, client_id)
+    except GoogleUnavailableError:
+        return Response({"error": "Couldn't reach Google. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except GoogleSignInError:
+        return Response({"error": "Google sign-in failed. Please try again."}, status=status.HTTP_400_BAD_REQUEST)
+
+    email = claims["email"].strip().lower()
+    user = User.objects.filter(email__iexact=email).first()
     if user is None:
-        return Response(reply)
+        expected_role = str(request.data.get("role") or "").upper()
+        if expected_role and expected_role != UserRole.CUSTOMER:
+            return Response(
+                {"error": "No staff account uses this Google email. Staff accounts are created by an admin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = User(
+            email=email,
+            username=f"{email.split('@')[0][:120]}_{timezone.now().strftime('%M%S%f')[:8]}",
+            first_name=str(claims.get("given_name") or "")[:150],
+            last_name=str(claims.get("family_name") or "")[:150],
+            role=UserRole.CUSTOMER,
+            is_verified=True,
+        )
+        user.set_unusable_password()
+        user.save()
+        CustomerProfile.objects.create(user=user)
+        return auth_tokens_response(user, "Account created.", status.HTTP_201_CREATED, google=True)
 
-    bypass_active = getattr(settings, "OTP_BYPASS", False)
-    if not bypass_active and user.otp_last_sent_at and (timezone.now() - user.otp_last_sent_at).total_seconds() < 60:
-        return Response(reply)  # cooldown: don't resend, but don't reveal that either
+    if not user.is_active:
+        return Response({"error": "This account is disabled."}, status=status.HTTP_403_FORBIDDEN)
+    wrong_tab = wrong_sign_in_tab(request, user)
+    if wrong_tab:
+        return wrong_tab
 
-    code = generate_otp_code()
-    user.otp_code = code
-    user.otp_expires_at = timezone.now() + timedelta(minutes=10)
-    user.otp_attempts = 0
-    user.otp_last_sent_at = timezone.now()
-    user.save(update_fields=["otp_code", "otp_expires_at", "otp_attempts", "otp_last_sent_at"])
-    target = identifier if "@" in identifier else (user.phone or identifier)
-    send_otp_to_identifier(target, code)
-    if bypass_active:
-        reply["otp_code"] = code  # local demo only, same as the OTP sign-in flow
-    return Response(reply)
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def password_reset_confirm(request):
-    """
-    POST /api/auth/password-reset/confirm/  {"identifier", "otp_code", "new_password"}
-    A correct, unexpired code sets the new password and signs the user in.
-    """
-    identifier = str(request.data.get("identifier") or "").strip()
-    code = str(request.data.get("otp_code") or "").strip()
-    new_password = str(request.data.get("new_password") or "")
-    invalid = Response({"error": "Invalid or expired reset code."}, status=status.HTTP_400_BAD_REQUEST)
-
-    limit_error = otp_verify_limit_error(request, identifier)
-    if limit_error:
-        return limit_error
-    user = find_user_by_identifier(identifier)
-    if user is None or not user.otp_code or not user.otp_expires_at or timezone.now() > user.otp_expires_at:
-        return invalid
-    if user.otp_attempts >= 5:
-        return Response({"error": "Too many wrong codes. Request a new reset code."}, status=status.HTTP_400_BAD_REQUEST)
-    if code != user.otp_code:
-        user.otp_attempts += 1
-        user.save(update_fields=["otp_attempts"])
-        return invalid
-
-    error = password_error(new_password, user)
-    if error:
-        return error
-
-    user.set_password(new_password)
-    user.otp_code = None
-    user.otp_expires_at = None
-    user.otp_attempts = 0
+    # Google has just confirmed the email, which also clears a password lockout
+    user.is_verified = True
     user.password_attempts = 0
     user.password_locked_until = None
-    user.save()
-    return auth_tokens_response(user, "Password updated.")
+    user.save(update_fields=["is_verified", "password_attempts", "password_locked_until"])
+    if user.role == UserRole.CUSTOMER and not hasattr(user, "customer_profile"):
+        CustomerProfile.objects.create(user=user)
+    return auth_tokens_response(user, "Signed in successfully.", google=True)
+
+
+def recent_google_sign_in(request):
+    signed_in_at = request.auth.get("google_signin_at") if request.auth is not None else None
+    if not signed_in_at:
+        return False
+    age = timezone.now().timestamp() - int(signed_in_at)
+    return 0 <= age <= GOOGLE_PASSWORD_RESET_WINDOW.total_seconds()
 
 
 @api_view(["POST"])
@@ -811,11 +623,13 @@ def password_reset_confirm(request):
 def change_password(request):
     """
     POST /api/auth/change-password/  {"current_password", "new_password"}
-    Accounts created by OTP have no password yet and may set one without a current password.
+    The current password is not needed when the account has none yet (created with Google or the old
+    OTP sign-in), or within 15 minutes of signing in with Google (how "Forgot password?" works).
     """
     user = request.user
     new_password = str(request.data.get("new_password") or "")
-    if user.has_password() and not user.check_password(str(request.data.get("current_password") or "")):
+    current_needed = user.has_password() and not recent_google_sign_in(request)
+    if current_needed and not user.check_password(str(request.data.get("current_password") or "")):
         return Response({"error": "Your current password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
     error = password_error(new_password, user)
     if error:

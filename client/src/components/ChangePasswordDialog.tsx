@@ -5,7 +5,7 @@ import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
 import { PasswordField, PASSWORD_HINT } from "./PasswordField";
 
-/** Change (or, for accounts created with a one-time code, first set) the signed-in user's password. */
+/** Change (or, for accounts created with Google, first set) the signed-in user's password. */
 export function ChangePasswordDialog({ onClose }: Readonly<{ onClose: () => void }>) {
   const { user, changePassword } = useAuth();
   const { push } = useToast();
