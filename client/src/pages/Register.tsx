@@ -4,12 +4,13 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
 import { PasswordField, PASSWORD_HINT } from "../components/PasswordField";
+import { GoogleSignInButton, OrDivider } from "../components/GoogleSignInButton";
 
 const INPUT =
   "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand";
 
 export function Register() {
-  const { register, sendOtp } = useAuth();
+  const { register, googleLogin } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
 
@@ -37,18 +38,15 @@ export function Register() {
     }
   }
 
-  // Alternative: create the account with a one-time code instead of a password
-  async function onUseOtp() {
-    if (name.trim().length < 2 || !email.trim()) {
-      return push({ title: "Enter your name and email first", tone: "err" });
-    }
+  // Alternative: create the account (or sign in, if it exists) with Google instead of a password
+  async function onGoogle(credential: string) {
     setBusy(true);
     try {
-      const res = await sendOtp(email.trim());
-      push({ title: res.message || `Verification code sent to ${email}` });
-      void navigate("/verify-otp", { state: { identifier: email.trim(), name: name.trim() } });
+      const user = await googleLogin(credential, "customer");
+      push({ title: `Welcome to DoorStep, ${user.name}!` });
+      void navigate("/app");
     } catch (err) {
-      push({ title: err instanceof ApiError ? err.message : "Could not send the code", tone: "err" });
+      push({ title: err instanceof ApiError ? err.message : "Google sign-in failed", tone: "err" });
     } finally {
       setBusy(false);
     }
@@ -101,16 +99,8 @@ export function Register() {
           >
             {busy ? "Please wait..." : "Create account"}
           </button>
-          <div className="text-center">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onUseOtp()}
-              className="text-xs font-semibold text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-300"
-            >
-              Register with a one-time code instead
-            </button>
-          </div>
+          <OrDivider />
+          <GoogleSignInButton onCredential={(credential) => void onGoogle(credential)} text="signup_with" />
         </form>
 
         <p className="mt-4 text-center text-sm text-zinc-500">

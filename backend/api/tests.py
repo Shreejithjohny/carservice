@@ -774,19 +774,13 @@ class Phase9To11CompleteOperationsTests(TestCase):
 
 
 # ==========================================
-# TWILIO PROGRAMMABLE SMS OTP TESTS (10 CRITERIA)
+# PHONE NUMBER NORMALIZATION
 # ==========================================
-from unittest.mock import patch, MagicMock
-from datetime import timedelta
-from django.utils import timezone
-from api.otp_service import normalize_phone_number, OTP_SMS_TEMPLATE
+from unittest.mock import patch
+from api.otp_service import normalize_phone_number
 
 
-@override_settings(OTP_CONSOLE_FALLBACK=True)
-class TwilioProgrammableSMSOTPTests(TestCase):
-    def setUp(self):
-        self.client = APIClient()
-
+class PhoneNumberNormalizationTests(TestCase):
     def test_phone_number_normalization(self):
         # 10-digit Indian number normalized to E.164
         self.assertEqual(normalize_phone_number("9876543210"), "+919876543210")
@@ -805,213 +799,6 @@ class TwilioProgrammableSMSOTPTests(TestCase):
         # International numbers preserved
         self.assertEqual(normalize_phone_number("+14155552671"), "+14155552671")
         self.assertEqual(normalize_phone_number("+447911123456"), "+447911123456")
-
-    @patch("twilio.rest.Client")
-    def test_1_and_2_otp_request_and_sent_via_twilio(self, mock_twilio_client):
-        # 1. OTP request works with Twilio credentials
-        # 2. OTP is actually sent through Twilio
-        mock_instance = MagicMock()
-        mock_twilio_client.return_value = mock_instance
-        mock_message = MagicMock()
-        mock_message.sid = "SM_TEST_123456789"
-        mock_instance.messages.create.return_value = mock_message
-
-        with patch.dict("os.environ", {
-            "TWILIO_ACCOUNT_SID": "AC_MOCK_ACCOUNT_SID",
-            "TWILIO_AUTH_TOKEN": "MOCK_AUTH_TOKEN",
-            "TWILIO_PHONE_NUMBER": "+15005550006"
-        }):
-            res = self.client.post(
-                "/api/auth/send-otp/",
-                {"identifier": "9876543210", "role": "CUSTOMER"},
-                format="json"
-            )
-            self.assertEqual(res.status_code, status.HTTP_200_OK)
-            self.assertEqual(res.data["provider"], "twilio_sms")
-
-            # Verify Twilio Client initialized with SID and Token
-            mock_twilio_client.assert_called_once_with("AC_MOCK_ACCOUNT_SID", "MOCK_AUTH_TOKEN")
-
-            # Verify Twilio messages.create called with normalized number and exact SMS template
-            user = User.objects.get(phone="+919876543210")
-            expected_body = (
-                f"Smart Doorstep Vehicle Service:\n"
-                f"Your OTP is {user.otp_code}.\n"
-                f"It is valid for 5 minutes.\n"
-                f"Do not share this OTP with anyone."
-            )
-            mock_instance.messages.create.assert_called_once_with(
-                body=expected_body,
-                from_="+15005550006",
-                to="+919876543210"
-            )
-
-    @patch("twilio.rest.Client")
-    def test_3_otp_not_present_in_api_response(self, mock_twilio_client):
-        # 3. OTP is NOT present in the API response (both Twilio and fallback)
-        mock_instance = MagicMock()
-        mock_twilio_client.return_value = mock_instance
-        mock_message = MagicMock()
-        mock_message.sid = "SM_MOCK_SID"
-        mock_instance.messages.create.return_value = mock_message
-
-        with patch.dict("os.environ", {
-            "TWILIO_ACCOUNT_SID": "AC_TEST",
-            "TWILIO_AUTH_TOKEN": "AUTH_TEST",
-            "TWILIO_PHONE_NUMBER": "+15005550006"
-        }):
-            res_twilio = self.client.post("/api/auth/send-otp/", {"identifier": "+919811122233"}, format="json")
-            self.assertEqual(res_twilio.status_code, status.HTTP_200_OK)
-            self.assertNotIn("otp", res_twilio.data)
-            self.assertNotIn("otp_code", res_twilio.data)
-            user_twilio = User.objects.get(phone="+919811122233")
-            self.assertNotIn(user_twilio.otp_code, str(res_twilio.data))
-
-        # Test in console fallback mode
-        with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}):
-            res_console = self.client.post("/api/auth/send-otp/", {"identifier": "+919822233344"}, format="json")
-            self.assertEqual(res_console.status_code, status.HTTP_200_OK)
-            self.assertNotIn("otp", res_console.data)
-            self.assertNotIn("otp_code", res_console.data)
-            user_console = User.objects.get(phone="+919822233344")
-            self.assertNotIn(user_console.otp_code, str(res_console.data))
-
-    def test_4_otp_verification_success_and_jwt(self):
-        # 4. OTP verification still works
-        self.client.post("/api/auth/send-otp/", {"identifier": "9876500001"}, format="json")
-        user = User.objects.get(phone="+919876500001")
-        valid_otp = user.otp_code
-
-        res_verify = self.client.post(
-            "/api/auth/verify-otp/",
-            {"identifier": "9876500001", "otp_code": valid_otp, "name": "Aarav Sharma"},
-            format="json"
-        )
-        self.assertEqual(res_verify.status_code, status.HTTP_200_OK)
-        self.assertIn("access", res_verify.data)
-        self.assertIn("refresh", res_verify.data)
-        self.assertIn("user", res_verify.data)
-        self.assertEqual(res_verify.data["user"]["phone"], "+919876500001")
-
-        user.refresh_from_db()
-        self.assertTrue(user.is_verified)
-        self.assertIsNone(user.otp_code)
-        self.assertIsNone(user.otp_expires_at)
-
-    def test_5_invalid_otp_is_rejected(self):
-        # 5. Invalid OTP is rejected
-        self.client.post("/api/auth/send-otp/", {"identifier": "9876500002"}, format="json")
-        res_bad = self.client.post(
-            "/api/auth/verify-otp/",
-            {"identifier": "9876500002", "otp_code": "000000"},
-            format="json"
-        )
-        self.assertEqual(res_bad.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Invalid OTP code", res_bad.data["error"])
-        self.assertEqual(res_bad.data["remaining_attempts"], 4)
-
-    def test_6_expired_otp_is_rejected(self):
-        # 6. Expired OTP is rejected
-        self.client.post("/api/auth/send-otp/", {"identifier": "9876500003"}, format="json")
-        user = User.objects.get(phone="+919876500003")
-        valid_otp = user.otp_code
-
-        # Force expiration in past
-        user.otp_expires_at = timezone.now() - timedelta(minutes=1)
-        user.save()
-
-        res_expired = self.client.post(
-            "/api/auth/verify-otp/",
-            {"identifier": "9876500003", "otp_code": valid_otp},
-            format="json"
-        )
-        self.assertEqual(res_expired.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("expired", res_expired.data["error"].lower())
-
-    def test_7_sixth_verification_attempt_is_blocked(self):
-        # 7. Sixth verification attempt is blocked (max 5 attempts)
-        self.client.post("/api/auth/send-otp/", {"identifier": "9876500004"}, format="json")
-
-        for attempt in range(1, 5):
-            res = self.client.post(
-                "/api/auth/verify-otp/",
-                {"identifier": "9876500004", "otp_code": "111111"},
-                format="json"
-            )
-            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(res.data["remaining_attempts"], 5 - attempt)
-
-        # 5th failed attempt exhausts quota
-        res_5th = self.client.post(
-            "/api/auth/verify-otp/",
-            {"identifier": "9876500004", "otp_code": "111111"},
-            format="json"
-        )
-        self.assertEqual(res_5th.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Maximum verification attempts exceeded", res_5th.data["error"])
-
-        # 6th attempt is completely blocked
-        res_6th = self.client.post(
-            "/api/auth/verify-otp/",
-            {"identifier": "9876500004", "otp_code": "111111"},
-            format="json"
-        )
-        self.assertEqual(res_6th.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_8_resend_within_60_seconds_is_blocked(self):
-        # 8. Resend within 60 seconds is blocked
-        res1 = self.client.post("/api/auth/send-otp/", {"identifier": "9876500005"}, format="json")
-        self.assertEqual(res1.status_code, status.HTTP_200_OK)
-
-        res2 = self.client.post("/api/auth/send-otp/", {"identifier": "9876500005"}, format="json")
-        self.assertEqual(res2.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertIn("cooldown_seconds", res2.data)
-        self.assertIn("Please wait", res2.data["error"])
-
-    def test_9_missing_twilio_credentials_uses_dev_fallback(self):
-        # 9. Missing Twilio credentials use development fallback
-        with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}):
-            res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500006"}, format="json")
-            self.assertEqual(res.status_code, status.HTTP_200_OK)
-            self.assertEqual(res.data["provider"], "console")
-            # The page must not claim a code was sent when it was only printed in the terminal
-            self.assertIn("printed in the backend terminal", res.data["message"])
-
-    def test_10_existing_jwt_login_flow_still_works(self):
-        # 10. Existing JWT login flow still works
-        self.client.post("/api/auth/send-otp/", {"identifier": "9876500007"}, format="json")
-        user = User.objects.get(phone="+919876500007")
-        res_verify = self.client.post(
-            "/api/auth/verify-otp/",
-            {"identifier": "9876500007", "otp_code": user.otp_code},
-            format="json"
-        )
-        self.assertEqual(res_verify.status_code, status.HTTP_200_OK)
-        access_token = res_verify.data["access"]
-
-        # Access authenticated /api/auth/me/
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
-        res_me = self.client.get("/api/auth/me/")
-        self.assertEqual(res_me.status_code, status.HTTP_200_OK)
-        self.assertEqual(res_me.data["phone"], "+919876500007")
-
-    @patch("twilio.rest.Client")
-    def test_twilio_failure_returns_clean_error(self, mock_twilio_client):
-        # Verify clean error handling without leaking secrets or exceptions
-        mock_instance = MagicMock()
-        mock_twilio_client.return_value = mock_instance
-        mock_instance.messages.create.side_effect = Exception("Twilio 21211: The 'To' number is not a valid phone number")
-
-        with patch.dict("os.environ", {
-            "TWILIO_ACCOUNT_SID": "AC_INVALID",
-            "TWILIO_AUTH_TOKEN": "AUTH_INVALID",
-            "TWILIO_PHONE_NUMBER": "+15005550006"
-        }):
-            res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500008"}, format="json")
-            self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-            self.assertEqual(res.data["error"], "Unable to send OTP. Please try again.")
-            self.assertNotIn("Twilio 21211", str(res.data))
-            self.assertNotIn("AC_INVALID", str(res.data))
 
 
 class AuthSecurityTests(TestCase):
@@ -1054,24 +841,6 @@ class AuthSecurityTests(TestCase):
         self.assertEqual(res_driver.status_code, status.HTTP_200_OK)
         self.assertEqual(User.objects.get(email="newdriver@example.com").role, UserRole.DRIVER)
         self.assertTrue(self.client.get("/api/health-check/").data["demo_login"])
-
-    @override_settings(OTP_CONSOLE_FALLBACK=True)
-    def test_otp_signup_always_creates_customer(self):
-        res = self.client.post("/api/auth/send-otp/", {"identifier": "wannabe@example.com", "role": "ADMIN"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        user = User.objects.get(email="wannabe@example.com")
-        self.assertEqual(user.role, UserRole.CUSTOMER)
-        self.assertFalse(user.is_staff)
-        self.assertRegex(user.otp_code, r"^[0-9]{6}$")
-
-    @override_settings(OTP_CONSOLE_FALLBACK=False, EMAIL_HOST="")
-    def test_missing_otp_provider_is_an_error_in_production(self):
-        with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}):
-            res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500099"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("not configured", res.data["error"])
-        # Refused before an account is created
-        self.assertFalse(User.objects.filter(phone="+919876500099").exists())
 
 
 class InvoicePaymentAndTrackingTests(TestCase):
@@ -2106,7 +1875,7 @@ class PasswordAuthTests(TestCase):
         user.save()
         self.assertEqual(self.login("meera@example.com", "Garage#Blue77").status_code, 200)
 
-    def test_otp_only_account_has_no_password_and_can_set_one(self):
+    def test_account_without_password_can_set_one(self):
         otp_user = User.objects.create(email="otp@example.com", username="otp_user", role=UserRole.CUSTOMER)
         self.assertEqual(self.login("otp@example.com", "").status_code, 400)
         self.client.force_authenticate(user=otp_user)
@@ -2118,28 +1887,6 @@ class PasswordAuthTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.client.force_authenticate(user=None)
         self.assertEqual(self.login("otp@example.com", "Fresh#Start42").status_code, 200)
-
-    def test_password_reset_with_emailed_code(self):
-        self.register()
-        res = self.client.post("/api/auth/password-reset/request/", {"identifier": "meera@example.com"}, format="json")
-        unknown = self.client.post("/api/auth/password-reset/request/", {"identifier": "ghost@example.com"}, format="json")
-        self.assertEqual(res.data["message"], unknown.data["message"])  # no account discovery
-        self.assertNotIn("otp_code", res.data)  # never returned outside demo mode
-        code = User.objects.get(email="meera@example.com").otp_code
-
-        wrong = "000000" if code != "000000" else "111111"
-        body = {"identifier": "meera@example.com", "otp_code": wrong, "new_password": "Brand#New2026"}
-        self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)
-        body["otp_code"] = code
-        body["new_password"] = "123"
-        self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)
-        body["new_password"] = "Brand#New2026"
-        res = self.client.post("/api/auth/password-reset/confirm/", body, format="json")
-        self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(self.login("meera@example.com", "Brand#New2026").status_code, 200)
-        self.assertEqual(self.login("meera@example.com", "Garage#Blue77").status_code, 400)
-        # The code works only once
-        self.assertEqual(self.client.post("/api/auth/password-reset/confirm/", body, format="json").status_code, 400)
 
 
 @override_settings(OTP_BYPASS=False)
@@ -2530,187 +2277,140 @@ class AvatarTests(TestCase):
 
 
 # ==========================================
-# EMAIL OTP DELIVERY AND OTP RATE LIMITS
+# SIGN IN WITH GOOGLE (and "forgot password" through it)
 # ==========================================
-from django.core import mail
-from api.models import OtpRequestLog
+from google.auth import exceptions as google_exceptions
+from rest_framework_simplejwt.tokens import AccessToken
+from api import google_auth_service
+from api.google_auth_service import GoogleSignInError, GoogleUnavailableError
+from api.models import CustomerProfile
 
-NO_TWILIO = {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}
+
+def google_claims(email="meera@gmail.com", **extra):
+    return {"email": email, "email_verified": True, "given_name": "Meera", "family_name": "Nair", **extra}
 
 
-@override_settings(
-    OTP_BYPASS=False,
-    OTP_CONSOLE_FALLBACK=False,
-    EMAIL_HOST="smtp.example.com",
-    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-    OTP_SEND_LIMIT_PER_IDENTIFIER=5,
-    OTP_SEND_LIMIT_PER_IP=10,
-    OTP_SEND_DAILY_LIMIT=400,
-    OTP_VERIFY_LIMIT_PER_IP=30,
-)
-class EmailOtpAndRateLimitTests(TestCase):
+@override_settings(OTP_BYPASS=False, GOOGLE_CLIENT_ID="test-client.apps.googleusercontent.com")
+class GoogleSignInTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        env = patch.dict("os.environ", NO_TWILIO)
-        env.start()
-        self.addCleanup(env.stop)
 
-    def send(self, identifier, ip="10.0.0.1", **extra):
-        return self.client.post("/api/auth/send-otp/", {"identifier": identifier}, format="json", REMOTE_ADDR=ip, **extra)
+    def google(self, claims=None, role=None, error=None):
+        body = {"credential": "google-id-token"}
+        if role:
+            body["role"] = role
+        with patch("api.views.verify_google_credential", side_effect=error, return_value=claims or google_claims()) as verify:
+            res = self.client.post("/api/auth/google/", body, format="json")
+        if error is None:
+            verify.assert_called_once_with("google-id-token", "test-client.apps.googleusercontent.com")
+        return res
 
-    def end_cooldown(self, email):
-        User.objects.filter(email__iexact=email).update(otp_last_sent_at=timezone.now() - timedelta(minutes=2))
-
-    def test_email_otp_is_sent_by_email_and_signs_in(self):
-        res = self.send("Asha@Example.com")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["provider"], "email")
-        self.assertNotIn("otp_code", res.data)
-        self.assertEqual(len(mail.outbox), 1)
-        user = User.objects.get(email="asha@example.com")
-        self.assertEqual(mail.outbox[0].to, ["Asha@Example.com"])
-        self.assertIn(user.otp_code, mail.outbox[0].body)
-
-        res = self.client.post("/api/auth/verify-otp/", {"identifier": "asha@example.com", "otp_code": user.otp_code}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+    def test_new_google_user_becomes_a_customer_without_password(self):
+        res = self.google()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        user = User.objects.get(email="meera@gmail.com")
+        self.assertEqual(user.role, UserRole.CUSTOMER)
+        self.assertEqual(user.get_full_name(), "Meera Nair")
+        self.assertTrue(user.is_verified)
+        self.assertFalse(user.has_password())
+        self.assertFalse(res.data["user"]["has_password"])
+        self.assertTrue(CustomerProfile.objects.filter(user=user).exists())
         self.assertIn("access", res.data)
 
-    def test_phone_without_sms_provider_is_told_to_use_email(self):
-        res = self.send("9876511111")
+    def test_existing_account_signs_in_by_email_and_lockout_is_cleared(self):
+        user = User.objects.create_user(username="meera", email="Meera@Gmail.com", password="Garage#Blue77", role=UserRole.CUSTOMER)
+        user.password_attempts = 3
+        user.password_locked_until = timezone.now() + timedelta(minutes=10)
+        user.save()
+        res = self.google()
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data["user"]["id"], user.id)
+        self.assertEqual(User.objects.filter(email__iexact="meera@gmail.com").count(), 1)
+        user.refresh_from_db()
+        self.assertIsNone(user.password_locked_until)
+        self.assertTrue(user.check_password("Garage#Blue77"))  # password unchanged
+
+    def test_staff_account_on_wrong_tab_is_pointed_to_its_tab(self):
+        User.objects.create_user(username="drv", email="driver1@gmail.com", role=UserRole.DRIVER)
+        res = self.google(google_claims("driver1@gmail.com"), role="CUSTOMER")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data["account_role"], UserRole.DRIVER)
+        self.assertEqual(self.google(google_claims("driver1@gmail.com"), role="DRIVER").status_code, status.HTTP_200_OK)
+
+    def test_google_cannot_create_staff_accounts(self):
+        res = self.google(google_claims("newdriver@gmail.com"), role="DRIVER")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(User.objects.filter(email="newdriver@gmail.com").exists())
+
+    def test_disabled_account_is_refused(self):
+        User.objects.create_user(username="gone", email="meera@gmail.com", role=UserRole.CUSTOMER, is_active=False)
+        self.assertEqual(self.google().status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_bad_credential_and_google_outage(self):
+        self.assertEqual(self.google(error=GoogleSignInError("expired")).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.google(error=GoogleUnavailableError("timeout")).status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(self.client.post("/api/auth/google/", {}, format="json").status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(User.objects.exists())
+
+    @override_settings(GOOGLE_CLIENT_ID="")
+    def test_not_configured(self):
+        res = self.client.post("/api/auth/google/", {"credential": "x"}, format="json")
         self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertIn("email", res.data["error"])
-        self.assertFalse(User.objects.filter(phone="+919876511111").exists())
-        self.assertEqual(len(mail.outbox), 0)
+        self.assertIsNone(self.client.get("/api/health-check/").data["google_client_id"])
 
-    def test_malformed_email_is_rejected(self):
-        for bad in ["a@", "@example.com", "not an@email"]:
-            res = self.send(bad)
-            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, bad)
-        self.assertEqual(len(mail.outbox), 0)
+    def test_health_check_gives_the_frontend_the_client_id(self):
+        self.assertEqual(self.client.get("/api/health-check/").data["google_client_id"], "test-client.apps.googleusercontent.com")
 
-    @override_settings(OTP_SEND_LIMIT_PER_IDENTIFIER=2)
-    def test_codes_per_email_are_limited(self):
-        for _ in range(2):
-            self.assertEqual(self.send("ravi@example.com").status_code, status.HTTP_200_OK)
-            self.end_cooldown("ravi@example.com")
-        # Different IP, same address: still limited, and differently-cased address counts as the same
-        res = self.send("RAVI@example.com", ip="10.0.0.99")
-        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertIn("this email or number", res.data["error"])
-        self.assertGreater(res.data["retry_after_seconds"], 0)
-        self.assertEqual(res["Retry-After"], str(res.data["retry_after_seconds"]))
-        self.assertEqual(len(mail.outbox), 2)
+    def test_forgot_password_via_google_sets_a_new_password_without_the_old_one(self):
+        User.objects.create_user(username="meera", email="meera@gmail.com", password="Garage#Blue77", role=UserRole.CUSTOMER)
+        token = self.google().data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        res = self.client.post("/api/auth/change-password/", {"new_password": "Brand#New2026"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.client.credentials()
+        login = self.client.post("/api/auth/login/", {"identifier": "meera@gmail.com", "password": "Brand#New2026"}, format="json")
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
 
-    def test_resend_blocked_by_cooldown_does_not_use_up_the_hourly_allowance(self):
-        self.send("meena@example.com")
-        self.assertEqual(self.send("meena@example.com").status_code, status.HTTP_429_TOO_MANY_REQUESTS)  # 60 s cooldown
-        self.assertEqual(OtpRequestLog.objects.filter(identifier="meena@example.com").count(), 1)
-
-    @override_settings(OTP_SEND_LIMIT_PER_IP=2)
-    def test_codes_per_ip_are_limited_and_no_account_is_created(self):
-        self.assertEqual(self.send("one@example.com").status_code, status.HTTP_200_OK)
-        self.assertEqual(self.send("two@example.com").status_code, status.HTTP_200_OK)
-        res = self.send("three@example.com")
-        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertIn("your network", res.data["error"])
-        self.assertFalse(User.objects.filter(email="three@example.com").exists())
-        # Another IP is unaffected
-        self.assertEqual(self.send("three@example.com", ip="10.0.0.2").status_code, status.HTTP_200_OK)
-
-    @override_settings(OTP_SEND_LIMIT_PER_IP=1)
-    def test_forged_forwarded_for_header_does_not_bypass_ip_limit(self):
-        self.assertEqual(self.send("x1@example.com", HTTP_X_FORWARDED_FOR="1.1.1.1").status_code, status.HTTP_200_OK)
-        res = self.send("x2@example.com", HTTP_X_FORWARDED_FOR="2.2.2.2")
-        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-
-    @override_settings(OTP_SEND_DAILY_LIMIT=2)
-    def test_server_wide_daily_cap(self):
-        self.assertEqual(self.send("d1@example.com", ip="10.0.1.1").status_code, status.HTTP_200_OK)
-        self.assertEqual(self.send("d2@example.com", ip="10.0.1.2").status_code, status.HTTP_200_OK)
-        res = self.send("d3@example.com", ip="10.0.1.3")
-        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(len(mail.outbox), 2)
-
-    @override_settings(OTP_SEND_LIMIT_PER_IDENTIFIER=1)
-    def test_old_sends_fall_out_of_the_window_and_are_pruned(self):
-        OtpRequestLog.objects.create(action=OtpRequestLog.SEND, identifier="old@example.com", ip_address="10.0.0.1",
-                                     created_at=timezone.now() - timedelta(hours=2))
-        OtpRequestLog.objects.create(action=OtpRequestLog.SEND, identifier="older@example.com", ip_address="10.0.0.1",
-                                     created_at=timezone.now() - timedelta(days=3))
-        self.assertEqual(self.send("old@example.com").status_code, status.HTTP_200_OK)
-        self.assertFalse(OtpRequestLog.objects.filter(identifier="older@example.com").exists())
-
-    @override_settings(OTP_VERIFY_LIMIT_PER_IP=3)
-    def test_code_checks_per_ip_are_limited(self):
-        self.send("guess@example.com")
-        user = User.objects.get(email="guess@example.com")
-        wrong = "000000" if user.otp_code != "000000" else "111111"
-        for _ in range(3):
-            res = self.client.post("/api/auth/verify-otp/", {"identifier": "guess@example.com", "otp_code": wrong},
-                                   format="json", REMOTE_ADDR="10.0.0.1")
+    def test_password_sign_in_or_old_google_sign_in_still_needs_the_current_password(self):
+        User.objects.create_user(username="meera", email="meera@gmail.com", password="Garage#Blue77", role=UserRole.CUSTOMER)
+        password_token = self.client.post(
+            "/api/auth/login/", {"identifier": "meera@gmail.com", "password": "Garage#Blue77"}, format="json"
+        ).data["access"]
+        stale = AccessToken(self.google().data["access"])
+        stale["google_signin_at"] = int((timezone.now() - timedelta(minutes=16)).timestamp())
+        for token in (password_token, str(stale)):
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            res = self.client.post("/api/auth/change-password/", {"new_password": "Brand#New2026"}, format="json")
             self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        res = self.client.post("/api/auth/verify-otp/", {"identifier": "guess@example.com", "otp_code": user.otp_code},
-                               format="json", REMOTE_ADDR="10.0.0.1")
-        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        # The reset-code check shares the same per-IP budget
-        res = self.client.post("/api/auth/password-reset/confirm/",
-                               {"identifier": "guess@example.com", "otp_code": user.otp_code, "new_password": "Str0ng-pass-word"},
-                               format="json", REMOTE_ADDR="10.0.0.1")
-        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertIn("current password", res.data["error"])
 
-    @override_settings(OTP_SEND_LIMIT_PER_IDENTIFIER=2)
-    def test_password_reset_limit_is_the_same_for_known_and_unknown_addresses(self):
-        User.objects.create_user(username="known", email="known@example.com", password="Str0ng-pass-word")
-        results = {}
-        for address in ["known@example.com", "ghost@example.com"]:
-            codes = [self.client.post("/api/auth/password-reset/request/", {"identifier": address}, format="json",
-                                      REMOTE_ADDR="10.0.2.1").status_code for _ in range(3)]
-            results[address] = codes
-        self.assertEqual(results["known@example.com"], [200, 200, 429])
-        self.assertEqual(results["ghost@example.com"], [200, 200, 429])
-
-    @override_settings(OTP_BYPASS=True, OTP_SEND_LIMIT_PER_IP=1, OTP_VERIFY_LIMIT_PER_IP=1)
-    def test_limits_are_off_in_local_demo_mode(self):
-        for i in range(3):
-            self.assertEqual(self.send(f"demo{i}@example.com").status_code, status.HTTP_200_OK)
-        self.assertFalse(OtpRequestLog.objects.exists())
+    def test_otp_sign_in_endpoints_are_gone(self):
+        for path in ["/api/auth/send-otp/", "/api/auth/verify-otp/", "/api/auth/password-reset/request/",
+                     "/api/auth/password-reset/confirm/"]:
+            self.assertEqual(self.client.post(path, {"identifier": "a@b.com"}, format="json").status_code, 404, path)
 
 
-# ==========================================
-# EMAIL SETUP DIAGNOSTICS
-# ==========================================
-import smtplib
-from io import StringIO
-from django.core.management import call_command
-from django.core.management.base import CommandError
-from api.management.commands.check_email import explain
+class GoogleCredentialVerificationTests(TestCase):
+    """The checks around google-auth's own signature/expiry/audience verification."""
 
+    def verify(self, claims=None, error=None):
+        with patch.object(google_auth_service.id_token, "verify_oauth2_token", side_effect=error, return_value=claims) as v:
+            result = google_auth_service.verify_google_credential("tok", "client-id")
+        self.assertEqual(v.call_args.args[0], "tok")
+        self.assertEqual(v.call_args.args[2], "client-id")  # audience = our client ID
+        return result
 
-class EmailSetupDiagnosticsTests(TestCase):
-    @override_settings(OTP_BYPASS=False, OTP_CONSOLE_FALLBACK=True, EMAIL_HOST="")
-    def test_console_fallback_does_not_claim_the_code_was_sent(self):
-        with patch.dict("os.environ", NO_TWILIO):
-            res = APIClient().post("/api/auth/send-otp/", {"identifier": "dev@example.com"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["provider"], "console")
-        self.assertNotIn("sent to", res.data["message"])
-        self.assertIn("backend terminal", res.data["message"])
+    def test_verified_email_is_accepted(self):
+        self.assertEqual(self.verify(google_claims())["email"], "meera@gmail.com")
 
-    @override_settings(EMAIL_HOST="smtp.example.com", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-                       EMAIL_HOST_PASSWORD="secret-value", DEFAULT_FROM_EMAIL="me@example.com")
-    def test_check_email_sends_a_test_email_without_printing_the_password(self):
-        out = StringIO()
-        call_command("check_email", "asha@example.com", stdout=out)
-        self.assertEqual(mail.outbox[0].to, ["asha@example.com"])
-        self.assertIn("Sent.", out.getvalue())
-        self.assertNotIn("secret-value", out.getvalue())
+    def test_unverified_or_missing_email_is_refused(self):
+        with self.assertRaises(GoogleSignInError):
+            self.verify(google_claims(email_verified=False))
+        with self.assertRaises(GoogleSignInError):
+            self.verify({"email_verified": True})
 
-    @override_settings(EMAIL_HOST="")
-    def test_check_email_explains_missing_settings(self):
-        with self.assertRaisesMessage(CommandError, "backend/.env"):
-            call_command("check_email", "asha@example.com", stdout=StringIO())
-
-    @override_settings(EMAIL_HOST="smtp.gmail.com")
-    def test_gmail_login_failure_points_to_app_passwords(self):
-        self.assertIn("App Password", explain(smtplib.SMTPAuthenticationError(535, b"Username and Password not accepted")))
-        self.assertIn("587", explain(smtplib.SMTPNotSupportedError("STARTTLS extension not supported by server.")))
+    def test_invalid_token_and_network_failure(self):
+        with self.assertRaises(GoogleSignInError):
+            self.verify(error=ValueError("Token used too late"))
+        with self.assertRaises(GoogleUnavailableError):
+            self.verify(error=google_exceptions.TransportError("no route"))

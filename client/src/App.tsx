@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Landing } from "./pages/Landing";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
-import { VerifyOtp } from "./pages/VerifyOtp";
 import { Dashboard } from "./pages/Dashboard";
 import { Vehicles } from "./pages/Vehicles";
 import { Book } from "./pages/Book";
@@ -44,7 +43,6 @@ export function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/login/:slug" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/verify-otp" element={<VerifyOtp />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/verify/:token" element={<VerifyInvoice />} />
 

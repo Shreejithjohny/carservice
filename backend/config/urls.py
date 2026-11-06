@@ -9,7 +9,7 @@ def api_root(request):
     return JsonResponse({
         "message": "Smart Doorstep API is running.",
         "status": "ok",
-        "routes": ["/api/health-check/", "/api/auth/send-otp/", "/api/auth/verify-otp/"],
+        "routes": ["/api/health-check/", "/api/auth/login/", "/api/auth/google/"],
     })
 
 
