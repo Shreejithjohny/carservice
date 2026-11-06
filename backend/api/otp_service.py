@@ -145,7 +145,11 @@ def send_otp_to_identifier(identifier: str, otp_code: str) -> dict:
                 logger.info(f"OTP email sent to {identifier}")
                 return {"success": True, "provider": "email"}
             except Exception as e:
-                logger.error(f"Failed to send OTP email to {identifier}: {str(e)}", exc_info=True)
+                logger.error(
+                    f"Failed to send OTP email to {identifier}: {str(e)}. "
+                    f"Run `python manage.py check_email {identifier}` for the likely fix.",
+                    exc_info=True,
+                )
                 return {
                     "success": False,
                     "error": "Unable to send OTP. Please try again.",

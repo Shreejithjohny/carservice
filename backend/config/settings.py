@@ -163,12 +163,25 @@ SIMPLE_JWT = {
 }
 
 # Email delivery for OTPs (used when EMAIL_HOST is set)
+# (`python manage.py check_email you@example.com` sends a test email and explains any error.)
 EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL") or "noreply@smartdoorstep.com"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "").strip()
+if EMAIL_HOST.lower() == "smtp.gmail.com":
+    # Google shows App Passwords as "abcd efgh ijkl mnop"; Gmail needs them without the spaces
+    EMAIL_HOST_PASSWORD = EMAIL_HOST_PASSWORD.replace(" ", "")
+# Port 465 speaks SSL from the first byte; 587 (and most others) start plain and switch with STARTTLS.
+# Django refuses both at once, so 465 turns TLS off unless EMAIL_USE_SSL/EMAIL_USE_TLS say otherwise.
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", str(EMAIL_PORT == 465)).lower() in ("true", "1", "t")
+EMAIL_USE_TLS = (not EMAIL_USE_SSL) and os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
+# Most providers (Gmail included) only send From the signed-in address or a verified sender, so
+# default to the login address rather than a made-up one that could be rejected or sent to spam.
+DEFAULT_FROM_EMAIL = (
+    os.getenv("DEFAULT_FROM_EMAIL", "").strip()
+    or (EMAIL_HOST_USER if "@" in EMAIL_HOST_USER else "")
+    or "noreply@smartdoorstep.com"
+)
 # Seconds to wait for the mail server before giving up (so a stuck SMTP server can't hang requests)
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 

@@ -482,7 +482,12 @@ def send_otp(request):
         )
 
     resp_data = {
-        "message": f"Verification code sent to {identifier}.",
+        "message": (
+            f"Verification code sent to {identifier}."
+            if send_result.get("provider") != "console"
+            else "Email/SMS sending isn't set up on the server, so the code was printed in the backend terminal "
+                 "(development mode). See EMAIL_* in backend/.env.example."
+        ),
         "identifier": identifier,
         "cooldown_seconds": 0 if bypass_active else 60,
         "expires_in_minutes": 5,

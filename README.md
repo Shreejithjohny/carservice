@@ -189,6 +189,7 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | `SECRET_KEY must be set when DEBUG is off` | `backend/.env` is missing. Do Step 3 |
 | `Port 5173 is already in use` or `port 8000 is already in use` | The app is already running in another terminal. Close it with Ctrl + C, or close that terminal |
 | `no such table` or `no such column` errors | Run `npm run migrate:django` |
+| Sign-in codes don't arrive by email | The login page says the code was "printed in the backend terminal": the `EMAIL_*` settings aren't loaded. They belong in `backend/.env` (next to `manage.py`), and the backend must be restarted after editing it. Otherwise run `python backend/manage.py check_email you@example.com`: it shows the settings Django loaded, sends a test email and explains the error (for Gmail usually a normal password instead of an App Password). Also check Spam. |
 | The login page has no demo buttons | Open http://localhost:8000/api/health-check/. If `"demo_login"` is `false`, add `OTP_BYPASS=True` to `backend/.env` and restart. If the page doesn't open, the backend isn't running. (The sign-in page keeps checking for 2 minutes, so a backend that starts late is fine.) |
 | A driver's phone says "Browsers only allow GPS on https://" | Use `npm run dev:phone` (see "Live tracking") |
 | Number plate scanning fails | Run `npm install --prefix client` again, then restart `npm run dev` (it copies the OCR files into `client/public/ocr/`) |

@@ -974,7 +974,8 @@ class TwilioProgrammableSMSOTPTests(TestCase):
             res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500006"}, format="json")
             self.assertEqual(res.status_code, status.HTTP_200_OK)
             self.assertEqual(res.data["provider"], "console")
-            self.assertIn("Verification code sent", res.data["message"])
+            # The page must not claim a code was sent when it was only printed in the terminal
+            self.assertIn("printed in the backend terminal", res.data["message"])
 
     def test_10_existing_jwt_login_flow_still_works(self):
         # 10. Existing JWT login flow still works
@@ -2673,3 +2674,43 @@ class EmailOtpAndRateLimitTests(TestCase):
         for i in range(3):
             self.assertEqual(self.send(f"demo{i}@example.com").status_code, status.HTTP_200_OK)
         self.assertFalse(OtpRequestLog.objects.exists())
+
+
+# ==========================================
+# EMAIL SETUP DIAGNOSTICS
+# ==========================================
+import smtplib
+from io import StringIO
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from api.management.commands.check_email import explain
+
+
+class EmailSetupDiagnosticsTests(TestCase):
+    @override_settings(OTP_BYPASS=False, OTP_CONSOLE_FALLBACK=True, EMAIL_HOST="")
+    def test_console_fallback_does_not_claim_the_code_was_sent(self):
+        with patch.dict("os.environ", NO_TWILIO):
+            res = APIClient().post("/api/auth/send-otp/", {"identifier": "dev@example.com"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["provider"], "console")
+        self.assertNotIn("sent to", res.data["message"])
+        self.assertIn("backend terminal", res.data["message"])
+
+    @override_settings(EMAIL_HOST="smtp.example.com", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+                       EMAIL_HOST_PASSWORD="secret-value", DEFAULT_FROM_EMAIL="me@example.com")
+    def test_check_email_sends_a_test_email_without_printing_the_password(self):
+        out = StringIO()
+        call_command("check_email", "asha@example.com", stdout=out)
+        self.assertEqual(mail.outbox[0].to, ["asha@example.com"])
+        self.assertIn("Sent.", out.getvalue())
+        self.assertNotIn("secret-value", out.getvalue())
+
+    @override_settings(EMAIL_HOST="")
+    def test_check_email_explains_missing_settings(self):
+        with self.assertRaisesMessage(CommandError, "backend/.env"):
+            call_command("check_email", "asha@example.com", stdout=StringIO())
+
+    @override_settings(EMAIL_HOST="smtp.gmail.com")
+    def test_gmail_login_failure_points_to_app_passwords(self):
+        self.assertIn("App Password", explain(smtplib.SMTPAuthenticationError(535, b"Username and Password not accepted")))
+        self.assertIn("587", explain(smtplib.SMTPNotSupportedError("STARTTLS extension not supported by server.")))
