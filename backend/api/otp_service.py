@@ -68,19 +68,42 @@ def generate_otp_code() -> str:
     return f"{secrets.randbelow(900000) + 100000}"
 
 
+def twilio_sms_configured() -> bool:
+    return all(os.getenv(name, "").strip() for name in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"))
+
+
+def otp_delivery_error(identifier: str):
+    """
+    None when a code for this email/number can be delivered (or printed to the console in
+    development); otherwise the message to show the user. Checked before an account is created,
+    so a request that can't be served doesn't leave an empty account behind.
+    """
+    is_email = "@" in (identifier or "")
+    if is_email and settings.EMAIL_HOST:
+        return None
+    if not is_email and twilio_sms_configured():
+        return None
+    if settings.OTP_CONSOLE_FALLBACK:
+        return None
+    if is_email:
+        return "OTP delivery is not configured. Please contact support."
+    if settings.EMAIL_HOST:
+        return "Codes by SMS are not configured yet. Please use your email address instead."
+    return "OTP delivery is not configured. Please contact support."
+
+
 def send_otp_to_identifier(identifier: str, otp_code: str) -> dict:
     """
     Send OTP via Twilio Programmable SMS / Email or fallback to console mode for development.
     NEVER expose the OTP to API caller output.
     """
-    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    twilio_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    twilio_from = os.getenv("TWILIO_PHONE_NUMBER", "").strip()
-
     is_email = "@" in identifier
 
     # 1. Twilio Programmable SMS Mode (When all three Twilio variables are configured)
-    if not is_email and twilio_sid and twilio_token and twilio_from:
+    if not is_email and twilio_sms_configured():
+        twilio_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+        twilio_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+        twilio_from = os.getenv("TWILIO_PHONE_NUMBER", "").strip()
         normalized_to = normalize_phone_number(identifier)
         try:
             from twilio.rest import Client
@@ -134,7 +157,7 @@ def send_otp_to_identifier(identifier: str, otp_code: str) -> dict:
         logger.error(f"No OTP delivery provider configured for {'email' if is_email else 'SMS'}; cannot send OTP.")
         return {
             "success": False,
-            "error": "OTP delivery is not configured. Please contact support.",
+            "error": otp_delivery_error(identifier) or "OTP delivery is not configured. Please contact support.",
             "provider": "none",
         }
 

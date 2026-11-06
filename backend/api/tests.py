@@ -1067,8 +1067,10 @@ class AuthSecurityTests(TestCase):
     def test_missing_otp_provider_is_an_error_in_production(self):
         with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}):
             res = self.client.post("/api/auth/send-otp/", {"identifier": "9876500099"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertIn("not configured", res.data["error"])
+        # Refused before an account is created
+        self.assertFalse(User.objects.filter(phone="+919876500099").exists())
 
 
 class InvoicePaymentAndTrackingTests(TestCase):
@@ -2524,3 +2526,150 @@ class AvatarTests(TestCase):
     def test_requires_sign_in(self):
         self.client.force_authenticate(user=None)
         self.assertEqual(self.upload(self.photo()).status_code, 401)
+
+
+# ==========================================
+# EMAIL OTP DELIVERY AND OTP RATE LIMITS
+# ==========================================
+from django.core import mail
+from api.models import OtpRequestLog
+
+NO_TWILIO = {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": "", "TWILIO_PHONE_NUMBER": ""}
+
+
+@override_settings(
+    OTP_BYPASS=False,
+    OTP_CONSOLE_FALLBACK=False,
+    EMAIL_HOST="smtp.example.com",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    OTP_SEND_LIMIT_PER_IDENTIFIER=5,
+    OTP_SEND_LIMIT_PER_IP=10,
+    OTP_SEND_DAILY_LIMIT=400,
+    OTP_VERIFY_LIMIT_PER_IP=30,
+)
+class EmailOtpAndRateLimitTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        env = patch.dict("os.environ", NO_TWILIO)
+        env.start()
+        self.addCleanup(env.stop)
+
+    def send(self, identifier, ip="10.0.0.1", **extra):
+        return self.client.post("/api/auth/send-otp/", {"identifier": identifier}, format="json", REMOTE_ADDR=ip, **extra)
+
+    def end_cooldown(self, email):
+        User.objects.filter(email__iexact=email).update(otp_last_sent_at=timezone.now() - timedelta(minutes=2))
+
+    def test_email_otp_is_sent_by_email_and_signs_in(self):
+        res = self.send("Asha@Example.com")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["provider"], "email")
+        self.assertNotIn("otp_code", res.data)
+        self.assertEqual(len(mail.outbox), 1)
+        user = User.objects.get(email="asha@example.com")
+        self.assertEqual(mail.outbox[0].to, ["Asha@Example.com"])
+        self.assertIn(user.otp_code, mail.outbox[0].body)
+
+        res = self.client.post("/api/auth/verify-otp/", {"identifier": "asha@example.com", "otp_code": user.otp_code}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("access", res.data)
+
+    def test_phone_without_sms_provider_is_told_to_use_email(self):
+        res = self.send("9876511111")
+        self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("email", res.data["error"])
+        self.assertFalse(User.objects.filter(phone="+919876511111").exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_malformed_email_is_rejected(self):
+        for bad in ["a@", "@example.com", "not an@email"]:
+            res = self.send(bad)
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, bad)
+        self.assertEqual(len(mail.outbox), 0)
+
+    @override_settings(OTP_SEND_LIMIT_PER_IDENTIFIER=2)
+    def test_codes_per_email_are_limited(self):
+        for _ in range(2):
+            self.assertEqual(self.send("ravi@example.com").status_code, status.HTTP_200_OK)
+            self.end_cooldown("ravi@example.com")
+        # Different IP, same address: still limited, and differently-cased address counts as the same
+        res = self.send("RAVI@example.com", ip="10.0.0.99")
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("this email or number", res.data["error"])
+        self.assertGreater(res.data["retry_after_seconds"], 0)
+        self.assertEqual(res["Retry-After"], str(res.data["retry_after_seconds"]))
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_resend_blocked_by_cooldown_does_not_use_up_the_hourly_allowance(self):
+        self.send("meena@example.com")
+        self.assertEqual(self.send("meena@example.com").status_code, status.HTTP_429_TOO_MANY_REQUESTS)  # 60 s cooldown
+        self.assertEqual(OtpRequestLog.objects.filter(identifier="meena@example.com").count(), 1)
+
+    @override_settings(OTP_SEND_LIMIT_PER_IP=2)
+    def test_codes_per_ip_are_limited_and_no_account_is_created(self):
+        self.assertEqual(self.send("one@example.com").status_code, status.HTTP_200_OK)
+        self.assertEqual(self.send("two@example.com").status_code, status.HTTP_200_OK)
+        res = self.send("three@example.com")
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("your network", res.data["error"])
+        self.assertFalse(User.objects.filter(email="three@example.com").exists())
+        # Another IP is unaffected
+        self.assertEqual(self.send("three@example.com", ip="10.0.0.2").status_code, status.HTTP_200_OK)
+
+    @override_settings(OTP_SEND_LIMIT_PER_IP=1)
+    def test_forged_forwarded_for_header_does_not_bypass_ip_limit(self):
+        self.assertEqual(self.send("x1@example.com", HTTP_X_FORWARDED_FOR="1.1.1.1").status_code, status.HTTP_200_OK)
+        res = self.send("x2@example.com", HTTP_X_FORWARDED_FOR="2.2.2.2")
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(OTP_SEND_DAILY_LIMIT=2)
+    def test_server_wide_daily_cap(self):
+        self.assertEqual(self.send("d1@example.com", ip="10.0.1.1").status_code, status.HTTP_200_OK)
+        self.assertEqual(self.send("d2@example.com", ip="10.0.1.2").status_code, status.HTTP_200_OK)
+        res = self.send("d3@example.com", ip="10.0.1.3")
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(len(mail.outbox), 2)
+
+    @override_settings(OTP_SEND_LIMIT_PER_IDENTIFIER=1)
+    def test_old_sends_fall_out_of_the_window_and_are_pruned(self):
+        OtpRequestLog.objects.create(action=OtpRequestLog.SEND, identifier="old@example.com", ip_address="10.0.0.1",
+                                     created_at=timezone.now() - timedelta(hours=2))
+        OtpRequestLog.objects.create(action=OtpRequestLog.SEND, identifier="older@example.com", ip_address="10.0.0.1",
+                                     created_at=timezone.now() - timedelta(days=3))
+        self.assertEqual(self.send("old@example.com").status_code, status.HTTP_200_OK)
+        self.assertFalse(OtpRequestLog.objects.filter(identifier="older@example.com").exists())
+
+    @override_settings(OTP_VERIFY_LIMIT_PER_IP=3)
+    def test_code_checks_per_ip_are_limited(self):
+        self.send("guess@example.com")
+        user = User.objects.get(email="guess@example.com")
+        wrong = "000000" if user.otp_code != "000000" else "111111"
+        for _ in range(3):
+            res = self.client.post("/api/auth/verify-otp/", {"identifier": "guess@example.com", "otp_code": wrong},
+                                   format="json", REMOTE_ADDR="10.0.0.1")
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        res = self.client.post("/api/auth/verify-otp/", {"identifier": "guess@example.com", "otp_code": user.otp_code},
+                               format="json", REMOTE_ADDR="10.0.0.1")
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # The reset-code check shares the same per-IP budget
+        res = self.client.post("/api/auth/password-reset/confirm/",
+                               {"identifier": "guess@example.com", "otp_code": user.otp_code, "new_password": "Str0ng-pass-word"},
+                               format="json", REMOTE_ADDR="10.0.0.1")
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(OTP_SEND_LIMIT_PER_IDENTIFIER=2)
+    def test_password_reset_limit_is_the_same_for_known_and_unknown_addresses(self):
+        User.objects.create_user(username="known", email="known@example.com", password="Str0ng-pass-word")
+        results = {}
+        for address in ["known@example.com", "ghost@example.com"]:
+            codes = [self.client.post("/api/auth/password-reset/request/", {"identifier": address}, format="json",
+                                      REMOTE_ADDR="10.0.2.1").status_code for _ in range(3)]
+            results[address] = codes
+        self.assertEqual(results["known@example.com"], [200, 200, 429])
+        self.assertEqual(results["ghost@example.com"], [200, 200, 429])
+
+    @override_settings(OTP_BYPASS=True, OTP_SEND_LIMIT_PER_IP=1, OTP_VERIFY_LIMIT_PER_IP=1)
+    def test_limits_are_off_in_local_demo_mode(self):
+        for i in range(3):
+            self.assertEqual(self.send(f"demo{i}@example.com").status_code, status.HTTP_200_OK)
+        self.assertFalse(OtpRequestLog.objects.exists())

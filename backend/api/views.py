@@ -70,7 +70,8 @@ from .serializers import (
     NotificationSerializer,
     ServiceReviewSerializer,
 )
-from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number
+from .otp_service import generate_otp_code, send_otp_to_identifier, normalize_phone_number, otp_delivery_error
+from .otp_rate_limit import otp_send_limit_error, otp_verify_limit_error, record_otp_send
 from .ai_cost_service import estimate_repair_cost
 from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .invoice_pdf import build_invoice_pdf, invoice_from_token
@@ -417,6 +418,17 @@ def send_otp(request):
         return Response({"error": serializer.errors.get("identifier", ["Invalid request"])[0]}, status=status.HTTP_400_BAD_REQUEST)
 
     identifier = serializer.validated_data["identifier"]
+    bypass_active = getattr(settings, "OTP_BYPASS", False)
+
+    # Before any account is looked up or created: can a code be delivered, and is this caller
+    # within the rate limits (per email/number, per IP, and for the whole server)?
+    delivery_error = None if bypass_active else otp_delivery_error(identifier)
+    if delivery_error:
+        return Response({"error": delivery_error}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    limit_error = otp_send_limit_error(request, identifier)
+    if limit_error:
+        return limit_error
+
     # Self sign-up always creates a customer; staff accounts are created by an admin.
     is_email = "@" in identifier
 
@@ -441,8 +453,6 @@ def send_otp(request):
                 user.save(update_fields=["phone"])
         target_identifier = norm_phone
 
-    bypass_active = getattr(settings, "OTP_BYPASS", False)
-
     # In production, check cooldown. In bypass/dev mode, allow instant resend.
     if not bypass_active and user.otp_last_sent_at:
         elapsed = (timezone.now() - user.otp_last_sent_at).total_seconds()
@@ -453,6 +463,7 @@ def send_otp(request):
                 status=status.HTTP_429_TOO_MANY_REQUESTS
             )
 
+    record_otp_send(request, identifier)
     otp_code = generate_otp_code()
     user.otp_code = otp_code
     user.otp_expires_at = timezone.now() + timedelta(minutes=5)
@@ -494,6 +505,10 @@ def verify_otp(request):
     identifier = serializer.validated_data["identifier"]
     otp_code = serializer.validated_data["otp_code"].strip()
     provided_name = serializer.validated_data.get("name", "").strip()
+
+    limit_error = otp_verify_limit_error(request, identifier)
+    if limit_error:
+        return limit_error
 
     bypass_active = getattr(settings, "OTP_BYPASS", False)
     is_universal_bypass = bypass_active and (
@@ -719,6 +734,13 @@ def password_reset_request(request):
         return Response({"error": "Enter your email or mobile number."}, status=status.HTTP_400_BAD_REQUEST)
 
     reply = {"message": "If an account exists for that email or number, a reset code has been sent.", "expires_in_minutes": 10}
+    # Limits are checked before the account lookup, so a 429 says nothing about who is registered
+    limit_error = otp_send_limit_error(request, identifier)
+    if limit_error:
+        return limit_error
+    # Every request counts, whether or not the account exists or is in its cooldown, so the limits
+    # behave identically for registered and unregistered addresses.
+    record_otp_send(request, identifier)
     user = find_user_by_identifier(identifier)
     if user is None:
         return Response(reply)
@@ -752,6 +774,9 @@ def password_reset_confirm(request):
     new_password = str(request.data.get("new_password") or "")
     invalid = Response({"error": "Invalid or expired reset code."}, status=status.HTTP_400_BAD_REQUEST)
 
+    limit_error = otp_verify_limit_error(request, identifier)
+    if limit_error:
+        return limit_error
     user = find_user_by_identifier(identifier)
     if user is None or not user.otp_code or not user.otp_expires_at or timezone.now() > user.otp_expires_at:
         return invalid

@@ -147,6 +147,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Number of reverse proxies in front of Django (e.g. 1 behind Nginx or a hosting load balancer),
+    # used to find the caller's real IP for the OTP rate limits. 0 = use the connection's address and
+    # ignore X-Forwarded-For, which a client could fake. Set it to match your hosting, not higher.
+    "NUM_PROXIES": int(os.getenv("NUM_PROXIES", "0")),
 }
 
 # Simple JWT Settings
@@ -165,6 +169,15 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "t")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL") or "noreply@smartdoorstep.com"
+# Seconds to wait for the mail server before giving up (so a stuck SMTP server can't hang requests)
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+
+# OTP rate limits (see api/otp_rate_limit.py). They protect the SMS/email bill and stop code guessing.
+# Not applied when OTP_BYPASS is on. Set a limit to 0 to switch it off.
+OTP_SEND_LIMIT_PER_IDENTIFIER = int(os.getenv("OTP_SEND_LIMIT_PER_IDENTIFIER", "5"))  # per email/number per hour
+OTP_SEND_LIMIT_PER_IP = int(os.getenv("OTP_SEND_LIMIT_PER_IP", "10"))  # per IP address per hour
+OTP_SEND_DAILY_LIMIT = int(os.getenv("OTP_SEND_DAILY_LIMIT", "400"))  # whole server per 24 h (Gmail allows ~500/day)
+OTP_VERIFY_LIMIT_PER_IP = int(os.getenv("OTP_VERIFY_LIMIT_PER_IP", "30"))  # code checks per IP address per hour
 
 # OTP Verification Mode: disabled by default for secure production behavior.
 # Set OTP_BYPASS=true only in local/dev environments when debug bypass codes are intentionally enabled.

@@ -957,3 +957,29 @@ class ServiceHistory(models.Model):
 
     def __str__(self):
         return f"History for {self.vehicle.registration_number} on {self.completed_at.strftime('%Y-%m-%d')}"
+
+
+class OtpRequestLog(models.Model):
+    """
+    One row per OTP sent or OTP code checked, used to rate-limit those endpoints. Kept in the
+    database (not a per-process cache) so the limits hold across several server workers.
+    Rows older than two days are deleted as new ones are written.
+    """
+
+    SEND = "SEND"
+    VERIFY = "VERIFY"
+    ACTION_CHOICES = [(SEND, "OTP sent"), (VERIFY, "OTP checked")]
+
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    identifier = models.CharField(max_length=255, blank=True, default="")
+    ip_address = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["action", "identifier", "created_at"]),
+            models.Index(fields=["action", "ip_address", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.action} {self.identifier or '-'} from {self.ip_address or '-'} at {self.created_at}"
