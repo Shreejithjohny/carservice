@@ -160,8 +160,13 @@ SIMPLE_JWT = {
 
 # "Sign in with Google": the OAuth client ID from Google Cloud Console (APIs & Services >
 # Credentials > OAuth client ID, type "Web application"). It is public, not a secret; the frontend
-# reads it from /api/health-check/. Empty = the Google button is hidden.
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+# reads it from /api/health-check/. Leave GOOGLE_CLIENT_ID unset or empty to use this project's own
+# client; set it to another client ID to use yours, or to "off" to hide the Google button.
+# (The client secret is not used anywhere and must never be put in the code or in .env.)
+PROJECT_GOOGLE_CLIENT_ID = "491130655135-51cce4g7u58h5ubd3gem6v7pjoh1qqht.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip() or PROJECT_GOOGLE_CLIENT_ID
+if GOOGLE_CLIENT_ID.lower() == "off":
+    GOOGLE_CLIENT_ID = ""
 
 # Demo mode: one-click role logins and the 123456 test codes for the driver pickup/delivery checks.
 # Disabled by default; set OTP_BYPASS=true only in local/dev environments, never in production.

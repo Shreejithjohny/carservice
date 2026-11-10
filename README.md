@@ -189,7 +189,8 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | `SECRET_KEY must be set when DEBUG is off` | `backend/.env` is missing. Do Step 3 |
 | `Port 5173 is already in use` or `port 8000 is already in use` | The app is already running in another terminal. Close it with Ctrl + C, or close that terminal |
 | `no such table` or `no such column` errors | Run `npm run migrate:django` |
-| No "Sign in with Google" button | Set `GOOGLE_CLIENT_ID` in `backend/.env` and restart the backend; http://localhost:8000/api/health-check/ should show it. |
+| No "Sign in with Google" button | http://localhost:8000/api/health-check/ should show a `google_client_id`. It is empty only when `GOOGLE_CLIENT_ID=off` is set in `backend/.env`. An ad blocker can also hide the button. |
+| Google says "Access blocked" / only test users can sign in | The Google client is still in *Testing*. In Google Cloud Console, add the Gmail address under **Test users**, or publish the app (OAuth consent screen / Audience → **Publish app**). |
 | Google sign-in popup says "origin not allowed" / error 400 | In Google Cloud Console, add the exact frontend address (e.g. `http://localhost:5173`) under the OAuth client's **Authorized JavaScript origins**. Changes can take a few minutes. |
 | The login page has no demo buttons | Open http://localhost:8000/api/health-check/. If `"demo_login"` is `false`, add `OTP_BYPASS=True` to `backend/.env` and restart. If the page doesn't open, the backend isn't running. (The sign-in page keeps checking for 2 minutes, so a backend that starts late is fine.) |
 | A driver's phone says "Browsers only allow GPS on https://" | Use `npm run dev:phone` (see "Live tracking") |
@@ -263,7 +264,7 @@ Set these in `backend/.env` (or the server environment):
 | `PAYMENT_GATEWAY` | Leave empty: online payment is turned off and customers pay at the service center. `mock` is a test gateway only — it moves no real money. |
 | `PAYMENT_GATEWAY=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Real online payments. Use Razorpay's Test Mode keys first. Add the webhook `https://<API>/api/payments/razorpay/webhook/` (events `payment.captured`, `payment.failed`) in the Razorpay dashboard with the same secret. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_CONTACT_EMAIL` | Browser alerts. Create the keys once with `python backend/manage.py generate_vapid_keys`; changing them later disconnects everyone who enabled alerts. The site must be served over HTTPS. |
-| `GOOGLE_CLIENT_ID` | Optional. Enables "Sign in with Google" and password reset through it. Add the production frontend URL to the OAuth client's Authorized JavaScript origins. |
+| `GOOGLE_CLIENT_ID` | Optional: empty uses the project's own Google client, `off` hides Google sign-in. Add the production frontend URL to the OAuth client's Authorized JavaScript origins, and publish the Google app so people other than test users can sign in. |
 | `USE_MYSQL`, `DB_*` | Optional MySQL connection |
 
 The frontend's `predev`/`prebuild` scripts copy the OCR engine and English language data from
