@@ -122,7 +122,7 @@ There are three kinds of automated tests. GitHub runs all of them on every pull 
 
 | Tests | What they cover | Command |
 |---|---|---|
-| Backend (Django) | API rules: bookings, slots, OTPs, passwords, payments, invoices, auto-assignment, ... | `python backend/manage.py test api` (should end with "OK") |
+| Backend (Django) | API rules: bookings, slots, pickup/delivery codes, passwords, Google sign-in, payments, invoices, auto-assignment, ... | `python backend/manage.py test api` (should end with "OK") |
 | Frontend unit (Vitest) | Small helpers: distances, road-route maths, ETAs, map arrow direction, simulated-drive spacing, sign-in routes | `npm test --prefix client` (with coverage: `npm run test:coverage --prefix client`) |
 | Browser (Playwright) | The real app in Chrome: sign in, book a pickup on the map, the manager confirms and a driver is auto-assigned, the driver shares GPS or simulates the drive, the customer tracks it, a manager adds staff | `npm run test:e2e --prefix client` |
 
@@ -189,7 +189,8 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | `SECRET_KEY must be set when DEBUG is off` | `backend/.env` is missing. Do Step 3 |
 | `Port 5173 is already in use` or `port 8000 is already in use` | The app is already running in another terminal. Close it with Ctrl + C, or close that terminal |
 | `no such table` or `no such column` errors | Run `npm run migrate:django` |
-| Sign-in codes don't arrive by email | The login page says the code was "printed in the backend terminal": the `EMAIL_*` settings aren't loaded. They belong in `backend/.env` (next to `manage.py`), and the backend must be restarted after editing it. Otherwise run `python backend/manage.py check_email you@example.com`: it shows the settings Django loaded, sends a test email and explains the error (for Gmail usually a normal password instead of an App Password). Also check Spam. |
+| No "Sign in with Google" button | Set `GOOGLE_CLIENT_ID` in `backend/.env` and restart the backend; http://localhost:8000/api/health-check/ should show it. |
+| Google sign-in popup says "origin not allowed" / error 400 | In Google Cloud Console, add the exact frontend address (e.g. `http://localhost:5173`) under the OAuth client's **Authorized JavaScript origins**. Changes can take a few minutes. |
 | The login page has no demo buttons | Open http://localhost:8000/api/health-check/. If `"demo_login"` is `false`, add `OTP_BYPASS=True` to `backend/.env` and restart. If the page doesn't open, the backend isn't running. (The sign-in page keeps checking for 2 minutes, so a backend that starts late is fine.) |
 | A driver's phone says "Browsers only allow GPS on https://" | Use `npm run dev:phone` (see "Live tracking") |
 | Number plate scanning fails | Run `npm install --prefix client` again, then restart `npm run dev` (it copies the OCR files into `client/public/ocr/`) |
@@ -212,7 +213,7 @@ To also sign in to the demo accounts with email + password, set `DEMO_ACCOUNT_PA
 
 The sign-in page has a tab per role, each with its own address, so staff can bookmark theirs: `/login/customer`, `/login/driver`, `/login/mechanic`, `/login/manager`, `/login/admin`. Signing in on the wrong tab (for example a driver on the Customer tab) is refused, with a link to the right tab.
 
-With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo … account" button. With it off, people sign in with their password or a one-time code. Without SMS/email configured, one-time codes are printed in the backend console (development only).
+With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo … account" button. With it off, people sign in with their password or with Google.
 
 ## Features at a glance
 
@@ -228,7 +229,8 @@ With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo �
 | PDF invoice + QR | Invoices → *Download PDF*; QR opens `/verify/<code>` | Code is signed with `SECRET_KEY`. Titled INVOICE, not TAX INVOICE: the app stores no GSTIN. |
 | Analytics | Manager and admin → Analytics | Revenue, bookings, turnaround, top repairs, approval rate, ratings. |
 | Learned cost estimator | Admin overview → *Repair cost model*; `python manage.py train_cost_model` | Used once 30+ completed, approved repairs exist; otherwise the rule formula. See below. |
-| Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. "Forgot password" sends a 6-digit code by email/SMS. Sign-in with a one-time code still works. |
+| Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. |
+| Sign in with Google | "Sign in with Google" on Login and Register (needs `GOOGLE_CLIENT_ID`) | Signs in the account with the same email, or creates a customer account. Staff accounts are still created by an admin. "Forgot password?" works through it: sign in with Google, then choose a new password (allowed without the old one for 15 minutes after a Google sign-in), and it also clears a password lockout. |
 | Staff accounts | Admin or manager → **Staff** | Add drivers and mechanics (admins: any center; managers: their own) with a first password (or **Generate**), shown once to share with them. Mark staff on/off duty; automatic assignment skips off-duty staff. Staff change their password from the key icon. |
 | Profile photos | Click your picture (top right) | Upload a photo or remove it; without one, your initials are shown. The server resizes it to a 256×256 JPEG, turns phone photos the right way up and removes location data (EXIF). Stored in the database, so it works on hosts without a disk. |
 | Hindi / Kannada | Language menu (customer screens) | Navigation, home, booking, tracking, reminders, reviews. Staff screens stay in English. Translations need a native speaker's review. |
@@ -254,9 +256,7 @@ Set these in `backend/.env` (or the server environment):
 | `FRONTEND_URL` | Public URL of the React app (invoice QR codes link to `FRONTEND_URL/verify/...`) |
 | `OTP_BYPASS` | `False` — **never** enable in production; it allows signing in to any existing account without a code |
 | `PAYMENT_GATEWAY` | Leave empty: online payment is turned off and customers pay at the service center. `mock` is a test gateway only — it moves no real money. |
-| `EMAIL_*` and/or `TWILIO_*` | How one-time codes are delivered. Email (e.g. Gmail SMTP with an App Password) is free; Twilio sends SMS and costs money per message. Without SMS, people who enter a mobile number are asked to use their email instead; without either, code requests fail with an error. |
-| `OTP_SEND_LIMIT_*`, `OTP_SEND_DAILY_LIMIT`, `OTP_VERIFY_LIMIT_PER_IP` | Rate limits on sending and checking codes, so nobody can run up your email/SMS bill or guess codes. The defaults (5 codes per address per hour, 10 per IP per hour, 400 per day in total, 30 code checks per IP per hour) suit a small launch; keep the daily total under your provider's quota. |
-| `NUM_PROXIES` | `1` if the API runs behind one reverse proxy or load balancer (most hosts), so the limits see each visitor's real IP. Leave `0` when Django is reached directly. |
+| `GOOGLE_CLIENT_ID` | Optional. Enables "Sign in with Google" and password reset through it. Add the production frontend URL to the OAuth client's Authorized JavaScript origins. |
 | `USE_MYSQL`, `DB_*` | Optional MySQL connection |
 
 The frontend's `predev`/`prebuild` scripts copy the OCR engine and English language data from

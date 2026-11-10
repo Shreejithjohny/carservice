@@ -6,12 +6,9 @@ urlpatterns = [
     # Auth Endpoints
     path("auth/bypass-login/", views.bypass_login, name="bypass_login"),
     path("auth/quick-login/", views.bypass_login, name="quick_login"),
-    path("auth/send-otp/", views.send_otp, name="send_otp"),
-    path("auth/verify-otp/", views.verify_otp, name="verify_otp"),
+    path("auth/google/", views.google_login, name="google_login"),
     path("auth/register/", views.register_with_password, name="register_with_password"),
     path("auth/login/", views.password_login, name="password_login"),
-    path("auth/password-reset/request/", views.password_reset_request, name="password_reset_request"),
-    path("auth/password-reset/confirm/", views.password_reset_confirm, name="password_reset_confirm"),
     path("auth/change-password/", views.change_password, name="change_password"),
     path("auth/avatar/", views.my_avatar, name="my_avatar"),
     path("avatars/<str:token>.jpg", views.avatar_image, name="avatar_image"),

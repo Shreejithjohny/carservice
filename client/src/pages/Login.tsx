@@ -8,6 +8,7 @@ import { PasswordField } from "../components/PasswordField";
 import { homePathForRole } from "../utils/roles";
 import type { Role } from "../types";
 import { Logo } from "../components/Logo";
+import { GoogleSignInButton, OrDivider } from "../components/GoogleSignInButton";
 
 // One sign-in page, one tab per role; each tab has its own URL (/login/driver ...) staff can bookmark.
 const SIGN_IN_TABS = [
@@ -30,7 +31,7 @@ export function Login() {
 }
 
 function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
-  const { passwordLogin, sendOtp, bypassLogin, demoMode } = useAuth();
+  const { passwordLogin, googleLogin, bypassLogin, demoMode } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState("");
@@ -62,12 +63,11 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
     });
   }
 
-  function onOtp() {
-    if (!identifier.trim()) return push({ title: "Enter your email or mobile number first", tone: "err" });
+  function onGoogle(credential: string) {
     void run(async () => {
-      const res = await sendOtp(identifier.trim());
-      push({ title: res.message || `Verification code sent to ${identifier}` });
-      void navigate("/verify-otp", { state: { identifier: identifier.trim() } });
+      const user = await googleLogin(credential, tab.role);
+      push({ title: `Welcome, ${user.name}!` });
+      void navigate(homePathForRole(user.role));
     });
   }
 
@@ -152,12 +152,10 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
               <Link to="/forgot-password" state={{ identifier }} className="text-brand-fg hover:underline">
                 Forgot password?
               </Link>
-              {isCustomer && (
-                <button type="button" disabled={busy} onClick={onOtp} className="text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-300">
-                  Use a one-time code instead
-                </button>
-              )}
             </div>
+
+            <OrDivider />
+            <GoogleSignInButton onCredential={onGoogle} text="signin_with" />
           </form>
 
           {demoMode && (

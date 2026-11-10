@@ -32,7 +32,7 @@ from .models import (
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     fieldsets = BaseUserAdmin.fieldsets + (
-        ("Custom Fields", {"fields": ("role", "phone", "otp_code", "otp_expires_at", "otp_attempts", "is_verified")}),
+        ("Custom Fields", {"fields": ("role", "phone", "is_verified")}),
     )
     list_display = ["email", "username", "role", "phone", "is_verified", "is_staff"]
     list_filter = ["role", "is_verified", "is_staff"]
