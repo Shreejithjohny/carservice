@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { User, Role } from "../types";
 import { api, clearSession, readUser, saveSession } from "../services/api";
+import { disablePush } from "../utils/push";
 
 type SignInResponse = {
   message: string;
@@ -147,6 +148,9 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
         if (user) setUser({ ...user, has_password: res.user.has_password });
       },
       logout() {
+        // Stop alerts for this account on this browser (the next person to sign in here may differ).
+        // Not awaited: it reads the token before the session is cleared below.
+        void disablePush().catch(() => undefined);
         clearSession();
         setUser(null);
       },

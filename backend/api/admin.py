@@ -26,6 +26,7 @@ from .models import (
     RepairCostEstimate,
     CarHealthScore,
     ServiceReview,
+    Coupon,
 )
 
 
@@ -192,3 +193,10 @@ class CarHealthScoreAdmin(admin.ModelAdmin):
 class ServiceReviewAdmin(admin.ModelAdmin):
     list_display = ["booking", "customer", "service_center", "center_rating", "driver_rating", "created_at"]
     list_filter = ["center_rating", "service_center"]
+
+
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+    list_display = ["code", "discount_type", "value", "max_discount", "min_order", "valid_until", "usage_limit", "active"]
+    search_fields = ["code", "description"]
+    list_filter = ["active", "discount_type"]

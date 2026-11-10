@@ -32,6 +32,11 @@ urlpatterns = [
     path("vehicles/<int:pk>/", views.vehicle_detail, name="vehicle_detail"),
 
     # Phase 4 Service & Booking Endpoints
+    path("coupons/check/", views.coupon_check, name="coupon_check"),
+    path("push/subscription/", views.push_subscription, name="push_subscription"),
+    path("payments/razorpay/webhook/", views.razorpay_webhook, name="razorpay_webhook"),
+    path("invoices/<int:pk>/razorpay/order/", views.invoice_razorpay_order, name="invoice_razorpay_order"),
+    path("invoices/<int:pk>/razorpay/verify/", views.invoice_razorpay_verify, name="invoice_razorpay_verify"),
     path("service-types/", views.service_type_list, name="service_type_list"),
     path("service-centers/", views.service_center_list, name="service_center_list"),
     path("service-centers/<int:pk>/reviews/", views.service_center_reviews, name="service_center_reviews"),

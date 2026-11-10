@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
-import { Clock3, Navigation, Route, XCircle, AlertTriangle } from "lucide-react";
+import { Clock3, Navigation, Route, XCircle, AlertTriangle, CalendarClock } from "lucide-react";
+import { RescheduleDialog } from "../components/RescheduleDialog";
 import { useApi } from "../hooks/useApi";
 import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
@@ -111,6 +112,7 @@ export function Track() {
   const { data, loading, reload } = useApi<Booking[]>("/api/bookings/");
   const { push } = useToast();
   const [cancelling, setCancelling] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
   const [selectedId, setSelectedId] = useState<string | number>("");
   const { t } = useLanguage();
   const statusLabel = useStatusLabel();
@@ -299,8 +301,17 @@ export function Track() {
             </RouterLink>
           </div>
 
-          {/* Cancellation Button */}
+          {/* Reschedule and cancel: only before the pickup is underway */}
           {isCancellable ? (
+            <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setRescheduling(true)}
+              className="flex items-center gap-1.5 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <CalendarClock size={16} />
+              {t("track.reschedule")}
+            </button>
             <button
               onClick={handleCancelBooking}
               disabled={cancelling}
@@ -309,6 +320,7 @@ export function Track() {
               <XCircle size={16} />
               {cancelling ? t("track.cancelling") : t("track.cancel")}
             </button>
+            </div>
           ) : (
             <div className="flex items-center gap-1.5 text-xs text-zinc-500 italic">
               <AlertTriangle size={14} className="text-amber-500" />
@@ -317,6 +329,17 @@ export function Track() {
           )}
         </div>
       </div>
+
+      {rescheduling && isCancellable && (
+        <RescheduleDialog
+          booking={booking}
+          onClose={() => setRescheduling(false)}
+          onDone={() => {
+            setRescheduling(false);
+            reload();
+          }}
+        />
+      )}
 
       {currentStatus === "Completed" && !booking.has_review && (
         <ReviewForm bookingId={booking.id} hasDriver={!!booking.assigned_driver} onDone={reload} />

@@ -267,9 +267,18 @@ class ServiceCenterSerializer(serializers.ModelSerializer):
         ]
 
 
+def valid_contact_phone(value):
+    """A mobile number a driver can call, normalised to +<country><number>. Raises ValidationError."""
+    phone = normalize_phone_number(str(value or ""))
+    if not re.match(r"^\+[1-9][0-9]{9,14}$", phone) or (phone.startswith("+91") and not re.match(r"^\+91[6-9][0-9]{9}$", phone)):
+        raise serializers.ValidationError("Enter a valid mobile number, e.g. 98450 12345.")
+    return phone
+
+
 class ServiceBookingSerializer(serializers.ModelSerializer):
     customer_email = serializers.CharField(source="customer.email", read_only=True)
-    customer_phone = serializers.CharField(source="customer.phone", read_only=True)
+    customer_phone = serializers.SerializerMethodField()
+    coupon_code = serializers.CharField(source="coupon.code", read_only=True, default="")
     customer_name = serializers.CharField(source="customer.get_full_name", read_only=True)
     vehicle_details = VehicleSerializer(source="vehicle", read_only=True)
     service_type_details = ServiceTypeSerializer(source="service_type", read_only=True)
@@ -280,6 +289,15 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
 
     def get_has_review(self, obj):
         return ServiceReview.objects.filter(booking_id=obj.pk).exists()
+
+    def get_customer_phone(self, obj):
+        # The number confirmed for this booking, else the one on the customer's profile
+        return obj.contact_phone or obj.customer.phone
+
+    def validate_contact_phone(self, value):
+        if not value and self.instance is None:
+            return ""  # the view falls back to the number on the customer's profile
+        return valid_contact_phone(value)
 
     class Meta:
         model = ServiceBooking
@@ -307,6 +325,9 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "preferred_date",
             "preferred_time",
             "customer_notes",
+            "contact_phone",
+            "coupon_code",
+            "coupon_discount",
             "estimated_cost",
             "status",
             "handover_otp_verified",
@@ -326,6 +347,7 @@ class ServiceBookingSerializer(serializers.ModelSerializer):
             "booking_reference",
             "booking_id",
             "customer",
+            "coupon_discount",
             "handover_otp_verified",
             "delivery_otp_verified",
             "delivered_at",

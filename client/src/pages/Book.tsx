@@ -1,10 +1,11 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { CheckCircle2, Calendar, Clock, MapPin, Wrench, Building2, Car, AlertCircle } from "lucide-react";
+import { CheckCircle2, Calendar, Clock, MapPin, Wrench, Building2, Car, AlertCircle, Phone, Tag } from "lucide-react";
 import { useApi } from "../hooks/useApi";
 import { api, ApiError } from "../services/api";
 import { useToast } from "../hooks/useToast";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAuth } from "../hooks/useAuth";
 import { Skeleton } from "../components/States";
 import { GoogleLocationPicker } from "../components/GoogleLocationPicker";
 import type { Vehicle, ServiceType, ServiceCenter, Booking } from "../types";
@@ -13,6 +14,12 @@ const defaultTomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
 const DEFAULT_DATE = defaultTomorrow.toISOString().split("T")[0];
 
 const MAX_DATE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+/** 1,999 for whole rupees, 199.90 when there are paise. */
+function inr(value: number | string) {
+  const n = Number(value);
+  return n.toLocaleString("en-IN", Number.isInteger(n) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 interface SlotInfo {
   time: string;
@@ -41,6 +48,11 @@ export function Book() {
   const [preferredDate, setPreferredDate] = useState(DEFAULT_DATE);
   const [preferredTime, setPreferredTime] = useState("");
   const [customerNotes, setCustomerNotes] = useState("");
+  const { user, refresh } = useAuth();
+  const [contactPhone, setContactPhone] = useState(user?.phone ?? "");
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discount: number; serviceTypeId: number | string } | null>(null);
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
 
@@ -77,8 +89,33 @@ export function Book() {
     return vehicles?.find((v) => String(v.id || v._id) === String(effectiveVehicleId));
   }, [effectiveVehicleId, vehicles]);
 
+  // A coupon was checked against one package; it only counts while that package is still selected
+  const appliedCoupon = coupon && effectiveServiceType && String(coupon.serviceTypeId) === String(effectiveServiceType.id) ? coupon : null;
+  const packagePrice = Number(effectiveServiceType?.base_price ?? 0);
+  const finalPrice = Math.max(0, packagePrice - (appliedCoupon?.discount ?? 0));
+  const phoneDigits = contactPhone.replace(/\D/g, "");
+
+  async function applyCoupon() {
+    if (!effectiveServiceType || !couponInput.trim()) return;
+    setCheckingCoupon(true);
+    try {
+      const res = await api<{ code: string; discount: number | string }>("/api/coupons/check/", {
+        method: "POST",
+        body: JSON.stringify({ code: couponInput.trim(), service_type: effectiveServiceType.id }),
+      });
+      setCoupon({ code: res.code, discount: Number(res.discount), serviceTypeId: effectiveServiceType.id });
+      push({ title: t("book.couponApplied", { code: res.code }) });
+    } catch (err) {
+      setCoupon(null);
+      push({ title: err instanceof ApiError ? err.message : "Could not check the coupon", tone: "err" });
+    } finally {
+      setCheckingCoupon(false);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (phoneDigits.length < 10) return push({ title: t("book.phoneInvalid"), tone: "err" });
     if (!effectiveVehicleId) return push({ title: "Please select a vehicle", tone: "err" });
     if (!effectiveServiceType) return push({ title: "Please select a service type", tone: "err" });
     if (!effectiveServiceCenter) return push({ title: "Please select a service center", tone: "err" });
@@ -95,8 +132,9 @@ export function Book() {
         preferred_date: preferredDate,
         preferred_time: chosenSlot.time,
         customer_notes: customerNotes,
-        estimated_cost: effectiveServiceType.base_price,
+        contact_phone: contactPhone.trim(),
       };
+      if (appliedCoupon) payload.coupon_code = appliedCoupon.code;
 
       if (pickupLatitude !== null && pickupLongitude !== null) {
         payload.pickup_latitude = pickupLatitude;
@@ -110,6 +148,9 @@ export function Book() {
 
       push({ title: t("book.success") });
       setConfirmedBooking(res);
+      setCoupon(null);
+      setCouponInput("");
+      if (!user?.phone) void refresh(); // the number was saved to the profile
     } catch (err) {
       const errorMsg = err instanceof ApiError ? err.message : "Failed to create booking";
       push({ title: errorMsg, tone: "err" });
@@ -172,6 +213,16 @@ export function Book() {
           <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
             <span className="text-zinc-500">{t("book.cost")}</span>
             <span className="font-bold text-emerald-600">₹{Number(confirmedBooking.estimated_cost || 0).toLocaleString("en-IN")}</span>
+          </div>
+          {Number(confirmedBooking.coupon_discount) > 0 && (
+            <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
+              <span className="text-zinc-500">{t("book.coupon")} {confirmedBooking.coupon_code}</span>
+              <span className="font-bold text-emerald-600">−₹{inr(confirmedBooking.coupon_discount ?? 0)}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
+            <span className="text-zinc-500">{t("book.phone")}</span>
+            <span className="font-mono text-xs font-semibold">{confirmedBooking.contact_phone}</span>
           </div>
           {confirmedBooking.pickup_latitude && confirmedBooking.pickup_longitude && (
             <div className="flex justify-between items-center pb-2 border-b border-zinc-100 dark:border-zinc-800">
@@ -341,6 +392,55 @@ export function Book() {
         </div>
       </div>
 
+      {/* Contact number for the driver */}
+      <label className="block text-xs font-semibold text-zinc-500">
+        <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
+          <Phone size={16} className="text-brand-fg" /> {t("book.phone")}
+        </span>
+        <input
+          type="tel"
+          required
+          autoComplete="tel"
+          className="w-full rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          placeholder="98450 12345"
+          value={contactPhone}
+          onChange={(e) => setContactPhone(e.target.value)}
+        />
+        <span className="mt-1 block text-xs font-normal text-zinc-500">{t("book.phoneHint")}</span>
+      </label>
+
+      {/* Coupon */}
+      <div className="text-xs font-semibold text-zinc-500">
+        <label htmlFor="book-coupon" className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
+          <Tag size={16} className="text-brand-fg" /> {t("book.coupon")}
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="book-coupon"
+            className="min-w-0 flex-1 rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm uppercase dark:border-zinc-700 dark:bg-zinc-900"
+            placeholder="WELCOME10"
+            value={couponInput}
+            onChange={(e) => {
+              setCouponInput(e.target.value);
+              setCoupon(null);
+            }}
+          />
+          <button
+            type="button"
+            disabled={checkingCoupon || !couponInput.trim()}
+            onClick={() => void applyCoupon()}
+            className="rounded-2xl border border-zinc-200 px-4 text-sm font-bold text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300"
+          >
+            {t("book.couponApply")}
+          </button>
+        </div>
+        {appliedCoupon && (
+          <p className="mt-1 font-semibold text-emerald-600">
+            {t("book.couponOff", { code: appliedCoupon.code, amount: inr(appliedCoupon.discount) })}
+          </p>
+        )}
+      </div>
+
       {/* Customer Notes */}
       <label className="block text-xs font-semibold text-zinc-500">
         <span className="flex items-center gap-1.5 mb-1.5 text-zinc-700 dark:text-zinc-300 font-bold">
@@ -361,7 +461,10 @@ export function Book() {
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">{t("book.total")}</p>
             <p className="text-2xl font-black text-brand-fg">
-              ₹{Number(effectiveServiceType.base_price).toLocaleString("en-IN")}
+              {appliedCoupon && (
+                <span className="mr-2 text-base font-semibold text-zinc-400 line-through">₹{inr(packagePrice)}</span>
+              )}
+              ₹{inr(finalPrice)}
             </p>
             <p className="text-xs text-zinc-500">{t("book.includes")}</p>
           </div>

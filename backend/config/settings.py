@@ -171,5 +171,18 @@ OTP_BYPASS = os.getenv("OTP_BYPASS", "False").lower() in ("true", "1", "t")
 ROUTING_URL = os.getenv("ROUTING_URL", "").strip()
 
 # Online invoice payment: "mock" is a test gateway (no real money); empty disables online payment.
+# "razorpay" takes real payments (UPI, cards, net banking) and needs the keys below.
 PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "mock" if DEBUG else "").strip().lower()
+# Razorpay Dashboard > Account & Settings > API keys. Test keys start with rzp_test_, live with rzp_live_.
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
+# The secret you type when adding the webhook (<your API address>/api/payments/razorpay/webhook/)
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "").strip()
+
+# Browser push notifications. Create the pair once with `python manage.py generate_vapid_keys`.
+# Empty = no push; notifications still show inside the app.
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+# Contact address the push services (Google, Mozilla, Apple) can use if something misbehaves
+VAPID_CONTACT_EMAIL = os.getenv("VAPID_CONTACT_EMAIL", "").strip() or "admin@smartdoorstep.com"
 

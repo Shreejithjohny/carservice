@@ -6,17 +6,148 @@ import type { Invoice, Payment } from "../types";
 
 type PayResponse = { payment: Payment; invoice: Invoice };
 
-export function PaymentModal({
-  invoice,
-  gateway,
-  onClose,
-  onPaid,
-}: {
+type Props = {
   invoice: Invoice;
   gateway: string;
   onClose: () => void;
   onPaid: (invoice: Invoice, payment: Payment) => void;
-}) {
+};
+
+/** Pay an invoice: Razorpay Checkout for real payments, or the built-in test form with the mock gateway. */
+export function PaymentModal(props: Props) {
+  return props.gateway === "razorpay" ? <RazorpayPaymentModal {...props} /> : <MockPaymentModal {...props} />;
+}
+
+// --- Razorpay -------------------------------------------------------------------------------
+
+type RazorpayOrder = {
+  key_id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  invoice_number: string;
+  prefill: { name?: string; email?: string; contact?: string };
+};
+type RazorpayResult = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
+type RazorpayCheckout = { open(): void; on(event: "payment.failed", handler: (response: { error?: { description?: string } }) => void): void };
+type RazorpayOptions = {
+  key: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  prefill: RazorpayOrder["prefill"];
+  theme?: { color: string };
+  handler: (result: RazorpayResult) => void;
+  modal: { ondismiss: () => void };
+};
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => RazorpayCheckout;
+  }
+}
+
+let razorpayLoading: Promise<void> | null = null;
+
+function loadRazorpay(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  razorpayLoading ??= new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => (window.Razorpay ? resolve() : reject(new Error("load")));
+    script.onerror = () => {
+      razorpayLoading = null; // allow a retry
+      reject(new Error("load"));
+    };
+    document.head.appendChild(script);
+  });
+  return razorpayLoading;
+}
+
+function RazorpayPaymentModal({ invoice, onClose, onPaid }: Props) {
+  const { push } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const amount = Number(invoice.grand_total).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+
+  async function confirm(result: RazorpayResult) {
+    try {
+      const res = await api<PayResponse>(`/api/invoices/${invoice.id}/razorpay/verify/`, { method: "POST", body: JSON.stringify(result) });
+      push({ title: `Payment successful · ${res.payment.transaction_id}` });
+      onPaid(res.invoice, res.payment);
+    } catch (err) {
+      // The money may have been taken; the server also hears from Razorpay directly, so don't invite a second payment
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "We couldn't confirm your payment yet. Don't pay again: refresh this page in a minute to see if it went through.",
+      );
+      setBusy(false);
+    }
+  }
+
+  async function pay() {
+    setBusy(true);
+    setError("");
+    try {
+      const [order] = await Promise.all([
+        api<RazorpayOrder>(`/api/invoices/${invoice.id}/razorpay/order/`, { method: "POST" }),
+        loadRazorpay(),
+      ]);
+      if (!window.Razorpay) throw new Error("load");
+      const checkout = new window.Razorpay({
+        key: order.key_id,
+        order_id: order.order_id,
+        amount: order.amount,
+        currency: order.currency,
+        name: "DoorStep",
+        description: `Invoice ${order.invoice_number}`,
+        prefill: order.prefill,
+        theme: { color: "#2563eb" },
+        handler: (result) => void confirm(result),
+        modal: { ondismiss: () => setBusy(false) },
+      });
+      checkout.on("payment.failed", (response) => setError(response.error?.description || "Payment failed. You can try again."));
+      checkout.open();
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't open the payment window. Check your connection or ad blocker and try again.",
+      );
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="relative w-full max-w-md space-y-4 rounded-3xl bg-white p-6 text-zinc-900 shadow-2xl dark:bg-zinc-900 dark:text-white">
+        <button type="button" onClick={onClose} className="absolute right-4 top-4 rounded-full p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Close">
+          <X className="h-5 w-5" />
+        </button>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-brand-fg">Pay invoice</p>
+          <h2 className="mt-1 text-2xl font-black">₹{amount}</h2>
+          <p className="text-xs text-zinc-500">{invoice.invoice_number}</p>
+        </div>
+        <p className="text-xs text-zinc-500">
+          Pay securely with UPI, card, net banking or wallet. The payment window is run by Razorpay; your card or UPI details never reach our servers.
+        </p>
+        {error && <p className="rounded-2xl bg-rose-500/10 p-3 text-xs font-semibold text-rose-600 dark:text-rose-400">{error}</p>}
+        <button type="button" disabled={busy} onClick={() => void pay()} className="w-full rounded-2xl bg-brand py-3 text-sm font-bold text-white disabled:opacity-50">
+          {busy ? "Waiting for payment..." : `Pay ₹${amount}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// --- Mock gateway (test mode) ---------------------------------------------------------------
+
+function MockPaymentModal({ invoice, gateway, onClose, onPaid }: Props) {
   const { push } = useToast();
   const [method, setMethod] = useState<"UPI" | "CARD">("UPI");
   const [upiId, setUpiId] = useState("");
