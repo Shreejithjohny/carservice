@@ -26,6 +26,7 @@ import { useTheme } from "../hooks/useTheme";
 import type { Role } from "../types";
 import { useLanguage } from "../hooks/useLanguage";
 import { ChangePasswordDialog } from "../components/ChangePasswordDialog";
+import { PushToggle } from "../components/PushToggle";
 import { ProfilePhotoDialog } from "../components/ProfilePhotoDialog";
 import { Avatar } from "../components/Avatar";
 import { LANGUAGES, type Language, type StringKey } from "../i18n/strings";
@@ -143,6 +144,7 @@ export function AppShell() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <PushToggle />
               <button
                 type="button"
                 onClick={() => setChangingPassword(true)}

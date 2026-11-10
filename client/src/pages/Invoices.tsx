@@ -13,6 +13,12 @@ const STATUS_STYLES: Record<string, string> = {
   FAILED: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
 };
 
+/** ₹1,234.00, with the minus sign before the ₹ for discount lines. */
+function rupees(value: number | string) {
+  const n = Number(value);
+  return `${n < 0 ? "−" : ""}₹${Math.abs(n).toFixed(2)}`;
+}
+
 export function Invoices() {
   const { user } = useAuth();
   const { data: invoices, loading, reload } = useApi<Invoice[]>("/api/invoices/");
@@ -216,8 +222,8 @@ export function Invoices() {
                         <td className="py-2.5 font-medium">{item.description}</td>
                         <td className="py-2.5 text-zinc-500">{item.item_type}</td>
                         <td className="py-2.5 text-center">{item.quantity}</td>
-                        <td className="py-2.5 text-right font-mono">₹{Number(item.unit_price).toFixed(2)}</td>
-                        <td className="py-2.5 text-right font-mono font-bold">₹{Number(item.total_price).toFixed(2)}</td>
+                        <td className="py-2.5 text-right font-mono">{rupees(item.unit_price)}</td>
+                        <td className="py-2.5 text-right font-mono font-bold">{rupees(item.total_price)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -230,6 +236,12 @@ export function Invoices() {
                   <span>Base Service Charge:</span>
                   <span className="font-mono">₹{Number(selectedInvoice.subtotal).toFixed(2)}</span>
                 </div>
+                {Number(selectedInvoice.discount) > 0 && (
+                  <div className="flex justify-between text-emerald-600">
+                    <span>Coupon discount:</span>
+                    <span className="font-mono">−₹{Number(selectedInvoice.discount).toFixed(2)}</span>
+                  </div>
+                )}
                 {Number(selectedInvoice.additional_repairs_total) > 0 && (
                   <div className="flex justify-between text-zinc-600 dark:text-zinc-400">
                     <span>Approved Extra Repairs:</span>

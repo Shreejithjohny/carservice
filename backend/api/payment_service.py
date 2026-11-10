@@ -74,30 +74,61 @@ def _mock_charge(method: str, raw_payer: str) -> Dict[str, Any]:
     return {"success": True, "reason": ""}
 
 
+def payable_invoice(invoice_id: int, user) -> Invoice:
+    """
+    The invoice, row-locked, if this user may pay it now; raises PaymentError otherwise.
+    Call inside transaction.atomic() so two simultaneous requests cannot both pay it.
+    """
+    invoice = Invoice.objects.select_for_update().filter(pk=invoice_id).first()
+    if not invoice:
+        raise PaymentError("Invoice not found.", 404)
+    if invoice.customer_id != user.id:
+        raise PaymentError("Only the customer on this invoice can pay it.", 403)
+    if invoice.payment_status == Invoice.PaymentStatus.PAID:
+        raise PaymentError("This invoice is already paid.", 409)
+    if invoice.invoice_status == InvoiceStatus.CANCELLED:
+        raise PaymentError("This invoice was cancelled and cannot be paid.", 400)
+    if invoice.grand_total <= 0:
+        raise PaymentError("This invoice has nothing to pay.", 400)
+    return invoice
+
+
+def notify_invoice_paid(invoice: Invoice, payment: Payment) -> None:
+    amount = f"₹{payment.amount:,.2f}"
+    send_notification(
+        user=invoice.customer,
+        booking=invoice.booking,
+        notification_type=NotificationType.PAYMENT_RECEIVED,
+        title="Payment successful",
+        message=f"{amount} paid for invoice {invoice.invoice_number}. Transaction {payment.transaction_id}.",
+    )
+    manager = invoice.service_center.user if invoice.service_center else None
+    if manager:
+        send_notification(
+            user=manager,
+            booking=invoice.booking,
+            notification_type=NotificationType.PAYMENT_RECEIVED,
+            title="Invoice paid",
+            message=f"{invoice.invoice_number} was paid online ({amount}).",
+        )
+
+
 def pay_invoice(invoice_id: int, user, data: Dict[str, Any]) -> Payment:
     """
-    Charges the full invoice amount. Raises PaymentError with an HTTP status code
-    for anything the caller should report to the user.
+    Mock gateway: charges the full invoice amount. Raises PaymentError with an HTTP status code
+    for anything the caller should report to the user. (Razorpay payments go through
+    razorpay_service instead.)
     """
     gateway = payment_gateway()
+    if gateway == "razorpay":
+        raise PaymentError("Use the Razorpay checkout to pay this invoice.", 400)
     if gateway != "mock":
         raise PaymentError("Online payment is not available. Please pay at the service center.", 503)
 
     method = str(data.get("method") or "").upper()
 
     with transaction.atomic():
-        # Row lock so two simultaneous requests cannot both pay the same invoice.
-        invoice = Invoice.objects.select_for_update().filter(pk=invoice_id).first()
-        if not invoice:
-            raise PaymentError("Invoice not found.", 404)
-        if invoice.customer_id != user.id:
-            raise PaymentError("Only the customer on this invoice can pay it.", 403)
-        if invoice.payment_status == Invoice.PaymentStatus.PAID:
-            raise PaymentError("This invoice is already paid.", 409)
-        if invoice.invoice_status == InvoiceStatus.CANCELLED:
-            raise PaymentError("This invoice was cancelled and cannot be paid.", 400)
-        if invoice.grand_total <= 0:
-            raise PaymentError("This invoice has nothing to pay.", 400)
+        invoice = payable_invoice(invoice_id, user)
 
         payer = _validate_payer(method, data)
 
@@ -122,21 +153,5 @@ def pay_invoice(invoice_id: int, user, data: Dict[str, Any]) -> Payment:
         invoice.save(update_fields=["payment_status", "invoice_status", "updated_at"])
 
     if result["success"]:
-        amount = f"₹{invoice.grand_total:,.2f}"
-        send_notification(
-            user=user,
-            booking=invoice.booking,
-            notification_type=NotificationType.PAYMENT_RECEIVED,
-            title="Payment successful",
-            message=f"{amount} paid for invoice {invoice.invoice_number}. Transaction {payment.transaction_id}.",
-        )
-        manager = invoice.service_center.user if invoice.service_center else None
-        if manager:
-            send_notification(
-                user=manager,
-                booking=invoice.booking,
-                notification_type=NotificationType.PAYMENT_RECEIVED,
-                title="Invoice paid",
-                message=f"{invoice.invoice_number} was paid online ({amount}).",
-            )
+        notify_invoice_paid(invoice, payment)
     return payment

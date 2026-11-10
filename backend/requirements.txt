@@ -7,6 +7,9 @@ python-dotenv>=1.0.0
 Pillow>=10.0.0
 google-auth>=2.30.0
 requests>=2.32.0
+# Browser push notifications (message encryption and the VAPID token)
+cryptography>=42.0.0
+PyJWT>=2.8.0
 reportlab>=4.0.0
 qrcode>=7.4.0
 numpy>=1.26.0

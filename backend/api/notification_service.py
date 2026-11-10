@@ -1,7 +1,30 @@
 from typing import Optional, Dict, Any
 from django.utils import timezone
 from datetime import timedelta
-from .models import User, ServiceBooking, Notification, NotificationType
+import logging
+
+from .models import User, ServiceBooking, Notification, NotificationType, UserRole
+
+logger = logging.getLogger(__name__)
+
+# Page a push notification opens when clicked
+_CUSTOMER_PAGES = {
+    NotificationType.REPAIR_APPROVAL_REQUIRED: "/app/approvals",
+    NotificationType.INVOICE_GENERATED: "/app/invoices",
+    NotificationType.PAYMENT_RECEIVED: "/app/invoices",
+}
+_STAFF_HOME = {
+    UserRole.DRIVER: "/driver",
+    UserRole.MECHANIC: "/mechanic",
+    UserRole.SERVICE_CENTER_MANAGER: "/service-center",
+    UserRole.ADMIN: "/admin",
+}
+
+
+def _notification_url(user, notification_type) -> str:
+    if user.role == UserRole.CUSTOMER:
+        return _CUSTOMER_PAGES.get(notification_type, "/app/track")
+    return _STAFF_HOME.get(user.role, "/")
 
 
 def send_notification(
@@ -30,7 +53,7 @@ def send_notification(
     if duplicate_exists:
         return None
 
-    return Notification.objects.create(
+    notification = Notification.objects.create(
         user=user,
         booking=booking,
         notification_type=notification_type,
@@ -41,3 +64,11 @@ def send_notification(
         read=False,
         is_read=False,
     )
+    # Also to the user's browsers, if they turned on alerts (no-op when push is not configured)
+    try:
+        from .push_service import push_to_user
+
+        push_to_user(user, title, message, _notification_url(user, notification_type))
+    except Exception:  # noqa: BLE001 - the in-app notification must never fail because of push
+        logger.exception("Could not queue a push notification")
+    return notification

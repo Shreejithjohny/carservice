@@ -42,10 +42,11 @@ def generate_invoice_for_booking(booking: ServiceBooking) -> Invoice:
     labor_total = Decimal(str(extra_labor_hours)) * Decimal("400.00")
 
     # 4. Tax (18% GST) & Totals
-    taxable_amount = subtotal + additional_repairs_total + labor_total
+    # The coupon discount was fixed at booking; it comes off the package price before GST
+    discount = min(Decimal(str(booking.coupon_discount or "0")), subtotal).quantize(Decimal("0.01"))
+    taxable_amount = subtotal + additional_repairs_total + labor_total - discount
     tax = (taxable_amount * Decimal("0.18")).quantize(Decimal("0.01"))
-    discount = Decimal("0.00")
-    grand_total = (taxable_amount + tax - discount).quantize(Decimal("0.01"))
+    grand_total = (taxable_amount + tax).quantize(Decimal("0.01"))
 
     # 5. Create or Update Invoice
     invoice, created = Invoice.objects.get_or_create(
@@ -123,6 +124,18 @@ def generate_invoice_for_booking(booking: ServiceBooking) -> Invoice:
             quantity=extra_labor_hours,
             unit_price=Decimal("400.00"),
             total_price=labor_total,
+        )
+
+    # Coupon discount item
+    if discount > 0:
+        coupon_code = booking.coupon.code if booking.coupon else "coupon"
+        InvoiceItem.objects.create(
+            invoice=invoice,
+            description=f"Discount: {coupon_code}",
+            item_type=InvoiceItem.ItemType.DISCOUNT,
+            quantity=1,
+            unit_price=-discount,
+            total_price=-discount,
         )
 
     # Tax item

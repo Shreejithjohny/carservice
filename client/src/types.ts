@@ -105,6 +105,9 @@ export interface Booking {
   customer?: number;
   customer_name?: string;
   customer_phone?: string;
+  contact_phone?: string;
+  coupon_code?: string;
+  coupon_discount?: number | string;
   customer_email?: string;
   vehicle?: number | string;
   vehicle_details?: Vehicle;

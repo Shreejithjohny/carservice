@@ -218,6 +218,20 @@ class Command(BaseCommand):
                     demo_user.set_password(demo_password)
                     demo_user.save(update_fields=["password"])
 
+        # Demo coupon for trying the booking form (10% off the package, at most Rs 300)
+        from api.models import Coupon
+
+        Coupon.objects.get_or_create(
+            code="WELCOME10",
+            defaults={
+                "description": "10% off your service (demo coupon)",
+                "discount_type": Coupon.DiscountType.PERCENT,
+                "value": 10,
+                "max_discount": 300,
+                "per_customer_limit": 0,
+            },
+        )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Successfully seeded demo accounts & active booking!\n"

@@ -8,7 +8,8 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import serializers as drf_serializers
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -33,6 +34,8 @@ from .models import (
     RepairRequestStatus,
     VehicleConditionPhoto,
     Invoice,
+    Payment,
+    PushSubscription,
     InvoiceItem,
     InvoiceStatus,
     CarHealthScore,
@@ -44,6 +47,7 @@ from .models import (
     ServiceReview,
 )
 from .serializers import (
+    valid_contact_phone,
     PasswordRegisterSerializer,
     StaffCreateSerializer,
     UserSerializer,
@@ -76,6 +80,9 @@ from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
 from .notification_service import send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
+from . import razorpay_service
+from .coupon_service import CouponError, coupon_discount, find_coupon
+from .push_service import push_enabled
 from .dispatch_service import best_driver, best_mechanic, rank_drivers, rank_mechanics
 from .geocoding_service import GeocodingError, reverse_geocode, search_address
 from .routing_service import RoutingError, driving_route
@@ -86,7 +93,7 @@ from .analytics_service import center_analytics
 from .ml_cost_model import (
     MIN_TRAINING_SAMPLES, SYNTHETIC_HISTORY_EMAIL, SYNTHETIC_MARKER, train_cost_model, training_rows,
 )
-from .slot_service import SlotError, reserve_slot, slot_availability, validate_slot_choice
+from .slot_service import PICKUP_SLOTS, SlotError, reserve_slot, slot_availability, validate_slot_choice
 
 
 # Permissions come from the app role. is_staff only controls access to the Django admin site,
@@ -136,6 +143,7 @@ def manager_scope_error(user, booking=None):
 
 CUSTOMER_EDITABLE_BOOKING_FIELDS = {
     "pickup_address", "pickup_latitude", "pickup_longitude", "preferred_date", "preferred_time", "customer_notes", "status",
+    "contact_phone",
 }
 
 # Every status the workflow uses (model choices plus the intermediate pickup/workshop steps).
@@ -315,6 +323,7 @@ def health_check(request):
         "demo_login": getattr(settings, "OTP_BYPASS", False),
         "payment_gateway": payment_gateway() or None,
         "google_client_id": settings.GOOGLE_CLIENT_ID or None,
+        "push_public_key": settings.VAPID_PUBLIC_KEY if push_enabled() else None,
     })
 
 
@@ -967,6 +976,49 @@ def service_center_slots(request, pk):
     })
 
 
+def notify_rescheduled(booking):
+    """Tells everyone involved that the customer moved the pickup."""
+    when = f"{booking.preferred_date:%d %b %Y}, {dict(PICKUP_SLOTS).get(booking.preferred_time, booking.preferred_time)}"
+    recipients = [(booking.customer, f"Your pickup for {booking.vehicle.registration_number} is now on {when}.")]
+    staff_message = f"Booking {booking.booking_reference} was moved by the customer to {when}."
+    if booking.service_center and booking.service_center.user:
+        recipients.append((booking.service_center.user, staff_message))
+    if booking.assigned_driver:
+        recipients.append((booking.assigned_driver, staff_message))
+    for user, message in recipients:
+        send_notification(
+            user=user,
+            booking=booking,
+            notification_type=NotificationType.PICKUP_SCHEDULED,
+            title="Pickup rescheduled",
+            message=message,
+        )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def coupon_check(request):
+    """
+    POST /api/coupons/check/  {"code", "service_type": id}
+    Previews a coupon on a package for the signed-in customer. The booking re-checks it.
+    """
+    service_type = ServiceType.objects.filter(pk=request.data.get("service_type") or 0, active=True).first()
+    if not service_type:
+        return Response({"error": "Choose a service package first."}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        coupon = find_coupon(request.data.get("code"))
+        discount = coupon_discount(coupon, request.user, service_type.base_price)
+    except CouponError as exc:
+        return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({
+        "code": coupon.code,
+        "description": coupon.description,
+        "discount": discount,
+        "price": service_type.base_price,
+        "final_price": service_type.base_price - discount,
+    })
+
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def booking_list_create(request):
@@ -1002,20 +1054,51 @@ def booking_list_create(request):
                 return Response({"error": "Choose an available service center."}, status=status.HTTP_400_BAD_REQUEST)
             est_cost = service_type.base_price
 
+            # The driver calls this number at pickup: the one confirmed on the form, else the profile's
+            contact_phone = serializer.validated_data.get("contact_phone") or ""
+            if not contact_phone:
+                try:
+                    contact_phone = valid_contact_phone(request.user.phone)
+                except drf_serializers.ValidationError:
+                    return Response(
+                        {"error": "Enter the mobile number our driver should call at pickup.", "field": "contact_phone"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            coupon_code = str(request.data.get("coupon_code") or "").strip()
+
+            def create_booking():
+                coupon, discount = None, 0
+                if coupon_code:
+                    # Locked so two bookings can't both take a coupon's last use
+                    coupon = find_coupon(coupon_code, lock=True)
+                    discount = coupon_discount(coupon, request.user, est_cost)
+                return serializer.save(
+                    customer=request.user,
+                    estimated_cost=est_cost,
+                    status=BookingStatus.PENDING,
+                    contact_phone=contact_phone,
+                    coupon=coupon,
+                    coupon_discount=discount,
+                )
+
             try:
                 booking = reserve_slot(
                     service_center,
                     serializer.validated_data.get("preferred_date"),
                     serializer.validated_data.get("preferred_time", ""),
                     timezone.localdate(),
-                    lambda: serializer.save(
-                        customer=request.user,
-                        estimated_cost=est_cost,
-                        status=BookingStatus.PENDING,
-                    ),
+                    create_booking,
                 )
             except SlotError as exc:
                 return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+            except CouponError as exc:
+                return Response({"error": exc.message, "field": "coupon_code"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Remember the number on a profile that has none (unless another account already uses it)
+            if not request.user.phone and not User.objects.filter(phone=contact_phone).exists():
+                request.user.phone = contact_phone
+                request.user.save(update_fields=["phone"])
             send_notification(
                 user=booking.customer,
                 booking=booking,
@@ -1086,11 +1169,15 @@ def booking_detail(request, pk):
                     except SlotError as exc:
                         return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
 
+        previous_slot = (booking.preferred_date, booking.preferred_time)
         serializer = ServiceBookingSerializer(booking, data=request.data, partial=(request.method == "PATCH"), context={"request": request})
         if serializer.is_valid():
-            serializer.save()
+            booking = serializer.save()
+            if (booking.preferred_date, booking.preferred_time) != previous_slot and booking.status != BookingStatus.CANCELLED:
+                notify_rescheduled(booking)
             return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        first_error = next(iter(serializer.errors.values()))[0] if serializer.errors else "Invalid details."
+        return Response({"error": str(first_error), **serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == "DELETE":
         if not is_admin(request.user) and booking.customer != request.user:
@@ -2322,6 +2409,78 @@ def invoice_pay(request, pk):
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
     return Response({"payment": PaymentSerializer(payment).data, "invoice": invoice_data})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def invoice_razorpay_order(request, pk):
+    """POST /api/invoices/<id>/razorpay/order/ -> a Razorpay order for the invoice total, for Checkout."""
+    if payment_gateway() != "razorpay":
+        return Response({"error": "Razorpay payments are not enabled."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    try:
+        return Response(razorpay_service.create_order(pk, request.user))
+    except PaymentError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def invoice_razorpay_verify(request, pk):
+    """
+    POST /api/invoices/<id>/razorpay/verify/
+    Body: what Razorpay Checkout returned (razorpay_order_id, razorpay_payment_id, razorpay_signature).
+    """
+    if payment_gateway() != "razorpay":
+        return Response({"error": "Razorpay payments are not enabled."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    try:
+        payment = razorpay_service.confirm_checkout(pk, request.user, request.data)
+    except PaymentError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+    payment.invoice.refresh_from_db()
+    body = {"payment": PaymentSerializer(payment).data, "invoice": InvoiceSerializer(payment.invoice).data}
+    if payment.status != Payment.Status.SUCCESS or payment.invoice.payment_status != Invoice.PaymentStatus.PAID:
+        message = payment.failure_reason or "Payment failed."
+        if payment.status == Payment.Status.SUCCESS:
+            message = "Your payment was received but needs a manual check. The service center will contact you."
+        return Response({"error": message, **body}, status=status.HTTP_402_PAYMENT_REQUIRED)
+    return Response(body)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def razorpay_webhook(request):
+    """POST /api/payments/razorpay/webhook/ -> called by Razorpay's servers; trusted only by its signature."""
+    try:
+        result = razorpay_service.handle_webhook(request.body, request.headers.get("X-Razorpay-Signature", ""))
+    except PaymentError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+    return Response({"status": result})
+
+
+@api_view(["POST", "DELETE"])
+@permission_classes([IsAuthenticated])
+def push_subscription(request):
+    """
+    POST   /api/push/subscription/  {"endpoint", "keys": {"p256dh", "auth"}}  (a browser PushSubscription)
+    DELETE /api/push/subscription/  {"endpoint"}
+    """
+    endpoint = str(request.data.get("endpoint") or "").strip()
+    if request.method == "DELETE":
+        PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
+        return Response({"subscribed": False})
+
+    if not push_enabled():
+        return Response({"error": "Browser alerts are not set up on this server."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    keys = request.data.get("keys") if isinstance(request.data.get("keys"), dict) else {}
+    p256dh, auth = str(keys.get("p256dh") or ""), str(keys.get("auth") or "")
+    if not endpoint.startswith("https://") or len(endpoint) > 1000 or not p256dh or not auth or len(p256dh) > 200 or len(auth) > 100:
+        return Response({"error": "Invalid push subscription."}, status=status.HTTP_400_BAD_REQUEST)
+    # A browser has one subscription; if someone else signed in on it before, it becomes this user's
+    PushSubscription.objects.update_or_create(
+        endpoint=endpoint, defaults={"user": request.user, "p256dh": p256dh, "auth": auth}
+    )
+    return Response({"subscribed": True}, status=status.HTTP_201_CREATED)
 
 
 @api_view(["POST"])

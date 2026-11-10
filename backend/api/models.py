@@ -333,6 +333,11 @@ class ServiceBooking(models.Model):
     preferred_date = models.DateField(null=True, blank=True)
     preferred_time = models.CharField(max_length=30, blank=True, default="10:00 AM")
     customer_notes = models.TextField(blank=True, default="")
+    # Number the driver calls at pickup; confirmed by the customer on the booking form.
+    contact_phone = models.CharField(max_length=16, blank=True, default="")
+    # Coupon applied at booking. The discount is fixed then, so later coupon edits don't change it.
+    coupon = models.ForeignKey("Coupon", on_delete=models.SET_NULL, null=True, blank=True, related_name="bookings")
+    coupon_discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     pickup_scheduled_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=35, choices=BookingStatus.choices, default=BookingStatus.PENDING
@@ -706,6 +711,8 @@ class Invoice(models.Model):
         max_length=20, choices=InvoiceStatus.choices, default=InvoiceStatus.ISSUED
     )
     issued_at = models.DateTimeField(default=timezone.now)
+    # Latest Razorpay order created for this invoice (empty with other gateways)
+    razorpay_order_id = models.CharField(max_length=40, blank=True, default="", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -800,6 +807,9 @@ class Payment(models.Model):
     class Method(models.TextChoices):
         UPI = "UPI", _("UPI")
         CARD = "CARD", _("Card")
+        NETBANKING = "NETBANKING", _("Net banking")
+        WALLET = "WALLET", _("Wallet")
+        OTHER = "OTHER", _("Other")
 
     class Status(models.TextChoices):
         SUCCESS = "SUCCESS", _("Success")
@@ -953,3 +963,53 @@ class ServiceHistory(models.Model):
 
     def __str__(self):
         return f"History for {self.vehicle.registration_number} on {self.completed_at.strftime('%Y-%m-%d')}"
+
+
+class Coupon(models.Model):
+    """A discount code customers can enter when booking. The discount applies to the package price."""
+
+    class DiscountType(models.TextChoices):
+        PERCENT = "PERCENT", _("Percent off")
+        FLAT = "FLAT", _("Flat amount off")
+
+    code = models.CharField(max_length=30, unique=True, help_text="Stored in capitals, e.g. WELCOME10")
+    description = models.CharField(max_length=200, blank=True, default="")
+    discount_type = models.CharField(max_length=10, choices=DiscountType.choices, default=DiscountType.PERCENT)
+    value = models.DecimalField(
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(0.01)],
+        help_text="Percent (e.g. 10) or rupees (e.g. 200), depending on the type",
+    )
+    max_discount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Cap in rupees for percent coupons (optional)"
+    )
+    min_order = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Smallest package price it works on")
+    valid_from = models.DateField(null=True, blank=True)
+    valid_until = models.DateField(null=True, blank=True)
+    usage_limit = models.PositiveIntegerField(null=True, blank=True, help_text="Total uses allowed (empty = unlimited)")
+    per_customer_limit = models.PositiveIntegerField(default=1, help_text="Uses allowed per customer (0 = unlimited)")
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def save(self, *args, **kwargs):
+        self.code = (self.code or "").strip().upper()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        amount = f"{self.value:g}%" if self.discount_type == self.DiscountType.PERCENT else f"₹{self.value:g}"
+        return f"{self.code} ({amount} off)"
+
+
+class PushSubscription(models.Model):
+    """A browser that agreed to receive push notifications for a user (Web Push)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="push_subscriptions")
+    endpoint = models.URLField(max_length=1000, unique=True)
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Push subscription of {self.user.email}"

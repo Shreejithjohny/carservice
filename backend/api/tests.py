@@ -1183,7 +1183,7 @@ class SecurityAuditTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.customer = User.objects.create_user(username="sa_cust", email="sa_cust@example.com", role=UserRole.CUSTOMER)
+        self.customer = User.objects.create_user(username="sa_cust", email="sa_cust@example.com", role=UserRole.CUSTOMER, phone="+919845000002")
         self.manager = User.objects.create_user(
             username="sa_mgr", email="sa_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER, is_staff=True
         )
@@ -1311,7 +1311,7 @@ class SecurityAuditTests(TestCase):
 class BookingSlotTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.customer = User.objects.create_user(username="slotc", email="slotc@example.com", role=UserRole.CUSTOMER)
+        self.customer = User.objects.create_user(username="slotc", email="slotc@example.com", role=UserRole.CUSTOMER, phone="+919845000001")
         self.center = ServiceCenter.objects.create(
             name="Slot Center", address="MG Road", phone="+918000000001", email="slot@example.com", slot_capacity=2
         )
@@ -2414,3 +2414,441 @@ class GoogleCredentialVerificationTests(TestCase):
             self.verify(error=ValueError("Token used too late"))
         with self.assertRaises(GoogleUnavailableError):
             self.verify(error=google_exceptions.TransportError("no route"))
+
+
+# ==========================================
+# CONTACT NUMBER, COUPONS, RESCHEDULING
+# ==========================================
+import hashlib
+import hmac
+import json
+from decimal import Decimal
+from api.models import Coupon, PushSubscription, Payment, Notification
+from api import push_service, razorpay_service
+from api.invoice_service import generate_invoice_for_booking
+
+
+class BookingExtrasTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="bx", email="bx@example.com", role=UserRole.CUSTOMER)
+        self.manager = User.objects.create_user(username="bxm", email="bxm@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        self.center = ServiceCenter.objects.create(
+            user=self.manager, name="BX Center", address="MG Road", phone="+918000000009", email="bxc@example.com", slot_capacity=1
+        )
+        self.st = ServiceType.objects.create(name="BX Service", base_price=2000)
+        self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number="KA05BX0001")
+        self.client.force_authenticate(user=self.customer)
+
+    def book(self, **extra):
+        body = {
+            "vehicle": self.vehicle.id, "service_type": self.st.id, "service_center": self.center.id,
+            "pickup_address": "Koramangala", "preferred_date": FUTURE_DATE, "preferred_time": "09:00:00", **extra,
+        }
+        return self.client.post("/api/bookings/", body, format="json")
+
+    # --- contact number
+    def test_booking_needs_a_number_the_driver_can_call(self):
+        res = self.book()
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["field"], "contact_phone")
+        self.assertEqual(self.book(contact_phone="12345").status_code, 400)
+        self.assertEqual(self.book(contact_phone="5845012345").status_code, 400)  # Indian mobiles start 6-9
+        self.assertFalse(ServiceBooking.objects.exists())
+
+    def test_confirmed_number_is_normalised_shown_to_staff_and_saved_to_an_empty_profile(self):
+        res = self.book(contact_phone="98450 12345")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["contact_phone"], "+919845012345")
+        self.assertEqual(res.data["customer_phone"], "+919845012345")
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.phone, "+919845012345")
+
+    def test_profile_number_is_used_when_none_is_sent_and_a_different_one_does_not_overwrite_it(self):
+        self.customer.phone = "+919845000077"
+        self.customer.save()
+        self.assertEqual(self.book().data["contact_phone"], "+919845000077")
+        ServiceBooking.objects.all().delete()
+        res = self.book(contact_phone="9845099999")
+        self.assertEqual(res.data["customer_phone"], "+919845099999")
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.phone, "+919845000077")
+
+    # --- coupons
+    def coupon(self, **kw):
+        return Coupon.objects.create(**{"code": "welcome10", "discount_type": "PERCENT", "value": 10, **kw})
+
+    def check(self, code):
+        return self.client.post("/api/coupons/check/", {"code": code, "service_type": self.st.id}, format="json")
+
+    def test_percent_coupon_with_cap_and_flat_coupon(self):
+        self.coupon(max_discount=150)
+        Coupon.objects.create(code="FLAT500", discount_type="FLAT", value=500)
+        res = self.check(" Welcome10 ")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(Decimal(res.data["discount"]), Decimal("150.00"))  # 10% of 2000 = 200, capped
+        self.assertEqual(Decimal(self.check("flat500").data["final_price"]), Decimal("1500.00"))
+        self.assertEqual(self.check("NOPE").status_code, 400)
+
+    def test_coupon_rules(self):
+        today = timezone.localdate()
+        Coupon.objects.create(code="OLD", value=10, valid_until=today - timedelta(days=1))
+        Coupon.objects.create(code="SOON", value=10, valid_from=today + timedelta(days=1))
+        Coupon.objects.create(code="BIG", value=10, min_order=5000)
+        Coupon.objects.create(code="OFF", value=10, active=False)
+        Coupon.objects.create(code="HUGE", discount_type="FLAT", value=9999)
+        for code, text in [("OLD", "expired"), ("SOON", "not active yet"), ("BIG", "or more"), ("OFF", "not valid")]:
+            res = self.check(code)
+            self.assertEqual(res.status_code, 400, code)
+            self.assertIn(text, res.data["error"])
+        self.assertEqual(Decimal(self.check("HUGE").data["final_price"]), Decimal("0.00"))  # never below zero
+
+    def test_coupon_is_applied_to_the_booking_and_invoice_and_used_once_per_customer(self):
+        self.coupon()
+        res = self.book(contact_phone="9845012345", coupon_code="WELCOME10")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data["coupon_code"], "WELCOME10")
+        self.assertEqual(Decimal(res.data["coupon_discount"]), Decimal("200.00"))
+
+        booking = ServiceBooking.objects.get(pk=res.data["id"])
+        booking.status = BookingStatus.COMPLETED
+        booking.save()
+        invoice = generate_invoice_for_booking(booking)
+        self.assertEqual(invoice.discount, Decimal("200.00"))
+        self.assertEqual(invoice.tax, Decimal("324.00"))          # 18% of (2000 - 200)
+        self.assertEqual(invoice.grand_total, Decimal("2124.00"))
+        self.assertEqual(sum(i.total_price for i in invoice.items.all()), invoice.grand_total)
+
+        # Second use by the same customer is refused, and no booking is created
+        self.center.slot_capacity = 5
+        self.center.save()
+        again = self.book(contact_phone="9845012345", coupon_code="WELCOME10")
+        self.assertEqual(again.status_code, 400)
+        self.assertEqual(again.data["field"], "coupon_code")
+        self.assertEqual(ServiceBooking.objects.count(), 1)
+
+    def test_total_usage_limit_and_cancelled_booking_gives_the_use_back(self):
+        self.coupon(usage_limit=1, per_customer_limit=0)
+        self.center.slot_capacity = 5
+        self.center.save()
+        first = self.book(contact_phone="9845012345", coupon_code="WELCOME10")
+        self.assertEqual(first.status_code, 201)
+        self.assertIn("fully used", self.book(contact_phone="9845012345", coupon_code="WELCOME10").data["error"])
+        self.client.patch(f"/api/bookings/{first.data['id']}/", {"status": "Cancelled"}, format="json")
+        self.assertEqual(self.book(contact_phone="9845012345", coupon_code="WELCOME10").status_code, 201)
+
+    def test_customer_cannot_set_the_discount_directly(self):
+        res = self.book(contact_phone="9845012345", coupon_discount="1999")
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(Decimal(res.data["coupon_discount"]), Decimal("0.00"))
+        patch_res = self.client.patch(f"/api/bookings/{res.data['id']}/", {"coupon_discount": "1999"}, format="json")
+        self.assertEqual(patch_res.status_code, 400)
+
+    # --- rescheduling
+    def test_reschedule_notifies_customer_and_manager(self):
+        booking_id = self.book(contact_phone="9845012345").data["id"]
+        Notification.objects.all().delete()
+        new_day = (timezone.localdate() + timedelta(days=3)).isoformat()
+        res = self.client.patch(f"/api/bookings/{booking_id}/", {"preferred_date": new_day, "preferred_time": "14:00:00"}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["preferred_date"], new_day)
+        titles = {(n.user_id, n.title) for n in Notification.objects.all()}
+        self.assertEqual(titles, {(self.customer.id, "Pickup rescheduled"), (self.manager.id, "Pickup rescheduled")})
+        self.assertIn("02:00 PM - 04:00 PM", Notification.objects.filter(user=self.customer).first().message)
+
+    def test_editing_only_the_address_sends_no_reschedule_notice(self):
+        booking_id = self.book(contact_phone="9845012345").data["id"]
+        Notification.objects.all().delete()
+        self.client.patch(f"/api/bookings/{booking_id}/", {"pickup_address": "HSR Layout"}, format="json")
+        self.assertFalse(Notification.objects.filter(title="Pickup rescheduled").exists())
+
+
+# ==========================================
+# RAZORPAY PAYMENTS
+# ==========================================
+RZP = dict(PAYMENT_GATEWAY="razorpay", RAZORPAY_KEY_ID="rzp_test_key", RAZORPAY_KEY_SECRET="rzp_secret", RAZORPAY_WEBHOOK_SECRET="hook_secret")
+
+
+@override_settings(**RZP)
+class RazorpayPaymentTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="rz", email="rz@example.com", role=UserRole.CUSTOMER, phone="+919845000010")
+        self.other = User.objects.create_user(username="rz2", email="rz2@example.com", role=UserRole.CUSTOMER)
+        self.manager = User.objects.create_user(username="rzm", email="rzm@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        center = ServiceCenter.objects.create(user=self.manager, name="RZ", address="x", phone="+918000000008", email="rzc@example.com")
+        st = ServiceType.objects.create(name="RZ Service", base_price=1000)
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number="KA05RZ0001")
+        booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=st, service_center=center,
+            pickup_address="x", status=BookingStatus.COMPLETED,
+        )
+        self.invoice = generate_invoice_for_booking(booking)  # 1000 + 18% = 1180.00
+        Notification.objects.all().delete()
+        self.client.force_authenticate(user=self.customer)
+        self.api_calls = []
+
+    def fake_api(self, payment=None):
+        """Stands in for Razorpay's REST API."""
+        def api(method, path, body=None):
+            self.api_calls.append((method, path, body))
+            if (method, path) == ("POST", "/orders"):
+                return {"id": "order_TEST1", "amount": body["amount"], "currency": body["currency"], "notes": body["notes"]}
+            if method == "GET" and path.startswith("/payments/"):
+                return payment
+            if method == "GET" and path.startswith("/orders/"):
+                return {"id": path.split("/")[-1], "notes": {}}
+            if method == "POST" and path.endswith("/capture"):
+                return {**payment, "status": "captured"}
+            raise AssertionError(f"unexpected Razorpay call {method} {path}")
+        return patch.object(razorpay_service, "_api", side_effect=api)
+
+    def payment(self, **kw):
+        return {"id": "pay_TEST1", "order_id": "order_TEST1", "amount": 118000, "currency": "INR",
+                "status": "captured", "method": "upi", "vpa": "meera@okbank", **kw}
+
+    def create_order(self):
+        with self.fake_api():
+            return self.client.post(f"/api/invoices/{self.invoice.id}/razorpay/order/")
+
+    def verify(self, payment=None, signature=None, order_id="order_TEST1", payment_id="pay_TEST1"):
+        if signature is None:
+            signature = hmac.new(b"rzp_secret", f"{order_id}|{payment_id}".encode(), hashlib.sha256).hexdigest()
+        with self.fake_api(payment or self.payment()):
+            return self.client.post(f"/api/invoices/{self.invoice.id}/razorpay/verify/", {
+                "razorpay_order_id": order_id, "razorpay_payment_id": payment_id, "razorpay_signature": signature,
+            }, format="json")
+
+    def webhook(self, event, payment, secret=b"hook_secret"):
+        body = json.dumps({"event": event, "payload": {"payment": {"entity": payment}}}).encode()
+        signature = hmac.new(secret, body, hashlib.sha256).hexdigest()
+        with self.fake_api(payment):
+            return APIClient().post("/api/payments/razorpay/webhook/", body, content_type="application/json",
+                                    HTTP_X_RAZORPAY_SIGNATURE=signature)
+
+    def test_order_is_created_for_the_invoice_total_in_paise(self):
+        res = self.create_order()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["order_id"], "order_TEST1")
+        self.assertEqual(res.data["amount"], 118000)
+        self.assertEqual(res.data["key_id"], "rzp_test_key")
+        self.assertNotIn("rzp_secret", json.dumps(res.data))
+        self.assertEqual(self.api_calls[0][2]["notes"]["invoice_id"], str(self.invoice.pk))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.razorpay_order_id, "order_TEST1")
+
+    def test_only_the_invoice_customer_can_create_an_order(self):
+        self.client.force_authenticate(user=self.other)
+        self.assertEqual(self.create_order().status_code, 403)
+
+    def test_verified_checkout_marks_the_invoice_paid(self):
+        self.create_order()
+        res = self.verify()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["invoice"]["payment_status"], "PAID")
+        payment = Payment.objects.get()
+        self.assertEqual((payment.transaction_id, payment.provider, payment.method, payment.payer_reference),
+                         ("pay_TEST1", "RAZORPAY", "UPI", "meera@okbank"))
+        self.assertEqual(payment.amount, Decimal("1180.00"))
+        self.assertTrue(Notification.objects.filter(user=self.manager, title="Invoice paid").exists())
+
+    def test_wrong_signature_is_refused_without_calling_razorpay(self):
+        self.create_order()
+        self.api_calls.clear()
+        res = self.verify(signature="0" * 64)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(self.api_calls, [])
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "PENDING")
+
+    def test_payment_for_another_order_or_wrong_amount_does_not_mark_paid(self):
+        self.create_order()
+        # A validly signed pair whose payment actually belongs to a different order
+        res = self.verify(payment=self.payment(order_id="order_OTHER"))
+        self.assertEqual(res.status_code, 400)
+        # A validly signed pair for an order that isn't this invoice's
+        res = self.verify(payment=self.payment(order_id="order_OTHER"), order_id="order_OTHER")
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(Payment.objects.exists())
+        # Right order, but less money than the invoice total
+        res = self.verify(payment=self.payment(amount=100))
+        self.assertEqual(res.status_code, 402)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "PENDING")
+        self.assertIn("Needs review", Payment.objects.get().failure_reason)
+        self.assertTrue(Notification.objects.filter(user=self.manager, title="Payment needs review").exists())
+
+    def test_another_customer_cannot_confirm_this_invoice(self):
+        self.create_order()
+        self.client.force_authenticate(user=self.other)
+        self.assertEqual(self.verify().status_code, 403)
+
+    def test_authorized_payment_is_captured(self):
+        self.create_order()
+        res = self.verify(payment=self.payment(status="authorized", method="card", card={"last4": "1111"}))
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn(("POST", "/payments/pay_TEST1/capture", {"amount": 118000, "currency": "INR"}), self.api_calls)
+        self.assertEqual(Payment.objects.get().payer_reference, "Card ending 1111")
+
+    def test_webhook_marks_paid_and_is_idempotent_with_checkout(self):
+        self.create_order()
+        self.assertEqual(self.webhook("payment.captured", self.payment()).data["status"], "recorded")
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "PAID")
+        # The browser confirming the same payment afterwards, and a repeated webhook, change nothing
+        self.assertEqual(self.verify().status_code, 200)
+        self.webhook("payment.captured", self.payment())
+        self.assertEqual(Payment.objects.count(), 1)
+        self.assertEqual(Notification.objects.filter(user=self.customer, title="Payment successful").count(), 1)
+
+    def test_webhook_with_bad_signature_or_unknown_event(self):
+        self.create_order()
+        self.assertEqual(self.webhook("payment.captured", self.payment(), secret=b"guess").status_code, 400)
+        self.assertEqual(self.webhook("refund.created", self.payment()).data["status"], "ignored")
+        self.assertFalse(Payment.objects.exists())
+
+    def test_failed_payment_is_recorded_and_a_later_success_still_pays(self):
+        self.create_order()
+        self.webhook("payment.failed", self.payment(id="pay_FAIL", status="failed", error_description="Bank declined"))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "FAILED")
+        self.assertEqual(Payment.objects.get().failure_reason, "Bank declined")
+        self.assertEqual(self.verify().status_code, 200)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "PAID")
+
+    def test_second_payment_on_a_paid_invoice_is_flagged_for_refund(self):
+        self.create_order()
+        self.verify()
+        self.webhook("payment.captured", self.payment(id="pay_TEST2"))
+        self.assertIn("paid twice", Payment.objects.get(transaction_id="pay_TEST2").failure_reason)
+        self.assertTrue(Notification.objects.filter(user=self.manager, title="Payment needs review").exists())
+
+    def test_mock_endpoint_is_closed_when_razorpay_is_the_gateway(self):
+        res = self.client.post(f"/api/invoices/{self.invoice.id}/pay/", {"method": "UPI", "upi_id": "a@okbank"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.payment_status, "PENDING")
+
+    @override_settings(PAYMENT_GATEWAY="mock")
+    def test_razorpay_endpoints_are_off_with_another_gateway(self):
+        self.assertEqual(self.client.post(f"/api/invoices/{self.invoice.id}/razorpay/order/").status_code, 503)
+
+    @override_settings(RAZORPAY_KEY_SECRET="")
+    def test_missing_keys_give_a_clear_error(self):
+        res = self.client.post(f"/api/invoices/{self.invoice.id}/razorpay/order/")
+        self.assertEqual(res.status_code, 503)
+        self.assertIn("not set up", res.data["error"])
+
+
+# ==========================================
+# BROWSER PUSH NOTIFICATIONS
+# ==========================================
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+import jwt as pyjwt
+
+VAPID = push_service.generate_vapid_keys()
+
+
+def browser_keys():
+    """What a browser creates when it subscribes: a P-256 key pair and a 16-byte secret."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    public = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    auth = b"0123456789abcdef"
+    return key, push_service.b64url_encode(public), push_service.b64url_encode(auth), public, auth
+
+
+def browser_decrypt(body, key, public, auth):
+    """The receiving side of RFC 8291, written from the spec independently of encrypt_payload."""
+    salt, record_size, id_len = body[:16], int.from_bytes(body[16:20], "big"), body[20]
+    sender_public = body[21:21 + id_len]
+    ciphertext = body[21 + id_len:]
+    shared = key.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), sender_public))
+
+    def hkdf(salt_, ikm_, info, length):
+        return HKDF(algorithm=hashes.SHA256(), length=length, salt=salt_, info=info).derive(ikm_)
+
+    ikm = hkdf(auth, shared, b"WebPush: info\x00" + public + sender_public, 32)
+    cek = hkdf(salt, ikm, b"Content-Encoding: aes128gcm\x00", 16)
+    nonce = hkdf(salt, ikm, b"Content-Encoding: nonce\x00", 12)
+    plain = AESGCM(cek).decrypt(nonce, ciphertext, None)
+    assert record_size == 4096 and id_len == 65 and plain.endswith(b"\x02")
+    return plain[:-1]
+
+
+@override_settings(VAPID_PUBLIC_KEY=VAPID["public"], VAPID_PRIVATE_KEY=VAPID["private"], VAPID_CONTACT_EMAIL="ops@example.com")
+class PushNotificationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username="pu", email="pu@example.com", role=UserRole.CUSTOMER)
+        self.client.force_authenticate(user=self.user)
+        self.key, self.p256dh, self.auth, self.public, self.auth_raw = browser_keys()
+        self.endpoint = "https://fcm.googleapis.com/fcm/send/abc123"
+
+    def subscribe(self, **kw):
+        body = {"endpoint": self.endpoint, "keys": {"p256dh": self.p256dh, "auth": self.auth}, **kw}
+        return self.client.post("/api/push/subscription/", body, format="json")
+
+    def test_message_round_trips_through_the_browser_side_decryption(self):
+        text = "नमस्ते: driver arriving"
+        body = push_service.encrypt_payload(text.encode(), self.p256dh, self.auth)
+        self.assertEqual(browser_decrypt(body, self.key, self.public, self.auth_raw).decode(), text)
+        # Fresh salt and sender key every time
+        self.assertNotEqual(body, push_service.encrypt_payload(text.encode(), self.p256dh, self.auth))
+
+    def test_subscribe_send_and_unsubscribe(self):
+        self.assertEqual(self.subscribe().status_code, 201)
+        self.assertEqual(self.subscribe().status_code, 201)  # same browser again: still one row
+        self.assertEqual(PushSubscription.objects.count(), 1)
+
+        with patch.object(push_service.requests, "post") as post:
+            post.return_value.status_code = 201
+            self.assertEqual(push_service.deliver(self.user.id, "Driver assigned", "Ravi is on the way", "/app/track"), 1)
+        url = post.call_args.args[0]
+        headers, data = post.call_args.kwargs["headers"], post.call_args.kwargs["data"]
+        self.assertEqual(url, self.endpoint)
+        self.assertEqual(headers["Content-Encoding"], "aes128gcm")
+        message = json.loads(browser_decrypt(data, self.key, self.public, self.auth_raw))
+        self.assertEqual(message, {"title": "Driver assigned", "body": "Ravi is on the way", "url": "/app/track"})
+
+        # VAPID: a token signed with our private key, for the push service's origin
+        scheme, rest = headers["Authorization"].split(" ", 1)
+        fields = dict(part.strip().split("=", 1) for part in rest.split(","))
+        self.assertEqual((scheme, fields["k"]), ("vapid", VAPID["public"]))
+        public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), push_service.b64url_decode(VAPID["public"]))
+        claims = pyjwt.decode(fields["t"], public_key, algorithms=["ES256"], audience="https://fcm.googleapis.com")
+        self.assertEqual(claims["sub"], "mailto:ops@example.com")
+
+        self.client.delete("/api/push/subscription/", {"endpoint": self.endpoint}, format="json")
+        self.assertFalse(PushSubscription.objects.exists())
+
+    def test_expired_subscription_is_removed_and_errors_do_not_escape(self):
+        self.subscribe()
+        with patch.object(push_service.requests, "post", side_effect=OSError("network down")):
+            self.assertEqual(push_service.deliver(self.user.id, "t", "m", "/"), 0)
+        self.assertTrue(PushSubscription.objects.exists())
+        with patch.object(push_service.requests, "post") as post:
+            post.return_value.status_code = 410
+            self.assertEqual(push_service.deliver(self.user.id, "t", "m", "/"), 0)
+        self.assertFalse(PushSubscription.objects.exists())
+
+    def test_notifications_are_pushed_with_the_right_page(self):
+        from api.notification_service import send_notification
+        self.subscribe()
+        with patch("api.push_service.push_to_user") as push:
+            send_notification(self.user, "REPAIR_APPROVAL_REQUIRED", "Approve repair", "Brake pads need replacing")
+        push.assert_called_once_with(self.user, "Approve repair", "Brake pads need replacing", "/app/approvals")
+
+    def test_invalid_subscriptions_are_refused(self):
+        self.assertEqual(self.subscribe(endpoint="http://insecure.example/x").status_code, 400)
+        self.assertEqual(self.subscribe(keys={"p256dh": "", "auth": ""}).status_code, 400)
+        self.assertEqual(APIClient().post("/api/push/subscription/", {}, format="json").status_code, 401)
+
+    def test_health_check_gives_the_browser_the_public_key(self):
+        self.assertEqual(self.client.get("/api/health-check/").data["push_public_key"], VAPID["public"])
+        with override_settings(VAPID_PRIVATE_KEY=""):
+            self.assertIsNone(self.client.get("/api/health-check/").data["push_public_key"])
+            self.assertEqual(self.subscribe().status_code, 503)
