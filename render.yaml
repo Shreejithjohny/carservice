@@ -1,13 +1,23 @@
-# Render blueprint (https://render.com): New > Blueprint > pick this repository.
-# It creates the web server from the Dockerfile and a PostgreSQL database, and connects them.
-# Check Render's current plans and prices before choosing; free plans sleep when idle and free
-# databases expire. See docs/DEPLOY.md for the remaining settings (Google, Razorpay, alerts).
+# Render blueprint (https://render.com): New > Blueprint > choose this repository.
+# Creates the web server (from the Dockerfile), a PostgreSQL database and a disk for uploaded photos,
+# all in Singapore (closest to India), and connects them. Steps: docs/DEPLOY.md.
+#
+# Paid plans (roughly $7 web + $6 database + disk per GB, monthly; check render.com/pricing).
+# For a short demo you can use the free plans instead: set both `plan:` values to `free` and delete
+# the `disk:` block. Free web services sleep when idle, free databases expire after a few weeks,
+# and without a disk uploaded photos are lost on every deploy.
 services:
   - type: web
     name: doorstep
     runtime: docker
-    plan: free
+    region: singapore
+    plan: starter
     healthCheckPath: /api/health-check/
+    # Uploaded car photos and repair evidence. A service with a disk restarts briefly on each deploy.
+    disk:
+      name: uploads
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: DEBUG
         value: "False"
@@ -17,12 +27,18 @@ services:
         fromDatabase:
           name: doorstep-db
           property: connectionString
+      - key: MEDIA_ROOT
+        value: /var/data/media
       - key: OTP_BYPASS
         value: "False"
+      # Empty = customers pay at the service center. Later: razorpay (see docs/AFTER_HOSTING.md)
       - key: PAYMENT_GATEWAY
         value: ""
-      # Your public address, e.g. https://doorstep.onrender.com (used in invoice QR codes)
+      # Your public address, e.g. https://doorstep.onrender.com or https://www.yourdomain.in
       - key: FRONTEND_URL
+        sync: false
+      # Extra domains (your own domain), comma-separated. The onrender.com address works without this.
+      - key: ALLOWED_HOSTS
         sync: false
       - key: BUSINESS_NAME
         sync: false
@@ -39,4 +55,6 @@ services:
 
 databases:
   - name: doorstep-db
-    plan: free
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "16"

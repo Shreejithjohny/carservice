@@ -3,9 +3,10 @@
 The whole product runs as **one server at one address**: it serves the website and the API
 together. You need a host that can run a Docker container (or Python) and a PostgreSQL database.
 
-What was tested: the Docker image builds and runs, and the full test suites pass on PostgreSQL 16.
-What was not: any particular hosting company. `render.yaml` is written from Render's documentation
-and has not been run there.
+What was tested: the Docker image builds and runs, the full test suites pass on PostgreSQL 16, and
+uploads work on a root-owned disk mounted like Render's. What was not: any hosting company itself.
+`render.yaml` is written from Render's published format and has not been run on Render; if Render
+rejects a field, the error names it.
 
 ## 1. What the server needs
 
@@ -29,15 +30,45 @@ Optional: `GOOGLE_CLIENT_ID`, `RAZORPAY_*`, `VAPID_*` (see `docs/AFTER_HOSTING.m
 
 ## 2. Deploy
 
-### Option A: Render (blueprint included)
-1. Push this repository to GitHub.
-2. On render.com: **New > Blueprint**, choose the repository. It reads `render.yaml`, creates the
-   web server and a PostgreSQL database, and connects them.
-3. Fill in the values it asks for (`FRONTEND_URL`, the `BUSINESS_*` details).
-4. Open the address Render gives you.
+### Option A: Render (recommended; blueprint included)
+`render.yaml` sets up everything in **Singapore** (closest region to India): the web server built from
+the `Dockerfile`, a PostgreSQL database, and a 1 GB disk for uploaded photos. Paid plans, roughly
+$14-15 a month in total; check render.com/pricing before you start.
 
-Check Render's current plans first: free web servers sleep when idle, free databases expire, and
-the free plan has no persistent disk (see "Uploaded photos" below).
+1. **Push** this repository to GitHub (it already is, if you merged the pull requests).
+2. **Sign up** at render.com with your GitHub account, and add a payment card (paid plans need one).
+3. **New > Blueprint**, choose this repository, and click **Apply**. Render reads `render.yaml` and
+   creates `doorstep` (web) and `doorstep-db` (database).
+4. It asks for the values marked "sync: false". Fill in:
+   - `FRONTEND_URL`: leave it for now if you don't know the address yet (see step 6).
+   - `ALLOWED_HOSTS`: leave empty for now (only needed for your own domain).
+   - `BUSINESS_*`: your business name, legal name, address, email, phone and city.
+5. Wait for the first deploy (a few minutes). Open the logs if it fails: the server lists exactly
+   which setting is wrong.
+6. Copy your address from the top of the service page (`https://doorstep-xxxx.onrender.com`), put it
+   in `FRONTEND_URL` under **Environment**, and save (Render redeploys).
+7. Create your admin account: service page > **Shell**, then run
+   `python manage.py createsuperuser` and sign in on the **Admin** tab of the website.
+8. Add your service packages and centers at `https://<your address>/django-admin/` (or run
+   `python manage.py seed_vehicle_catalog && python manage.py seed_service_data` in the Shell for the
+   sample ones).
+9. Continue with `docs/AFTER_HOSTING.md` (Google sign-in, Razorpay, alerts).
+
+**Your own domain (e.g. www.yourdomain.in):** service page > **Settings > Custom Domains** > add it.
+Render shows the DNS record to create (usually a CNAME pointing to your onrender.com address); add
+that record where you bought the domain (GoDaddy: My Products > DNS). Render then issues the HTTPS
+certificate by itself. Finally add the domain to `ALLOWED_HOSTS`, set `FRONTEND_URL` to it, and add
+it to Google's Authorized JavaScript origins.
+
+**Demo only, to pay nothing:** in `render.yaml` set both `plan:` lines to `free` and delete the
+`disk:` block before step 3. Free web services sleep after a period without visitors (the next
+visit waits about a minute), free databases expire after a few weeks, and without the disk uploaded
+photos disappear on every deploy.
+
+**How the disk works:** Render mounts it at `/var/data`, owned by root. The container starts as root
+only to give the uploads folder (`MEDIA_ROOT=/var/data/media`) to the unprivileged `app` user, then
+switches to that user before the database update and the web server start. A service with a disk
+restarts briefly on each deploy (no zero-downtime deploys).
 
 ### Option B: any host that runs Docker (Railway, Fly.io, a VPS, ...)
 ```bash
