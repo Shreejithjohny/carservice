@@ -23,7 +23,7 @@ from django.conf import settings
 from django.db import transaction
 
 from .models import Invoice, InvoiceStatus, NotificationType, Payment
-from .notification_service import send_notification
+from .notification_service import notify_admins
 from .payment_service import PaymentError, notify_invoice_paid, payable_invoice
 
 logger = logging.getLogger(__name__)
@@ -171,15 +171,12 @@ def record_payment(entity: dict) -> Optional[Payment]:
     elif problem:
         # Money was taken but the invoice can't simply be marked paid: a person must refund or settle it
         logger.error("Razorpay payment %s: invoice %s %s", payment_id, invoice.invoice_number, problem)
-        manager = invoice.service_center.user if invoice.service_center else None
-        if manager:
-            send_notification(
-                user=manager,
-                booking=invoice.booking,
-                notification_type=NotificationType.GENERAL,
-                title="Payment needs review",
-                message=f"Invoice {invoice.invoice_number} {problem} (Razorpay payment {payment_id}). Refund or settle it in the Razorpay dashboard.",
-            )
+        notify_admins(
+            NotificationType.GENERAL,
+            "Payment needs review",
+            f"Invoice {invoice.invoice_number} {problem} (Razorpay payment {payment_id}). Refund or settle it in the Razorpay dashboard.",
+            booking=invoice.booking,
+        )
     return payment
 
 

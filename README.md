@@ -11,12 +11,11 @@ A car-service platform where a driver collects the customer's car from their doo
 | Role | Home page | What they do |
 |---|---|---|
 | Customer | `/app` | Add vehicles, book a pickup slot, track pickup and delivery, approve repairs, pay and download invoices, rate the service, see car health and service reminders. Hindi and Kannada available. |
-| Service Center Manager | `/service-center` | Assign drivers and mechanics, manage bookings, analytics, invoices |
 | Driver | `/driver` | Check the number plate, photograph the car, record the odometer, verify the pickup and delivery OTPs, share live location |
 | Mechanic | `/mechanic` | Inspect cars, upload photo/video evidence, raise repair requests |
-| Admin | `/admin` | Platform stats, analytics for any center, the repair-cost model, car catalog, all bookings and invoices |
+| Admin | `/admin` | Runs the service centers: confirm bookings, assign drivers and mechanics, add staff, invoices and analytics. Also platform stats, the repair-cost model and the car catalog. |
 
-Anyone who signs up gets a **Customer** account. Drivers and mechanics are added by an admin or a manager on the **Staff** page; the seed script also creates one demo account per role.
+Anyone who signs up gets a **Customer** account. Drivers and mechanics are added by an admin on the **Staff** page; the seed script also creates one demo account per role.
 
 ## Run it locally (step by step, VS Code)
 
@@ -124,7 +123,7 @@ There are three kinds of automated tests. GitHub runs all of them on every pull 
 |---|---|---|
 | Backend (Django) | API rules: bookings, slots, pickup/delivery codes, passwords, Google sign-in, payments, invoices, auto-assignment, ... | `python backend/manage.py test api` (should end with "OK") |
 | Frontend unit (Vitest) | Small helpers: distances, road-route maths, ETAs, map arrow direction, simulated-drive spacing, sign-in routes | `npm test --prefix client` (with coverage: `npm run test:coverage --prefix client`) |
-| Browser (Playwright) | The real app in Chrome: sign in, book a pickup on the map, the manager confirms and a driver is auto-assigned, the driver shares GPS or simulates the drive, the customer tracks it, a manager adds staff | `npm run test:e2e --prefix client` |
+| Browser (Playwright) | The real app in Chrome: sign in, book a pickup on the map, the admin confirms and a driver is auto-assigned, the driver shares GPS or simulates the drive, the customer tracks it, an admin adds staff, and one booking goes through all four roles to a paid invoice | `npm run test:e2e --prefix client` |
 
 The browser tests start their own backend and frontend (ports 8001 and 5174) with a fresh, seeded database in `client/e2e/.data/`. Your own database and running dev servers are not touched. The first time, download the test browser with:
 ```bash
@@ -205,14 +204,13 @@ Then run `npm run migrate:django` and `npm run seed` again.
 | Role | Email |
 |---|---|
 | Admin | admin@smartdoorstep.com |
-| Manager | manager@smartdoorstep.com |
 | Driver | driver@smartdoorstep.com |
 | Mechanic | mechanic@smartdoorstep.com |
 | Customer | customer@smartdoorstep.com |
 
 To also sign in to the demo accounts with email + password, set `DEMO_ACCOUNT_PASSWORD` in `backend/.env` to a password of your choice **before** running `npm run seed`. The seed gives each demo account that password, but only if the account has none yet, so a password that was changed is never reset. The password lives only in your `.env`, never in the code.
 
-The sign-in page has a tab per role, each with its own address, so staff can bookmark theirs: `/login/customer`, `/login/driver`, `/login/mechanic`, `/login/manager`, `/login/admin`. Signing in on the wrong tab (for example a driver on the Customer tab) is refused, with a link to the right tab.
+The sign-in page has a tab per role, each with its own address, so staff can bookmark theirs: `/login/customer`, `/login/driver`, `/login/mechanic`, `/login/admin`. Signing in on the wrong tab (for example a driver on the Customer tab) is refused, with a link to the right tab.
 
 With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo … account" button. With it off, people sign in with their password or with Google.
 
@@ -221,23 +219,23 @@ With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo �
 | Feature | Where | Notes |
 |---|---|---|
 | Pickup time slots | Book page; `GET /api/service-centers/<id>/slots/?date=` | Four windows a day, `slot_capacity` per center (Django admin). Up to 30 days ahead. |
-| Return delivery | Driver: *Start Return Delivery* → *Hand Back Car*; customer sees the delivery OTP on Track | The delivery OTP completes the booking and issues the invoice. Managers can still mark *Collected at Center*. |
+| Return delivery | Driver: *Start Return Delivery* → *Hand Back Car*; customer sees the delivery OTP on Track | The delivery OTP completes the booking and issues the invoice. Admins can still mark *Collected at Center*. |
 | Condition photos & odometer | Driver at pickup and delivery; customer's Track page | Before/after per side, and km driven while the center had the car. |
 | Number plate check | Driver at pickup | OCR runs in the browser (tesseract.js); the backend matches it against the registration. Works on clear photos; glare, dirt and steep angles reduce accuracy. |
 | Service reminders | Customer home page; `python manage.py send_service_reminders` | Due 6 months or 10,000 km after the last service. Run the command once a day (cron / Windows Task Scheduler). |
-| Automatic staff assignment | Manager clicks **Confirm**; **Assign Staff** shows the ranked list | Driver = lowest *distance to the customer (km) + 3 km × pickups already that day*, among available drivers of that center who are free in the booking's time slot. Position = latest GPS if under 2 hours old, else the driver's service center. Mechanic = fewest open jobs. The manager can always pick someone else. Code: `backend/api/dispatch_service.py` |
+| Automatic staff assignment | Admin clicks **Confirm**; **Assign Staff** shows the ranked list | Driver = lowest *distance to the customer (km) + 3 km × pickups already that day*, among available drivers of that center who are free in the booking's time slot. Position = latest GPS if under 2 hours old, else the driver's service center. Mechanic = fewest open jobs. The manager can always pick someone else. Code: `backend/api/dispatch_service.py` |
 | Ratings & reviews | Customer: Track or History after completion | Centers show the real average or "new, no reviews yet". |
 | PDF invoice + QR | Invoices → *Download PDF*; QR opens `/verify/<code>` | Code is signed with `SECRET_KEY`. Titled INVOICE, not TAX INVOICE: the app stores no GSTIN. |
-| Analytics | Manager and admin → Analytics | Revenue, bookings, turnaround, top repairs, approval rate, ratings. |
+| Analytics | Admin → Analytics | Revenue, bookings, turnaround, top repairs, approval rate, ratings. |
 | Learned cost estimator | Admin overview → *Repair cost model*; `python manage.py train_cost_model` | Used once 30+ completed, approved repairs exist; otherwise the rule formula. See below. |
 | Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. |
-| Contact number at booking | Booking form | The customer confirms the mobile number the driver should call (filled in from their profile). It is checked, stored on the booking, and shown to the driver and manager. |
+| Contact number at booking | Booking form | The customer confirms the mobile number the driver should call (filled in from their profile). It is checked, stored on the booking, and shown to the driver and the admin. |
 | Coupons | "Coupon code" on the booking form; create codes in the Django admin (`/admin/` → Coupons) | Percent or flat discounts with optional cap, minimum package price, dates, total uses and uses per customer. The discount is fixed at booking and comes off the package price before GST on the invoice. The demo seed adds `WELCOME10`. |
-| Reschedule | "Reschedule pickup" on the Track page | While a booking is Pending or Confirmed, the customer can move it to any slot with room. The customer, manager and assigned driver are notified. |
+| Reschedule | "Reschedule pickup" on the Track page | While a booking is Pending or Confirmed, the customer can move it to any slot with room. The customer, the admins and the assigned driver are notified. |
 | Browser alerts | Bell button in the header (needs `VAPID_*` keys) | Web Push: notifications arrive even when the site is closed. Works in Chrome, Edge, Firefox and Android; on iPhone only after "Add to Home Screen". Not available in private windows. |
 | Razorpay payments | "Pay" on an invoice with `PAYMENT_GATEWAY=razorpay` | Real payments by UPI, card, net banking or wallet in Razorpay's own window; card details never reach this server. Every payment is verified by signature and re-checked with Razorpay (order, amount, status), and a webhook covers customers who close the page. Refunds are made in the Razorpay dashboard. |
 | Sign in with Google | "Sign in with Google" on Login and Register (needs `GOOGLE_CLIENT_ID`) | Signs in the account with the same email, or creates a customer account. Staff accounts are still created by an admin. "Forgot password?" works through it: sign in with Google, then choose a new password (allowed without the old one for 15 minutes after a Google sign-in), and it also clears a password lockout. |
-| Staff accounts | Admin or manager → **Staff** | Add drivers and mechanics (admins: any center; managers: their own) with a first password (or **Generate**), shown once to share with them. Mark staff on/off duty; automatic assignment skips off-duty staff. Staff change their password from the key icon. |
+| Staff accounts | Admin → **Staff** | Add drivers and mechanics to any center with a first password (or **Generate**), shown once to share with them. Mark staff on/off duty; automatic assignment skips off-duty staff. Staff change their password from the key icon. |
 | Profile photos | Click your picture (top right) | Upload a photo or remove it; without one, your initials are shown. The server resizes it to a 256×256 JPEG, turns phone photos the right way up and removes location data (EXIF). Stored in the database, so it works on hosts without a disk. |
 | Hindi / Kannada | Language menu (customer screens) | Navigation, home, booking, tracking, reminders, reviews. Staff screens stay in English. Translations need a native speaker's review. |
 
@@ -272,7 +270,7 @@ The frontend's `predev`/`prebuild` scripts copy the OCR engine and English langu
 
 ## Payments
 
-An invoice is created automatically when the service center manager marks a booking **Completed** (an admin or that center's manager can also regenerate it via `POST /api/bookings/<id>/generate-invoice/`). Invoices cannot be created before completion, and a paid invoice can no longer be changed.
+An invoice is created automatically when a booking is **Completed** (an admin can also regenerate it via `POST /api/bookings/<id>/generate-invoice/`). Invoices cannot be created before completion, and a paid invoice can no longer be changed.
 
 Customers pay invoices from the Invoices page with UPI or card. Only a **mock gateway** exists today (`PAYMENT_GATEWAY=mock`, on by default in development): it records the payment and marks the invoice paid without charging anything, and the payment screen says so. Use `failure@mock` or card `4000 0000 0000 0002` to simulate a declined payment. Card numbers are validated (Luhn check) but only the last 4 digits are stored. A real gateway such as Razorpay plugs in at `backend/api/payment_service.py`.
 

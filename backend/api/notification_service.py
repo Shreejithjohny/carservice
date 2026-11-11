@@ -16,7 +16,6 @@ _CUSTOMER_PAGES = {
 _STAFF_HOME = {
     UserRole.DRIVER: "/driver",
     UserRole.MECHANIC: "/mechanic",
-    UserRole.SERVICE_CENTER_MANAGER: "/service-center",
     UserRole.ADMIN: "/admin",
 }
 
@@ -72,3 +71,11 @@ def send_notification(
     except Exception:  # noqa: BLE001 - the in-app notification must never fail because of push
         logger.exception("Could not queue a push notification")
     return notification
+
+
+def notify_admins(notification_type: str, title: str, message: str, booking: Optional[ServiceBooking] = None) -> None:
+    """Tells every active admin. Admins run the service centers, so operational alerts go to them."""
+    from django.db.models import Q
+
+    for admin in User.objects.filter(Q(role=UserRole.ADMIN) | Q(is_superuser=True), is_active=True).distinct():
+        send_notification(user=admin, booking=booking, notification_type=notification_type, title=title, message=message)

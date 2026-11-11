@@ -18,8 +18,21 @@ test("a wrong password is refused", async ({ page }) => {
 test("each role has its own sign-in tab", async ({ page }) => {
   await page.goto("/login/driver");
   await expect(page.getByRole("heading", { name: "Driver sign in" })).toBeVisible();
-  await page.getByRole("navigation", { name: "Sign in as" }).getByRole("link", { name: "Manager" }).click();
-  await expect(page.getByRole("heading", { name: "Manager sign in" })).toBeVisible();
+  const tabs = page.getByRole("navigation", { name: "Sign in as" });
+  await tabs.getByRole("link", { name: "Admin" }).click();
+  await expect(page.getByRole("heading", { name: "Admin sign in" })).toBeVisible();
+  // Four roles only: the manager role was merged into admin
+  await expect(tabs.getByRole("link")).toHaveText(["Customer", "Driver", "Mechanic", "Admin"]);
+});
+
+test("old manager links land on the admin pages", async ({ page }) => {
+  await page.goto("/login/manager");
+  await expect(page).toHaveURL(/\/login\/admin$/);
+  await signIn(page, "admin");
+  await page.goto("/service-center/staff");
+  await expect(page).toHaveURL(/\/admin\/staff$/);
+  await page.goto("/service-center");
+  await expect(page).toHaveURL(/\/admin\/bookings$/);
 });
 
 test("the demo button still appears when the page opens before the backend is ready", async ({ page }) => {

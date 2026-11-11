@@ -38,7 +38,7 @@ function generatePassword(): string {
 const EMPTY_FORM = { role: "DRIVER" as StaffMember["role"], name: "", email: "", phone: "", password: "", service_center: "", speciality: "" };
 
 /**
- * Admins add drivers and mechanics to any workshop; managers to their own. The new person signs in
+ * Admins add drivers and mechanics to any workshop. The new person signs in
  * on their own tab with the email and password set here, and can change the password afterwards.
  */
 export function Staff() {
@@ -93,7 +93,7 @@ export function Staff() {
           <Users className="text-brand-fg" /> Staff
         </h1>
         <p className="text-sm text-zinc-500">
-          {isAdmin ? "Add drivers and mechanics to any service center." : "Add drivers and mechanics to your service center."} Off-duty staff are
+          Add drivers and mechanics to any service center. Off-duty staff are
           skipped by automatic assignment.
         </p>
       </div>

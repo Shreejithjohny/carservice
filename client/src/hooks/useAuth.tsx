@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { User, Role } from "../types";
-import { api, clearSession, readUser, saveSession } from "../services/api";
+import { api, clearSession, isSignedOutError, readUser, saveSession } from "../services/api";
 import { disablePush } from "../utils/push";
 
 type SignInResponse = {
@@ -75,9 +75,13 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
           setUser(normalized);
           localStorage.setItem("doorstep_user", JSON.stringify(normalized));
         }
-      } catch {
-        clearSession();
-        setUser(null);
+      } catch (err) {
+        // Sign out only when the server rejects the session. A request cut short (a quick reload,
+        // no connection, the backend restarting) keeps the stored session.
+        if (isSignedOutError(err)) {
+          clearSession();
+          setUser(null);
+        }
       } finally {
         setLoading(false);
       }
@@ -163,9 +167,11 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
             name: me.name || me.email?.split("@")[0] || me.phone || "User",
           };
           setUser(normalized);
-        } catch {
-          clearSession();
-          setUser(null);
+        } catch (err) {
+          if (isSignedOutError(err)) {
+            clearSession();
+            setUser(null);
+          }
         }
       },
     }),

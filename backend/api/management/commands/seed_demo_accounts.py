@@ -58,24 +58,6 @@ class Command(BaseCommand):
                 is_active=True,
             )
 
-        # 3. Manager
-        manager, _ = User.objects.get_or_create(
-            email="manager@smartdoorstep.com",
-            defaults={
-                "username": "manager_demo",
-                "role": UserRole.SERVICE_CENTER_MANAGER,
-                "first_name": "Vikram",
-                "last_name": "Manager",
-                "is_verified": True,
-            },
-        )
-        manager.role = UserRole.SERVICE_CENTER_MANAGER
-        manager.is_staff = False  # app permissions come from the role; staff would expose the Django admin site
-        manager.is_verified = True
-        manager.save()
-        center.user = manager
-        center.save()
-
         # 4. Driver / Valet
         driver, _ = User.objects.get_or_create(
             email="driver@smartdoorstep.com",
@@ -213,7 +195,7 @@ class Command(BaseCommand):
         # changed is never reset by re-seeding.
         demo_password = os.getenv("DEMO_ACCOUNT_PASSWORD", "").strip()
         if demo_password:
-            for demo_user in (admin, manager, driver, mechanic, customer):
+            for demo_user in (admin, driver, mechanic, customer):
                 if not demo_user.has_password():
                     demo_user.set_password(demo_password)
                     demo_user.save(update_fields=["password"])
@@ -237,7 +219,6 @@ class Command(BaseCommand):
                 f"Successfully seeded demo accounts & active booking!\n"
                 f"Demo account passwords: {'from DEMO_ACCOUNT_PASSWORD' if demo_password else 'not set (DEMO_ACCOUNT_PASSWORD is empty)'}\n"
                 f"Admin:    admin@smartdoorstep.com (Role: ADMIN)\n"
-                f"Manager:  manager@smartdoorstep.com (Role: SERVICE_CENTER_MANAGER)\n"
                 f"Driver:   driver@smartdoorstep.com (Role: DRIVER)\n"
                 f"Mechanic: mechanic@smartdoorstep.com (Role: MECHANIC)\n"
                 f"Customer: customer@smartdoorstep.com (Role: CUSTOMER)\n"

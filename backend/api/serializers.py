@@ -86,7 +86,7 @@ class PasswordRegisterSerializer(serializers.Serializer):
 
 
 class StaffCreateSerializer(PasswordRegisterSerializer):
-    """A driver or mechanic account, created by an admin or a service center manager."""
+    """A driver or mechanic account, created by an admin."""
 
     role = serializers.ChoiceField(choices=[UserRole.DRIVER, UserRole.MECHANIC])
     service_center = serializers.PrimaryKeyRelatedField(queryset=ServiceCenter.objects.all(), required=False)

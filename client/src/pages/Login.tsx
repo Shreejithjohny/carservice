@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Building2, Car, Shield, Truck, Wrench, Sparkles } from "lucide-react";
+import { Car, Shield, Truck, Wrench, Sparkles } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
@@ -15,8 +15,7 @@ const SIGN_IN_TABS = [
   { slug: "customer", role: "customer", label: "Customer", icon: Car, blurb: "Book, track and pay for your car service.", demo: "customer@smartdoorstep.com" },
   { slug: "driver", role: "driver", label: "Driver", icon: Truck, blurb: "Your pickup and delivery jobs.", demo: "driver@smartdoorstep.com" },
   { slug: "mechanic", role: "mechanic", label: "Mechanic", icon: Wrench, blurb: "Your assigned service jobs.", demo: "mechanic@smartdoorstep.com" },
-  { slug: "manager", role: "service_center_manager", label: "Manager", icon: Building2, blurb: "Run your service center.", demo: "manager@smartdoorstep.com" },
-  { slug: "admin", role: "admin", label: "Admin", icon: Shield, blurb: "Platform administration.", demo: "admin@smartdoorstep.com" },
+  { slug: "admin", role: "admin", label: "Admin", icon: Shield, blurb: "Run the service centers: bookings, staff, invoices.", demo: "admin@smartdoorstep.com" },
 ] as const satisfies readonly { slug: string; role: Role; label: string; icon: typeof Car; blurb: string; demo: string }[];
 
 const INPUT =

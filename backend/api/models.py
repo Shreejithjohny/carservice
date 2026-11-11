@@ -8,7 +8,8 @@ import uuid
 
 class UserRole(models.TextChoices):
     CUSTOMER = "CUSTOMER", _("Customer")
-    SERVICE_CENTER_MANAGER = "SERVICE_CENTER_MANAGER", _("Service Center Manager")
+    # Retired: admins now do the manager's work. Kept only so old accounts still load; they cannot sign in.
+    SERVICE_CENTER_MANAGER = "SERVICE_CENTER_MANAGER", _("Manager (retired role)")
     DRIVER = "DRIVER", _("Driver / Valet")
     MECHANIC = "MECHANIC", _("Mechanic")
     ADMIN = "ADMIN", _("Admin")

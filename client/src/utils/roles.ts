@@ -2,7 +2,6 @@ import type { Role } from "../types";
 
 export const ROLE_LABELS: Record<Role, string> = {
   customer: "Customer",
-  service_center_manager: "Manager",
   driver: "Driver",
   mechanic: "Mechanic",
   admin: "Admin",
@@ -10,7 +9,6 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 const HOME_PATHS: Record<Role, string> = {
   customer: "/app",
-  service_center_manager: "/service-center",
   driver: "/driver",
   mechanic: "/mechanic",
   admin: "/admin",
@@ -21,11 +19,10 @@ export const SIGN_IN_SLUGS: Record<Role, string> = {
   customer: "customer",
   driver: "driver",
   mechanic: "mechanic",
-  service_center_manager: "manager",
   admin: "admin",
 };
 
-/** The sign-in URL for a role, e.g. "service_center_manager" -> "/login/manager". */
+/** The sign-in URL for a role, e.g. "driver" -> "/login/driver". */
 export function signInPathForRole(role: string) {
   return `/login/${SIGN_IN_SLUGS[role.toLowerCase() as Role] ?? "customer"}`;
 }

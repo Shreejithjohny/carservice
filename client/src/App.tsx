@@ -36,6 +36,21 @@ function Fade({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
+// Old manager pages and the admin page each now lives at. Only these fixed targets are ever used,
+// so nothing from the address bar is passed on into the redirect.
+const OLD_MANAGER_PAGES: Record<string, string> = {
+  bookings: "/admin/bookings",
+  analytics: "/admin/analytics",
+  staff: "/admin/staff",
+  invoices: "/admin/invoices",
+};
+
+function OldManagerLink() {
+  const { pathname } = useLocation();
+  const page = pathname.split("/")[2] ?? "";
+  return <Navigate to={OLD_MANAGER_PAGES[page] ?? "/admin/bookings"} replace />;
+}
+
 export function App() {
   return (
     <Routes>
@@ -58,17 +73,6 @@ export function App() {
           <Route path="health" element={<Fade><Health /></Fade>} />
           <Route path="approvals" element={<Fade><RepairApproval /></Fade>} />
           <Route path="notifications" element={<Fade><Notifications /></Fade>} />
-          <Route path="invoices" element={<Fade><Invoices /></Fade>} />
-        </Route>
-      </Route>
-
-      {/* Protected Service Center Manager Routes */}
-      <Route element={<Guard roles={["service_center_manager"]} />}>
-        <Route path="/service-center" element={<AppShell />}>
-          <Route index element={<Fade><ServiceCenterDashboard /></Fade>} />
-          <Route path="bookings" element={<Fade><ServiceCenterDashboard /></Fade>} />
-          <Route path="analytics" element={<Fade><Analytics /></Fade>} />
-          <Route path="staff" element={<Fade><Staff /></Fade>} />
           <Route path="invoices" element={<Fade><Invoices /></Fade>} />
         </Route>
       </Route>
@@ -99,6 +103,9 @@ export function App() {
         </Route>
       </Route>
 
+      {/* The manager area was merged into the admin area; old bookmarks land on the matching admin page */}
+      <Route path="/service-center/*" element={<OldManagerLink />} />
+      <Route path="/login/manager" element={<Navigate to="/login/admin" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -78,7 +78,7 @@ from .ai_cost_service import estimate_repair_cost
 from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
-from .notification_service import send_notification
+from .notification_service import notify_admins, send_notification
 from .payment_service import PaymentError, pay_invoice, payment_gateway
 from . import razorpay_service
 from .coupon_service import CouponError, coupon_discount, find_coupon
@@ -97,13 +97,9 @@ from .slot_service import PICKUP_SLOTS, SlotError, reserve_slot, slot_availabili
 
 
 # Permissions come from the app role. is_staff only controls access to the Django admin site,
-# so a staff flag on a manager or mechanic must not grant platform-wide admin powers.
+# so a staff flag on a driver or mechanic must not grant platform-wide admin powers.
 def is_admin(user):
     return bool(user and user.is_authenticated and (user.is_superuser or user.role == UserRole.ADMIN))
-
-
-def is_manager(user):
-    return bool(user and (is_admin(user) or user.role == UserRole.SERVICE_CENTER_MANAGER))
 
 
 def is_driver(user):
@@ -118,27 +114,14 @@ def is_customer(user):
     return bool(user and user.role == UserRole.CUSTOMER and not is_admin(user))
 
 
-def manager_center(user):
-    """The service center a manager runs (or works at); None if not linked to one."""
-    center = getattr(user, "service_center_profile", None)
-    if center:
-        return center
-    employee = getattr(user, "employee_profile", None)
-    return employee.service_center if employee else None
-
-
-def manager_scope_error(user, booking=None):
-    """403 unless the user is an admin, or a manager linked to a center that owns this booking."""
+def admin_required_error(user):
+    """
+    403 unless the user is an admin. Admins run the service centers: they confirm bookings, assign
+    drivers and mechanics, manage staff and issue invoices. (The separate manager role was retired.)
+    """
     if is_admin(user):
         return None
-    if user.role != UserRole.SERVICE_CENTER_MANAGER:
-        return Response({"error": "Manager permissions required."}, status=status.HTTP_403_FORBIDDEN)
-    center = manager_center(user)
-    if not center:
-        return Response({"error": "Your account is not linked to a service center."}, status=status.HTTP_403_FORBIDDEN)
-    if booking is not None and booking.service_center_id != center.id:
-        return Response({"error": "This booking belongs to another service center."}, status=status.HTTP_403_FORBIDDEN)
-    return None
+    return Response({"error": "Admin permissions required."}, status=status.HTTP_403_FORBIDDEN)
 
 
 CUSTOMER_EDITABLE_BOOKING_FIELDS = {
@@ -275,12 +258,10 @@ def find_booking(pk):
 
 
 def can_view_booking(user, booking):
-    """The customer, an admin, the assigned driver or mechanic, or the manager of the booking's center."""
+    """The customer, an admin, or the assigned driver or mechanic."""
     if booking.customer_id == user.id or is_admin(user):
         return True
-    if user.id in (booking.assigned_driver_id, booking.assigned_mechanic_id):
-        return True
-    return manager_scope_error(user, booking) is None
+    return user.id in (booking.assigned_driver_id, booking.assigned_mechanic_id)
 
 
 def condition_stage(booking):
@@ -346,13 +327,12 @@ def bypass_login(request):
     requested_role = str(request.data.get("role") or UserRole.CUSTOMER).upper()
     provided_name = str(request.data.get("name") or "").strip()
 
-    if requested_role not in UserRole.values:
+    if requested_role not in UserRole.values or requested_role == UserRole.SERVICE_CENTER_MANAGER:
         requested_role = UserRole.CUSTOMER
 
     if not identifier:
         role_defaults = {
             UserRole.ADMIN: "admin@smartdoorstep.com",
-            UserRole.SERVICE_CENTER_MANAGER: "manager@smartdoorstep.com",
             UserRole.DRIVER: "driver@smartdoorstep.com",
             UserRole.MECHANIC: "mechanic@smartdoorstep.com",
             UserRole.CUSTOMER: "customer@smartdoorstep.com",
@@ -391,6 +371,10 @@ def bypass_login(request):
                 role=requested_role,
                 first_name=provided_name or f"User {clean_digits[-4:]}",
             )
+
+    retired = retired_role_error(user)
+    if retired:
+        return retired
 
     user.is_verified = True
     if provided_name:
@@ -442,6 +426,16 @@ def auth_tokens_response(user, message, status_code=status.HTTP_200_OK, google=F
         "refresh": str(refresh),
         "user": UserSerializer(user).data,
     }, status=status_code)
+
+
+def retired_role_error(user):
+    """Accounts of the retired manager role can no longer sign in; an admin can give them another role."""
+    if user.role == UserRole.SERVICE_CENTER_MANAGER and not user.is_superuser:
+        return Response(
+            {"error": "Manager accounts are no longer used. Ask an admin to change this account's role."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
 
 
 def wrong_sign_in_tab(request, user):
@@ -509,6 +503,27 @@ def register_with_password(request):
     return auth_tokens_response(user, "Account created.", status.HTTP_201_CREATED)
 
 
+def password_lock_error(user):
+    """429 while the account is locked after too many wrong passwords; otherwise None."""
+    now = timezone.now()
+    if not user.password_locked_until or user.password_locked_until <= now:
+        return None
+    minutes = max(1, int((user.password_locked_until - now).total_seconds() // 60) + 1)
+    return Response(
+        {"error": f"Too many failed attempts. Try again in {minutes} minute(s), or reset your password."},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
+def record_wrong_password(user):
+    """Counts a wrong password; the fifth in a row locks the account for 15 minutes."""
+    user.password_attempts += 1
+    if user.password_attempts >= MAX_PASSWORD_ATTEMPTS:
+        user.password_attempts = 0
+        user.password_locked_until = timezone.now() + timedelta(minutes=PASSWORD_LOCK_MINUTES)
+    user.save(update_fields=["password_attempts", "password_locked_until"])
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def password_login(request):
@@ -530,27 +545,19 @@ def password_login(request):
         User().set_password(password)
         return invalid
 
-    now = timezone.now()
-    if user.password_locked_until and user.password_locked_until > now:
-        minutes = max(1, int((user.password_locked_until - now).total_seconds() // 60) + 1)
-        return Response(
-            {"error": f"Too many failed attempts. Try again in {minutes} minute(s), or reset your password."},
-            status=status.HTTP_429_TOO_MANY_REQUESTS,
-        )
+    locked = password_lock_error(user)
+    if locked:
+        return locked
 
     if not user.check_password(password) or not user.is_active:
-        user.password_attempts += 1
-        if user.password_attempts >= MAX_PASSWORD_ATTEMPTS:
-            user.password_attempts = 0
-            user.password_locked_until = now + timedelta(minutes=PASSWORD_LOCK_MINUTES)
-        user.save(update_fields=["password_attempts", "password_locked_until"])
+        record_wrong_password(user)
         return invalid
 
     user.password_attempts = 0
     user.password_locked_until = None
     user.save(update_fields=["password_attempts", "password_locked_until"])
 
-    wrong_tab = wrong_sign_in_tab(request, user)
+    wrong_tab = retired_role_error(user) or wrong_sign_in_tab(request, user)
     if wrong_tab:
         return wrong_tab
 
@@ -605,7 +612,7 @@ def google_login(request):
 
     if not user.is_active:
         return Response({"error": "This account is disabled."}, status=status.HTTP_403_FORBIDDEN)
-    wrong_tab = wrong_sign_in_tab(request, user)
+    wrong_tab = retired_role_error(user) or wrong_sign_in_tab(request, user)
     if wrong_tab:
         return wrong_tab
 
@@ -981,8 +988,6 @@ def notify_rescheduled(booking):
     when = f"{booking.preferred_date:%d %b %Y}, {dict(PICKUP_SLOTS).get(booking.preferred_time, booking.preferred_time)}"
     recipients = [(booking.customer, f"Your pickup for {booking.vehicle.registration_number} is now on {when}.")]
     staff_message = f"Booking {booking.booking_reference} was moved by the customer to {when}."
-    if booking.service_center and booking.service_center.user:
-        recipients.append((booking.service_center.user, staff_message))
     if booking.assigned_driver:
         recipients.append((booking.assigned_driver, staff_message))
     for user, message in recipients:
@@ -993,6 +998,7 @@ def notify_rescheduled(booking):
             title="Pickup rescheduled",
             message=message,
         )
+    notify_admins(NotificationType.PICKUP_SCHEDULED, "Pickup rescheduled", staff_message, booking=booking)
 
 
 @api_view(["POST"])
@@ -1282,7 +1288,7 @@ def location_route(request):
 
 
 # ==========================================
-# PHASE 6 — SERVICE CENTER MANAGER VIEWS
+# PHASE 6 — SERVICE CENTER OPERATIONS (ADMIN)
 # ==========================================
 
 @api_view(["GET"])
@@ -1290,16 +1296,13 @@ def location_route(request):
 def service_center_bookings_list(request):
     """
     GET /api/service-center/bookings/
-    Lists bookings assigned to the manager's service center.
-    Managers cannot view bookings of another service center.
+    Admin only: lists the bookings of every service center.
     """
-    error = manager_scope_error(request.user)
+    error = admin_required_error(request.user)
     if error:
         return error
 
     qs = ServiceBooking.objects.exclude(customer_notes__startswith=SYNTHETIC_MARKER).order_by("-created_at")
-    if not is_admin(request.user):
-        qs = qs.filter(service_center=manager_center(request.user))
 
     serializer = ServiceBookingSerializer(qs, many=True)
     return Response(serializer.data)
@@ -1344,9 +1347,9 @@ def auto_assign_staff(booking):
 def service_center_booking_update(request, pk):
     """
     PATCH /api/service-center/bookings/<id>/
-    Managers can confirm/reject bookings, update status, assign drivers, or assign mechanics.
+    Admin only: confirm/reject bookings, update status, assign drivers, or assign mechanics.
     """
-    error = manager_scope_error(request.user)
+    error = admin_required_error(request.user)
     if error:
         return error
 
@@ -1357,10 +1360,6 @@ def service_center_booking_update(request, pk):
 
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    error = manager_scope_error(request.user, booking)
-    if error:
-        return error
 
     new_status = request.data.get("status")
     assigned_driver_id = request.data.get("assigned_driver_id") or request.data.get("assigned_driver")
@@ -1373,7 +1372,7 @@ def service_center_booking_update(request, pk):
         # Staff not yet attached to any center form a shared pool; staff of another center are off limits.
         employee = getattr(staff, "employee_profile", None)
         center_id = employee.service_center_id if employee else None
-        return is_admin(request.user) or center_id in (None, booking.service_center_id)
+        return center_id in (None, booking.service_center_id)
 
     if new_status:
         booking.status = new_status
@@ -1407,7 +1406,7 @@ def service_center_booking_update(request, pk):
             return Response({"error": "That mechanic does not work at this service center."}, status=status.HTTP_400_BAD_REQUEST)
         booking.assigned_mechanic = mechanic
 
-    # Confirming a booking fills in any staff the manager did not pick (they can still change it)
+    # Confirming a booking fills in any staff the admin did not pick (they can still change it)
     auto_assigned = auto_assign_staff(booking) if new_status == BookingStatus.CONFIRMED else {}
 
     booking.save()
@@ -1426,7 +1425,7 @@ def service_center_staff_suggestions(request, pk):
     booking = find_booking(pk)
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
-    error = manager_scope_error(request.user, booking)
+    error = admin_required_error(request.user)
     if error:
         return error
     return Response({"drivers": rank_drivers(booking), "mechanics": rank_mechanics(booking)})
@@ -1437,9 +1436,9 @@ def service_center_staff_suggestions(request, pk):
 def service_center_analytics(request):
     """
     GET /api/service-center/analytics/?months=6
-    Managers see their own center; admins see every center, or one with ?center=<id>.
+    Admin only: every center together, or one with ?center=<id>.
     """
-    error = manager_scope_error(request.user)
+    error = admin_required_error(request.user)
     if error:
         return error
     try:
@@ -1447,13 +1446,10 @@ def service_center_analytics(request):
     except ValueError:
         months = 6
 
-    if is_admin(request.user):
-        center_id = request.query_params.get("center")
-        center = ServiceCenter.objects.filter(pk=center_id).first() if center_id else None
-        if center_id and not center:
-            return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
-    else:
-        center = manager_center(request.user)
+    center_id = request.query_params.get("center")
+    center = ServiceCenter.objects.filter(pk=center_id).first() if center_id else None
+    if center_id and not center:
+        return Response({"error": "Service center not found."}, status=status.HTTP_404_NOT_FOUND)
     return Response(center_analytics(center, months))
 
 
@@ -1462,21 +1458,14 @@ def service_center_analytics(request):
 def service_center_employees_list(request):
     """
     GET /api/service-center/employees/
-    Lists available drivers and mechanics for manager dropdown assignment.
+    Admin only: drivers and mechanics for the assignment dropdowns.
     """
-    error = manager_scope_error(request.user)
+    error = admin_required_error(request.user)
     if error:
         return error
 
     drivers = User.objects.filter(role=UserRole.DRIVER)
     mechanics = User.objects.filter(role=UserRole.MECHANIC)
-    if not is_admin(request.user):
-        center = manager_center(request.user)
-        in_scope = Q(employee_profile__service_center=center) | Q(employee_profile__isnull=True) | Q(
-            employee_profile__service_center__isnull=True
-        )
-        drivers = drivers.filter(in_scope)
-        mechanics = mechanics.filter(in_scope)
 
     return Response({
         "drivers": UserSerializer(drivers, many=True).data,
@@ -1499,29 +1488,26 @@ def _staff_row(user):
     }
 
 
-def _staff_in_scope(user):
-    """Drivers and mechanics the user may see and manage: all for an admin, their center's for a manager."""
-    qs = User.objects.filter(role__in=[UserRole.DRIVER, UserRole.MECHANIC]).select_related("employee_profile__service_center")
-    if is_admin(user):
-        return qs
-    return qs.filter(employee_profile__service_center=manager_center(user))
+def _all_staff():
+    """Every driver and mechanic."""
+    return User.objects.filter(role__in=[UserRole.DRIVER, UserRole.MECHANIC]).select_related("employee_profile__service_center")
 
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def staff_list_create(request):
     """
-    GET  /api/staff/  -> the drivers and mechanics the admin or manager manages
-    POST /api/staff/  {"name", "email", "phone"?, "password", "role": DRIVER|MECHANIC,
-                       "service_center" (admin only; a manager always adds to their own), "speciality"?}
+    Admin only.
+    GET  /api/staff/  -> every driver and mechanic
+    POST /api/staff/  {"name", "email", "phone"?, "password", "role": DRIVER|MECHANIC, "service_center", "speciality"?}
     Staff then sign in on their own tab with that email and password, and can change the password.
     """
-    error = manager_scope_error(request.user)
+    error = admin_required_error(request.user)
     if error:
         return error
 
     if request.method == "GET":
-        return Response([_staff_row(u) for u in _staff_in_scope(request.user).order_by("role", "first_name", "id")])
+        return Response([_staff_row(u) for u in _all_staff().order_by("role", "first_name", "id")])
 
     serializer = StaffCreateSerializer(data=request.data)
     if not serializer.is_valid():
@@ -1530,7 +1516,7 @@ def staff_list_create(request):
         return Response({"error": str(first), **errors}, status=status.HTTP_400_BAD_REQUEST)
     data = serializer.validated_data
 
-    center = data.get("service_center") if is_admin(request.user) else manager_center(request.user)
+    center = data.get("service_center")
     if not center:
         return Response({"error": "Choose the service center this person works at."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1560,10 +1546,10 @@ def staff_list_create(request):
 @permission_classes([IsAuthenticated])
 def staff_update(request, pk):
     """PATCH /api/staff/<id>/ {"is_available": false} -> off duty (auto-assignment skips them)"""
-    error = manager_scope_error(request.user)
+    error = admin_required_error(request.user)
     if error:
         return error
-    member = _staff_in_scope(request.user).filter(pk=pk).first()
+    member = _all_staff().filter(pk=pk).first()
     employee = getattr(member, "employee_profile", None) if member else None
     if not employee:
         return Response({"error": "Staff member not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2250,16 +2236,14 @@ def repair_cost_estimate(request):
     if not vehicle:
         return Response({"error": "Vehicle not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    # Validate access: vehicle owner, manager / admin, or a mechanic with an open job on this vehicle
+    # Validate access: vehicle owner, an admin, or a mechanic with an open job on this vehicle
     assigned_mechanic = (
         request.user.role == UserRole.MECHANIC
         and ServiceBooking.objects.filter(vehicle=vehicle, assigned_mechanic=request.user)
         .exclude(status__in=[BookingStatus.COMPLETED, BookingStatus.CANCELLED])
         .exists()
     )
-    center = manager_center(request.user) if request.user.role == UserRole.SERVICE_CENTER_MANAGER else None
-    center_manager = bool(center) and ServiceBooking.objects.filter(vehicle=vehicle, service_center=center).exists()
-    if vehicle.customer != request.user and not (assigned_mechanic or center_manager or is_admin(request.user)):
+    if vehicle.customer != request.user and not (assigned_mechanic or is_admin(request.user)):
         return Response({"error": "Unauthorized: You do not have permission to estimate for this vehicle."}, status=status.HTTP_403_FORBIDDEN)
 
     service_type = None
@@ -2303,17 +2287,12 @@ def repair_cost_estimate(request):
 def invoices_list(request):
     """
     GET /api/invoices/
-    List invoices isolated by role (Customer sees own, Manager sees service center, Admin sees all).
+    List invoices by role (a customer sees their own, an admin sees all).
     """
     if is_admin(request.user):
         qs = Invoice.objects.all()
     elif is_customer(request.user):
         qs = Invoice.objects.filter(customer=request.user)
-    elif request.user.role == UserRole.SERVICE_CENTER_MANAGER:
-        error = manager_scope_error(request.user)
-        if error:
-            return error
-        qs = Invoice.objects.filter(service_center=manager_center(request.user))
     else:
         return Response({"error": "Unauthorized to view invoices."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -2343,11 +2322,8 @@ def invoice_detail(request, pk):
 
 
 def can_view_invoice(user, invoice):
-    """The customer billed, an admin, or the manager of the center that issued it."""
-    if invoice.customer_id == user.id or is_admin(user):
-        return True
-    center = manager_center(user) if user.role == UserRole.SERVICE_CENTER_MANAGER else None
-    return bool(center) and invoice.service_center_id == center.id
+    """The customer billed, or an admin."""
+    return invoice.customer_id == user.id or is_admin(user)
 
 
 @api_view(["GET"])
@@ -2489,7 +2465,7 @@ def booking_generate_invoice(request, pk):
     """
     POST /api/bookings/<id>/generate-invoice/
     Generates or recalculates the itemized invoice for a completed booking.
-    Only admins and the manager of the booking's service center may do this.
+    Only admins may do this.
     """
     if str(pk).isdigit():
         booking = ServiceBooking.objects.filter(pk=pk).first()
@@ -2499,9 +2475,9 @@ def booking_generate_invoice(request, pk):
     if not booking:
         return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if manager_scope_error(request.user, booking):
+    if admin_required_error(request.user):
         return Response(
-            {"error": "Only the service center manager for this booking can generate its invoice."},
+            {"error": "Only an admin can generate an invoice."},
             status=status.HTTP_403_FORBIDDEN,
         )
 

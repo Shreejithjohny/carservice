@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Invoice, InvoiceStatus, NotificationType, Payment
-from .notification_service import send_notification
+from .notification_service import notify_admins, send_notification
 
 UPI_ID_PATTERN = re.compile(r"^[\w.\-]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,63}$")
 
@@ -102,15 +102,12 @@ def notify_invoice_paid(invoice: Invoice, payment: Payment) -> None:
         title="Payment successful",
         message=f"{amount} paid for invoice {invoice.invoice_number}. Transaction {payment.transaction_id}.",
     )
-    manager = invoice.service_center.user if invoice.service_center else None
-    if manager:
-        send_notification(
-            user=manager,
-            booking=invoice.booking,
-            notification_type=NotificationType.PAYMENT_RECEIVED,
-            title="Invoice paid",
-            message=f"{invoice.invoice_number} was paid online ({amount}).",
-        )
+    notify_admins(
+        NotificationType.PAYMENT_RECEIVED,
+        "Invoice paid",
+        f"{invoice.invoice_number} was paid online ({amount}).",
+        booking=invoice.booking,
+    )
 
 
 def pay_invoice(invoice_id: int, user, data: Dict[str, Any]) -> Payment:

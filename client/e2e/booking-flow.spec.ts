@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ACCOUNTS, PASSWORD, signIn, stubMapStyle } from "./helpers";
 
-// One story across three screens: the customer books, the manager confirms (and the app picks the
+// One story across three screens: the customer books, the admin confirms (and the app picks the
 // driver), then the customer tracks it. Later steps use the booking made in the first one; in serial
 // mode Playwright skips the remaining steps when one fails.
 test.describe.configure({ mode: "serial" });
@@ -40,9 +40,9 @@ test("customer books a pickup by placing the pin on the map", async ({ page }) =
   await expect(page.getByText(reference)).toBeVisible();
 });
 
-test("manager confirms it and a driver is assigned automatically", async ({ page }) => {
-  await signIn(page, "manager");
-  await page.goto("/service-center/bookings");
+test("admin confirms it and a driver is assigned automatically", async ({ page }) => {
+  await signIn(page, "admin");
+  await page.goto("/admin/bookings");
   const card = page.getByRole("article", { name: `Booking ${reference}` });
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "Confirm", exact: true }).click();

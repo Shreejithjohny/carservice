@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { signIn } from "./helpers";
 
-test("a manager adds a driver, who can then sign in on the Driver tab", async ({ page }) => {
+test("an admin adds a driver, who can then sign in on the Driver tab", async ({ page }) => {
   const email = `driver-${Date.now()}@example.com`;
-  await signIn(page, "manager");
+  await signIn(page, "admin");
   await page.getByRole("link", { name: "Staff" }).click();
-  await expect(page).toHaveURL(/\/service-center\/staff$/);
+  await expect(page).toHaveURL(/\/admin\/staff$/);
 
   const form = page.getByRole("form", { name: "Add a driver or mechanic" });
   await form.getByLabel("Full name").fill("Ravi Kumar");
@@ -13,6 +13,7 @@ test("a manager adds a driver, who can then sign in on the Driver tab", async ({
   await form.getByRole("button", { name: "Generate" }).click();
   const password = await form.getByLabel("First password").inputValue();
   expect(password).toMatch(/^[A-Za-z][A-Za-z2-9]{10}\d$/);
+  await form.getByLabel("Service center").selectOption({ index: 1 });
   await form.getByRole("button", { name: "Add driver" }).click();
 
   const created = page.getByRole("region", { name: "New account" });

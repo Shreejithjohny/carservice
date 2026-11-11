@@ -1,4 +1,4 @@
-"""Numbers for the service-center manager's analytics page (or platform-wide for an admin)."""
+"""Numbers for the analytics page: one service center, or all of them together."""
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from statistics import median
