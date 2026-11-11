@@ -1,11 +1,18 @@
-# Render blueprint (https://render.com): New > Blueprint > pick this repository.
-# It creates the web server from the Dockerfile and a PostgreSQL database, and connects them.
-# Check Render's current plans and prices before choosing; free plans sleep when idle and free
-# databases expire. See docs/DEPLOY.md for the remaining settings (Google, Razorpay, alerts).
+# Render blueprint (https://render.com): New > Blueprint > choose this repository.
+# Creates the web server (from the Dockerfile) and a PostgreSQL database in Singapore (closest region
+# to India) on Render's FREE plans, and connects them. Steps: docs/DEPLOY.md.
+#
+# Free plans are for trying the site out, not for real customers:
+#   - the web server sleeps when nobody uses it; the next visitor waits about a minute
+#   - the free database expires after a few weeks (Render emails you first)
+#   - there is no disk, so uploaded car photos and repair evidence are lost whenever the server
+#     restarts or redeploys (including after sleeping)
+# Before real customers use it, switch to paid plans: see "Going from free to paid" in docs/DEPLOY.md.
 services:
   - type: web
     name: doorstep
     runtime: docker
+    region: singapore
     plan: free
     healthCheckPath: /api/health-check/
     envVars:
@@ -19,10 +26,23 @@ services:
           property: connectionString
       - key: OTP_BYPASS
         value: "False"
+      # Empty = customers pay at the service center. Later: razorpay (see docs/AFTER_HOSTING.md)
       - key: PAYMENT_GATEWAY
         value: ""
-      # Your public address, e.g. https://doorstep.onrender.com (used in invoice QR codes)
+      # Loads the sample car catalogue, service packages and centers on start (nothing is duplicated)
+      - key: LOAD_SAMPLE_DATA
+        value: "True"
+      # Your first admin account, created on start (the free plan has no Shell to run createsuperuser).
+      # Use a strong password; the account is never changed afterwards.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Your public address, e.g. https://doorstep-xxxx.onrender.com (used in invoice QR codes)
       - key: FRONTEND_URL
+        sync: false
+      # Extra domains (your own domain), comma-separated. The onrender.com address works without this.
+      - key: ALLOWED_HOSTS
         sync: false
       - key: BUSINESS_NAME
         sync: false
@@ -39,4 +59,6 @@ services:
 
 databases:
   - name: doorstep-db
+    region: singapore
     plan: free
+    postgresMajorVersion: "16"

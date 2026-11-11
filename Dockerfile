@@ -23,11 +23,11 @@ RUN pip install --require-hashes --only-binary :all: -r requirements-lock.txt
 COPY backend/ ./
 COPY --from=website /src/client/dist /app/client/dist
 
-# Not root, and able to write uploads and collected static files
+# The app runs as this unprivileged user. The container starts as root only so docker-start.sh can
+# take ownership of a mounted uploads disk; it switches to "app" before running anything else.
 RUN useradd --create-home --uid 10001 app \
     && mkdir -p /app/backend/media /app/backend/staticfiles \
     && chown -R app:app /app
-USER app
 
 EXPOSE 8000
 # Updates the database, gathers static files, then starts the web server (see docker-start.sh)

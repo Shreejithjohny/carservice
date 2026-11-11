@@ -3162,3 +3162,38 @@ class SetUserRoleCommandTests(TestCase):
         for bad in ("SERVICE_CENTER_MANAGER", "pilot"):
             with self.assertRaisesMessage(CommandError, "Unknown role"):
                 self.run_command("u@example.com", bad)
+
+
+class EnsureAdminCommandTests(TestCase):
+    def run_command(self, **env):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        with patch.dict("os.environ", env, clear=False):
+            call_command("ensure_admin", stdout=out)
+        return out.getvalue()
+
+    def test_creates_an_admin_who_can_sign_in_then_never_touches_it_again(self):
+        out = self.run_command(ADMIN_EMAIL="Owner@Example.com", ADMIN_PASSWORD="Garage#Blue77")
+        self.assertIn("Created admin owner@example.com", out)
+        admin = User.objects.get(email="owner@example.com")
+        self.assertEqual((admin.role, admin.is_superuser, admin.is_staff), (UserRole.ADMIN, True, True))
+        with override_settings(OTP_BYPASS=False):
+            res = APIClient().post("/api/auth/login/", {"identifier": "owner@example.com", "password": "Garage#Blue77", "role": "ADMIN"}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+
+        # Restarting with a different password does not change the existing account
+        self.assertIn("left unchanged", self.run_command(ADMIN_EMAIL="owner@example.com", ADMIN_PASSWORD="Other#Pass2026"))
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password("Garage#Blue77"))
+
+    def test_does_nothing_without_settings_and_refuses_a_weak_password(self):
+        from django.core.management.base import CommandError
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("ADMIN_EMAIL", None)
+            os.environ.pop("ADMIN_PASSWORD", None)
+            self.assertEqual(self.run_command(), "")
+        with self.assertRaisesMessage(CommandError, "too weak"):
+            self.run_command(ADMIN_EMAIL="a@example.com", ADMIN_PASSWORD="12345678")
+        self.assertFalse(User.objects.filter(email="a@example.com").exists())
