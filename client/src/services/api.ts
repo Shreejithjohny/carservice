@@ -12,7 +12,39 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+let refreshing: Promise<boolean> | null = null;
+
+/**
+ * Swaps the refresh token for a new access token (the access token only lives for an hour).
+ * Several requests failing at once share one refresh. False when there is nothing to refresh
+ * with or the server refuses it, i.e. the person really has to sign in again.
+ */
+function refreshAccessToken(): Promise<boolean> {
+  refreshing ??= (async () => {
+    const refresh = localStorage.getItem(REFRESH_TOKEN_KEY);
+    if (!refresh) return false;
+    try {
+      const res = await fetch(`${BASE}/api/auth/refresh/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh }),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as { access?: string; refresh?: string };
+      if (!data.access) return false;
+      localStorage.setItem(TOKEN_KEY, data.access);
+      if (data.refresh) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh);
+      return true;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+function send(path: string, init: RequestInit): Promise<Response> {
   const token = localStorage.getItem(TOKEN_KEY);
   const headers = new Headers(init.headers);
 
@@ -24,7 +56,16 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  return fetch(`${BASE}${path}`, { ...init, headers });
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const hadToken = Boolean(localStorage.getItem(TOKEN_KEY));
+  let res = await send(path, init);
+  // An expired access token: get a new one with the refresh token and try once more
+  if (res.status === 401 && hadToken && (await refreshAccessToken())) {
+    res = await send(path, init);
+  }
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
@@ -37,6 +78,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return data as T;
+}
+
+/** True when the server says the session is no longer valid (as opposed to a network hiccup). */
+export function isSignedOutError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
 }
 
 /** Downloads an authenticated file (e.g. an invoice PDF) and hands it to the browser as a download. */

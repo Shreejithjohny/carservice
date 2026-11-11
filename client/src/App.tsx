@@ -36,10 +36,19 @@ function Fade({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
+// Old manager pages and the admin page each now lives at. Only these fixed targets are ever used,
+// so nothing from the address bar is passed on into the redirect.
+const OLD_MANAGER_PAGES: Record<string, string> = {
+  bookings: "/admin/bookings",
+  analytics: "/admin/analytics",
+  staff: "/admin/staff",
+  invoices: "/admin/invoices",
+};
+
 function OldManagerLink() {
   const { pathname } = useLocation();
-  const rest = pathname.replace(/^\/service-center\/?/, "");
-  return <Navigate to={rest ? `/admin/${rest}` : "/admin/bookings"} replace />;
+  const page = pathname.split("/")[2] ?? "";
+  return <Navigate to={OLD_MANAGER_PAGES[page] ?? "/admin/bookings"} replace />;
 }
 
 export function App() {

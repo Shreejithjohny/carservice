@@ -131,7 +131,13 @@ test("customer pays the invoice and rates the service; the admin sees it paid", 
   await signIn(page, "customer");
   await page.goto("/app/invoices");
   // The "Pay now" button on this invoice's own card
-  await page.locator(`xpath=//span[text()="${invoice.invoice_number}"]/ancestor::div[.//button][1]//button[contains(., "Pay now")]`).click();
+  await page
+    .locator("div")
+    .filter({ has: page.getByText(invoice.invoice_number, { exact: true }) })
+    .filter({ has: page.getByRole("button", { name: "Pay now" }) })
+    .last()
+    .getByRole("button", { name: "Pay now" })
+    .click();
   await page.getByLabel("UPI ID").fill("meera@okbank");
   const [paid] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith(`/api/invoices/${invoice.id}/pay/`)),
