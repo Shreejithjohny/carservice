@@ -1,23 +1,20 @@
 # Render blueprint (https://render.com): New > Blueprint > choose this repository.
-# Creates the web server (from the Dockerfile), a PostgreSQL database and a disk for uploaded photos,
-# all in Singapore (closest to India), and connects them. Steps: docs/DEPLOY.md.
+# Creates the web server (from the Dockerfile) and a PostgreSQL database in Singapore (closest region
+# to India) on Render's FREE plans, and connects them. Steps: docs/DEPLOY.md.
 #
-# Paid plans (roughly $7 web + $6 database + disk per GB, monthly; check render.com/pricing).
-# For a short demo you can use the free plans instead: set both `plan:` values to `free` and delete
-# the `disk:` block. Free web services sleep when idle, free databases expire after a few weeks,
-# and without a disk uploaded photos are lost on every deploy.
+# Free plans are for trying the site out, not for real customers:
+#   - the web server sleeps when nobody uses it; the next visitor waits about a minute
+#   - the free database expires after a few weeks (Render emails you first)
+#   - there is no disk, so uploaded car photos and repair evidence are lost whenever the server
+#     restarts or redeploys (including after sleeping)
+# Before real customers use it, switch to paid plans: see "Going from free to paid" in docs/DEPLOY.md.
 services:
   - type: web
     name: doorstep
     runtime: docker
     region: singapore
-    plan: starter
+    plan: free
     healthCheckPath: /api/health-check/
-    # Uploaded car photos and repair evidence. A service with a disk restarts briefly on each deploy.
-    disk:
-      name: uploads
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: DEBUG
         value: "False"
@@ -27,14 +24,21 @@ services:
         fromDatabase:
           name: doorstep-db
           property: connectionString
-      - key: MEDIA_ROOT
-        value: /var/data/media
       - key: OTP_BYPASS
         value: "False"
       # Empty = customers pay at the service center. Later: razorpay (see docs/AFTER_HOSTING.md)
       - key: PAYMENT_GATEWAY
         value: ""
-      # Your public address, e.g. https://doorstep.onrender.com or https://www.yourdomain.in
+      # Loads the sample car catalogue, service packages and centers on start (nothing is duplicated)
+      - key: LOAD_SAMPLE_DATA
+        value: "True"
+      # Your first admin account, created on start (the free plan has no Shell to run createsuperuser).
+      # Use a strong password; the account is never changed afterwards.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Your public address, e.g. https://doorstep-xxxx.onrender.com (used in invoice QR codes)
       - key: FRONTEND_URL
         sync: false
       # Extra domains (your own domain), comma-separated. The onrender.com address works without this.
@@ -56,5 +60,5 @@ services:
 databases:
   - name: doorstep-db
     region: singapore
-    plan: basic-256mb
+    plan: free
     postgresMajorVersion: "16"

@@ -22,6 +22,13 @@ fi
 
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
+# First admin from ADMIN_EMAIL / ADMIN_PASSWORD (only if set and not created yet)
+python manage.py ensure_admin
+# Sample car catalogue, service packages and centers (safe to repeat; nothing is duplicated)
+if [ "${LOAD_SAMPLE_DATA:-False}" = "True" ]; then
+  python manage.py seed_vehicle_catalog
+  python manage.py seed_service_data
+fi
 exec gunicorn config.wsgi \
   --bind "0.0.0.0:${PORT:-8000}" \
   --workers "${WEB_CONCURRENCY:-2}" \

@@ -31,44 +31,62 @@ Optional: `GOOGLE_CLIENT_ID`, `RAZORPAY_*`, `VAPID_*` (see `docs/AFTER_HOSTING.m
 ## 2. Deploy
 
 ### Option A: Render (recommended; blueprint included)
-`render.yaml` sets up everything in **Singapore** (closest region to India): the web server built from
-the `Dockerfile`, a PostgreSQL database, and a 1 GB disk for uploaded photos. Paid plans, roughly
-$14-15 a month in total; check render.com/pricing before you start.
+`render.yaml` sets up the web server (built from the `Dockerfile`) and a PostgreSQL database in
+**Singapore** (closest region to India) on Render's **free plans**, so you can try the site at no
+cost. Free plans are not for real customers; see "Going from free to paid" below.
 
 1. **Push** this repository to GitHub (it already is, if you merged the pull requests).
-2. **Sign up** at render.com with your GitHub account, and add a payment card (paid plans need one).
+2. **Sign up** at render.com with your GitHub account.
 3. **New > Blueprint**, choose this repository, and click **Apply**. Render reads `render.yaml` and
    creates `doorstep` (web) and `doorstep-db` (database).
 4. It asks for the values marked "sync: false". Fill in:
-   - `FRONTEND_URL`: leave it for now if you don't know the address yet (see step 6).
-   - `ALLOWED_HOSTS`: leave empty for now (only needed for your own domain).
+   - `ADMIN_EMAIL` and `ADMIN_PASSWORD`: your own admin login (use a strong password).
    - `BUSINESS_*`: your business name, legal name, address, email, phone and city.
-5. Wait for the first deploy (a few minutes). Open the logs if it fails: the server lists exactly
-   which setting is wrong.
+   - `FRONTEND_URL` and `ALLOWED_HOSTS`: leave empty for now.
+5. Wait for the first deploy (several minutes on the free plan). If it fails, open the logs: the
+   server lists exactly which setting is wrong.
 6. Copy your address from the top of the service page (`https://doorstep-xxxx.onrender.com`), put it
    in `FRONTEND_URL` under **Environment**, and save (Render redeploys).
-7. Create your admin account: service page > **Shell**, then run
-   `python manage.py createsuperuser` and sign in on the **Admin** tab of the website.
-8. Add your service packages and centers at `https://<your address>/django-admin/` (or run
-   `python manage.py seed_vehicle_catalog && python manage.py seed_service_data` in the Shell for the
-   sample ones).
-9. Continue with `docs/AFTER_HOSTING.md` (Google sign-in, Razorpay, alerts).
+7. Open the address and sign in on the **Admin** tab with `ADMIN_EMAIL` / `ADMIN_PASSWORD`. The
+   sample car catalogue, service packages and centers are already loaded (`LOAD_SAMPLE_DATA`); edit
+   them at `https://<your address>/django-admin/`.
+8. Continue with `docs/AFTER_HOSTING.md` (Google sign-in, Razorpay, alerts).
+
+**What the free plans mean**
+- The web server sleeps when nobody uses it; the next visitor waits about a minute.
+- The free database expires after a few weeks (Render emails you first). Its data goes with it.
+- There is no disk: uploaded car photos and repair evidence are lost whenever the server restarts
+  or redeploys, which includes waking up from sleep. Everything else is in the database and stays.
+
+**Going from free to paid** (before real customers use it; roughly $14-15 a month, check
+render.com/pricing). In `render.yaml`:
+1. Change the web service's `plan: free` to `plan: starter`, and the database's to `plan: basic-256mb`.
+2. Add a disk for uploads under the web service, and point `MEDIA_ROOT` at it:
+   ```yaml
+       disk:
+         name: uploads
+         mountPath: /var/data
+         sizeGB: 1
+   ```
+   ```yaml
+         - key: MEDIA_ROOT
+           value: /var/data/media
+   ```
+3. Set `LOAD_SAMPLE_DATA` to `"False"` once your real packages and centers are in.
+4. Commit and push; Render applies the blueprint change. Upgrade the database in Render's dashboard
+   before the free one expires, or its data is lost (Render's dashboard shows how; I could not
+   confirm the exact steps from here).
+
+The container starts as root only to give a mounted disk's uploads folder to the unprivileged `app`
+user, then switches to that user before anything else runs. A service with a disk restarts briefly
+on each deploy.
 
 **Your own domain (e.g. www.yourdomain.in):** service page > **Settings > Custom Domains** > add it.
 Render shows the DNS record to create (usually a CNAME pointing to your onrender.com address); add
 that record where you bought the domain (GoDaddy: My Products > DNS). Render then issues the HTTPS
 certificate by itself. Finally add the domain to `ALLOWED_HOSTS`, set `FRONTEND_URL` to it, and add
-it to Google's Authorized JavaScript origins.
-
-**Demo only, to pay nothing:** in `render.yaml` set both `plan:` lines to `free` and delete the
-`disk:` block before step 3. Free web services sleep after a period without visitors (the next
-visit waits about a minute), free databases expire after a few weeks, and without the disk uploaded
-photos disappear on every deploy.
-
-**How the disk works:** Render mounts it at `/var/data`, owned by root. The container starts as root
-only to give the uploads folder (`MEDIA_ROOT=/var/data/media`) to the unprivileged `app` user, then
-switches to that user before the database update and the web server start. A service with a disk
-restarts briefly on each deploy (no zero-downtime deploys).
+it to Google's Authorized JavaScript origins. (Custom domains may need a paid plan on Render; check
+there.)
 
 ### Option B: any host that runs Docker (Railway, Fly.io, a VPS, ...)
 ```bash
@@ -95,7 +113,9 @@ cd backend && gunicorn config.wsgi --bind 0.0.0.0:8000 --workers 2
 ```
 
 ## 3. First start
-Create your own admin (do not use the demo accounts on a live site):
+On Render the first admin and the sample data are created on start (see Option A). Elsewhere,
+create your own admin (do not use the demo accounts on a live site), or set `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` and it is created when the container starts:
 ```bash
 python manage.py createsuperuser
 ```
