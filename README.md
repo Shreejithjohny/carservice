@@ -160,7 +160,7 @@ npm run build                         # type-checks and builds the frontend
 ### Useful extra commands
 | What | Command |
 |---|---|
-| Create your own admin login for the Django admin site (http://127.0.0.1:8000/admin/) | `python backend/manage.py createsuperuser` |
+| Create your own admin login for the Django admin site (http://127.0.0.1:8000/django-admin/) | `python backend/manage.py createsuperuser` |
 | Send service reminders (run once a day) | `python backend/manage.py send_service_reminders` |
 | Generate **synthetic** repair history to demo the learned cost estimator | `python backend/manage.py seed_repair_history --count 200` |
 | Train the repair-cost model (needs 30+ completed repairs) | `python backend/manage.py train_cost_model` |
@@ -230,10 +230,12 @@ With `OTP_BYPASS=True` (set in `.env.example`) each tab shows a "Try the demo �
 | Learned cost estimator | Admin overview → *Repair cost model*; `python manage.py train_cost_model` | Used once 30+ completed, approved repairs exist; otherwise the rule formula. See below. |
 | Email + password sign-in | Login, Register, Forgot password; key icon in the header to change password | Passwords are hashed by Django and must pass its strength rules. 5 wrong passwords lock the account for 15 minutes. |
 | Contact number at booking | Booking form | The customer confirms the mobile number the driver should call (filled in from their profile). It is checked, stored on the booking, and shown to the driver and the admin. |
-| Coupons | "Coupon code" on the booking form; create codes in the Django admin (`/admin/` → Coupons) | Percent or flat discounts with optional cap, minimum package price, dates, total uses and uses per customer. The discount is fixed at booking and comes off the package price before GST on the invoice. The demo seed adds `WELCOME10`. |
+| Coupons | "Coupon code" on the booking form; create codes in the Django admin (`/django-admin/` → Coupons) | Percent or flat discounts with optional cap, minimum package price, dates, total uses and uses per customer. The discount is fixed at booking and comes off the package price before GST on the invoice. The demo seed adds `WELCOME10`. |
 | Reschedule | "Reschedule pickup" on the Track page | While a booking is Pending or Confirmed, the customer can move it to any slot with room. The customer, the admins and the assigned driver are notified. |
 | Browser alerts | Bell button in the header (needs `VAPID_*` keys) | Web Push: notifications arrive even when the site is closed. Works in Chrome, Edge, Firefox and Android; on iPhone only after "Add to Home Screen". Not available in private windows. |
 | Razorpay payments | "Pay" on an invoice with `PAYMENT_GATEWAY=razorpay` | Real payments by UPI, card, net banking or wallet in Razorpay's own window; card details never reach this server. Every payment is verified by signature and re-checked with Razorpay (order, amount, status), and a webhook covers customers who close the page. Refunds are made in the Razorpay dashboard. |
+| Refunds | Admin → Invoices → open a paid invoice → **Refund** | Refunds the whole payment (through Razorpay for a real payment; on record only for a test payment). A reason is required. The invoice becomes Refunded and cannot be paid again; the customer is notified. |
+| Policy pages | `/privacy`, `/terms`, `/refunds`, `/contact`, linked from the landing, sign-in and register pages | Your business details come from the `BUSINESS_*` settings. The text is a starting point, not legal advice: read and adjust it. |
 | Sign in with Google | "Sign in with Google" on Login and Register (needs `GOOGLE_CLIENT_ID`) | Signs in the account with the same email, or creates a customer account. Staff accounts are still created by an admin. "Forgot password?" works through it: sign in with Google, then choose a new password (allowed without the old one for 15 minutes after a Google sign-in), and it also clears a password lockout. |
 | Staff accounts | Admin → **Staff** | Add drivers and mechanics to any center with a first password (or **Generate**), shown once to share with them. Mark staff on/off duty; automatic assignment skips off-duty staff. Staff change their password from the key icon. |
 | Profile photos | Click your picture (top right) | Upload a photo or remove it; without one, your initials are shown. The server resizes it to a 256×256 JPEG, turns phone photos the right way up and removes location data (EXIF). Stored in the database, so it works on hosts without a disk. |
@@ -249,21 +251,33 @@ and every estimate state the synthetic share, and synthetic jobs are hidden from
 
 ## Deploying to production
 
+**Step-by-step guide: [docs/DEPLOY.md](docs/DEPLOY.md). Checklist for after it is online:
+[docs/AFTER_HOSTING.md](docs/AFTER_HOSTING.md).**
+
+The product runs as one server at one address: with `DEBUG=False` the backend also serves the built
+website (`client/dist`), so there is nothing separate to host for the frontend. A `Dockerfile` and a
+Render blueprint (`render.yaml`) are included. With `DEBUG=False` the server refuses to start with
+unsafe settings (demo login on, the mock payment gateway, a short `SECRET_KEY`, no `ALLOWED_HOSTS`,
+or SQLite) and prints what to change.
+
 Set these in `backend/.env` (or the server environment):
 
 | Variable | Value |
 |---|---|
 | `DEBUG` | `False` |
 | `SECRET_KEY` | A long random value: `python -c "import secrets; print(secrets.token_urlsafe(50))"`. The server refuses to start without one. |
-| `ALLOWED_HOSTS` | Your API domain(s), comma-separated |
-| `CORS_ALLOWED_ORIGINS` | Your frontend URL(s), e.g. `https://app.example.com` |
-| `FRONTEND_URL` | Public URL of the React app (invoice QR codes link to `FRONTEND_URL/verify/...`) |
+| `ALLOWED_HOSTS` | Your domain(s), comma-separated |
+| `DATABASE_URL` | `postgres://user:password@host:5432/dbname` (or `mysql://...`). Required: SQLite is refused in production unless `ALLOW_SQLITE_IN_PRODUCTION=True` (demos only). |
+| `CORS_ALLOWED_ORIGINS` | Only if the website is hosted at a different address from the API; not needed with the one-server setup |
+| `BUSINESS_*` | Your business name, legal name, address, email, phone and city for the policy pages |
+| `FRONTEND_URL` | Public URL of the site (invoice QR codes link to `FRONTEND_URL/verify/...`) |
 | `OTP_BYPASS` | `False` — **never** enable in production; it allows signing in to any existing account without a code |
 | `PAYMENT_GATEWAY` | Leave empty: online payment is turned off and customers pay at the service center. `mock` is a test gateway only — it moves no real money. |
 | `PAYMENT_GATEWAY=razorpay`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Real online payments. Use Razorpay's Test Mode keys first. Add the webhook `https://<API>/api/payments/razorpay/webhook/` (events `payment.captured`, `payment.failed`) in the Razorpay dashboard with the same secret. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_CONTACT_EMAIL` | Browser alerts. Create the keys once with `python backend/manage.py generate_vapid_keys`; changing them later disconnects everyone who enabled alerts. The site must be served over HTTPS. |
 | `GOOGLE_CLIENT_ID` | Optional: empty uses the project's own Google client, `off` hides Google sign-in. Add the production frontend URL to the OAuth client's Authorized JavaScript origins, and publish the Google app so people other than test users can sign in. |
-| `USE_MYSQL`, `DB_*` | Optional MySQL connection |
+| `USE_MYSQL`, `DB_*` | Older way to configure MySQL; `DATABASE_URL` is simpler |
+| `MEDIA_ROOT` | Folder for uploaded photos; point it at a persistent disk on hosts that wipe the disk on deploy |
 
 The frontend's `predev`/`prebuild` scripts copy the OCR engine and English language data from
 `node_modules` into `client/public/ocr/`, so number plate reading never depends on a CDN.

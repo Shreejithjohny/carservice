@@ -79,7 +79,7 @@ from .invoice_service import InvoiceError, generate_invoice_for_booking
 from .invoice_pdf import build_invoice_pdf, invoice_from_token
 from .health_service import recalculate_car_health_score
 from .notification_service import notify_admins, send_notification
-from .payment_service import PaymentError, pay_invoice, payment_gateway
+from .payment_service import PaymentError, pay_invoice, payment_gateway, refund_payment
 from . import razorpay_service
 from .coupon_service import CouponError, coupon_discount, find_coupon
 from .push_service import push_enabled
@@ -305,6 +305,7 @@ def health_check(request):
         "payment_gateway": payment_gateway() or None,
         "google_client_id": settings.GOOGLE_CLIENT_ID or None,
         "push_public_key": settings.VAPID_PUBLIC_KEY if push_enabled() else None,
+        "business": settings.BUSINESS,
     })
 
 
@@ -2385,6 +2386,24 @@ def invoice_pay(request, pk):
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
     return Response({"payment": PaymentSerializer(payment).data, "invoice": invoice_data})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def payment_refund(request, pk):
+    """
+    POST /api/payments/<id>/refund/  {"reason"}
+    Admin only: refunds the whole payment to the customer (through Razorpay for a Razorpay payment).
+    """
+    error = admin_required_error(request.user)
+    if error:
+        return error
+    try:
+        payment = refund_payment(pk, request.user, str(request.data.get("reason") or ""))
+    except PaymentError as exc:
+        return Response({"error": exc.message}, status=exc.status_code)
+    payment.invoice.refresh_from_db()
+    return Response({"payment": PaymentSerializer(payment).data, "invoice": InvoiceSerializer(payment.invoice).data})
 
 
 @api_view(["POST"])

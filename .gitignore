@@ -52,3 +52,4 @@ backend/.coverage
 backend/coverage.xml
 backend/htmlcov/
 client/coverage/
+staticfiles/

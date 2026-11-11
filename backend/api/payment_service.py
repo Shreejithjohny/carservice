@@ -152,3 +152,57 @@ def pay_invoice(invoice_id: int, user, data: Dict[str, Any]) -> Payment:
     if result["success"]:
         notify_invoice_paid(invoice, payment)
     return payment
+
+
+def refund_payment(payment_id: int, admin, reason: str) -> Payment:
+    """
+    Refunds a successful payment in full: through Razorpay for a Razorpay payment, on record only
+    for a test (mock) payment. When no other successful payment remains on the invoice, the invoice
+    becomes Refunded and Cancelled, so it cannot be paid again by mistake.
+    """
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise PaymentError("Give a short reason for the refund.", 400)
+
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().filter(pk=payment_id).first()
+        if not payment:
+            raise PaymentError("Payment not found.", 404)
+        if payment.status == Payment.Status.REFUNDED:
+            raise PaymentError("This payment was already refunded.", 409)
+        if payment.status != Payment.Status.SUCCESS:
+            raise PaymentError("Only a successful payment can be refunded.", 400)
+        invoice = Invoice.objects.select_for_update().get(pk=payment.invoice_id)
+
+        if payment.provider == "RAZORPAY":
+            from . import razorpay_service  # imported here: razorpay_service imports this module
+
+            # If Razorpay refuses, PaymentError leaves everything unchanged
+            refund_id = razorpay_service.refund(payment, reason)
+        else:
+            refund_id = f"SDVREF-{timezone.now():%Y%m%d}-{secrets.token_hex(5).upper()}"
+
+        payment.status = Payment.Status.REFUNDED
+        payment.refund_id = refund_id[:40]
+        payment.refund_reason = reason[:200]
+        payment.refunded_at = timezone.now()
+        payment.refunded_by = admin
+        payment.save(update_fields=["status", "refund_id", "refund_reason", "refunded_at", "refunded_by"])
+
+        # A second, accidental payment can be refunded while the first still pays the invoice
+        if not invoice.payments.filter(status=Payment.Status.SUCCESS).exists():
+            invoice.payment_status = Invoice.PaymentStatus.REFUNDED
+            invoice.invoice_status = InvoiceStatus.CANCELLED
+            invoice.save(update_fields=["payment_status", "invoice_status", "updated_at"])
+
+    send_notification(
+        user=invoice.customer,
+        booking=invoice.booking,
+        notification_type=NotificationType.REFUND_ISSUED,
+        title="Refund issued",
+        message=(
+            f"₹{payment.amount:,.2f} for invoice {invoice.invoice_number} has been refunded. "
+            "It usually reaches your account in 5-7 working days."
+        ),
+    )
+    return payment

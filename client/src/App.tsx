@@ -22,6 +22,7 @@ import { VerifyInvoice } from "./pages/VerifyInvoice";
 import { Analytics } from "./pages/Analytics";
 import { Staff } from "./pages/Staff";
 import { ForgotPassword } from "./pages/ForgotPassword";
+import { Legal } from "./pages/Legal";
 import { Guard } from "./layouts/Guard";
 import { AppShell } from "./layouts/AppShell";
 
@@ -60,6 +61,10 @@ export function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/verify/:token" element={<VerifyInvoice />} />
+      <Route path="/privacy" element={<Legal page="privacy" />} />
+      <Route path="/terms" element={<Legal page="terms" />} />
+      <Route path="/refunds" element={<Legal page="refunds" />} />
+      <Route path="/contact" element={<Legal page="contact" />} />
 
       {/* Protected Customer Routes */}
       <Route element={<Guard roles={["customer"]} />}>

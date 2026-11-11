@@ -2,15 +2,16 @@ import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { Skeleton, Empty } from "../components/States";
 import { Receipt, Printer, X, Wallet, FileDown } from "lucide-react";
-import { downloadFile } from "../services/api";
+import { api, ApiError, downloadFile } from "../services/api";
 import { useToast } from "../hooks/useToast";
 import { useAuth } from "../hooks/useAuth";
 import { PaymentModal } from "../components/PaymentModal";
-import type { Invoice } from "../types";
+import type { Invoice, Payment } from "../types";
 
 const STATUS_STYLES: Record<string, string> = {
   PAID: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   FAILED: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+  REFUNDED: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
 };
 
 /** ₹1,234.00, with the minus sign before the ₹ for discount lines. */
@@ -28,6 +29,28 @@ export function Invoices() {
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
   const [downloading, setDownloading] = useState(false);
   const { push } = useToast();
+
+  const isAdmin = user?.role.toLowerCase() === "admin";
+  const [refunding, setRefunding] = useState(false);
+
+  // Admin: send the whole payment back to the customer (through Razorpay for a real payment)
+  async function refundPayment(payment: Payment) {
+    const reason = window.prompt(
+      `Refund ₹${Number(payment.amount).toLocaleString("en-IN")} to the customer? This cannot be undone.\n\nReason for the refund:`,
+    );
+    if (reason === null) return;
+    setRefunding(true);
+    try {
+      const res = await api<{ invoice: Invoice }>(`/api/payments/${payment.id}/refund/`, { method: "POST", body: JSON.stringify({ reason }) });
+      push({ title: "Refund issued. The customer has been notified." });
+      setSelectedInvoice(res.invoice);
+      reload();
+    } catch (err) {
+      push({ title: err instanceof ApiError ? err.message : "Could not refund the payment", tone: "err" });
+    } finally {
+      setRefunding(false);
+    }
+  }
 
   async function downloadPdf(inv: Invoice) {
     setDownloading(true);
@@ -53,7 +76,7 @@ export function Invoices() {
   // "PENDING" means unpaid, which includes invoices whose last payment attempt failed
   const filtered = (invoices || []).filter((inv) => {
     if (filterStatus === "ALL") return true;
-    if (filterStatus === "PENDING") return inv.payment_status !== "PAID";
+    if (filterStatus === "PENDING") return inv.payment_status !== "PAID" && inv.payment_status !== "REFUNDED";
     return inv.payment_status === filterStatus;
   });
 
@@ -264,19 +287,41 @@ export function Invoices() {
                 </div>
               </div>
 
-              {selectedInvoice.payments?.some((p) => p.status === "SUCCESS") && (
-                <div className="rounded-2xl bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">
-                  {selectedInvoice.payments
-                    .filter((p) => p.status === "SUCCESS")
-                    .map((p) => (
-                      <p key={p.id}>
-                        <strong>Paid ₹{Number(p.amount).toLocaleString("en-IN")}</strong> via {p.method === "UPI" ? `UPI (${p.payer_reference})` : p.payer_reference} on{" "}
-                        {new Date(p.created_at).toLocaleString()} · Transaction <span className="font-mono">{p.transaction_id}</span>
-                        {p.provider === "MOCK" && " (test payment)"}
+              {(selectedInvoice.payments ?? [])
+                .filter((p) => p.status !== "FAILED")
+                .map((p) => (
+                  <div
+                    key={p.id}
+                    className={`rounded-2xl p-3 text-xs ${
+                      p.status === "REFUNDED"
+                        ? "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300"
+                        : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    }`}
+                  >
+                    <p>
+                      <strong>Paid ₹{Number(p.amount).toLocaleString("en-IN")}</strong> via {p.method === "UPI" ? `UPI (${p.payer_reference})` : p.payer_reference} on{" "}
+                      {new Date(p.created_at).toLocaleString()} · Transaction <span className="font-mono">{p.transaction_id}</span>
+                      {p.provider === "MOCK" && " (test payment)"}
+                    </p>
+                    {p.status === "REFUNDED" && (
+                      <p className="mt-1 font-semibold">
+                        Refunded{p.refunded_at ? ` on ${new Date(p.refunded_at).toLocaleString()}` : ""} · Refund <span className="font-mono">{p.refund_id}</span>
+                        {p.refund_reason ? ` · ${p.refund_reason}` : ""}
                       </p>
-                    ))}
-                </div>
-              )}
+                    )}
+                    {isAdmin && p.status === "SUCCESS" && p.failure_reason && <p className="mt-1 font-semibold text-amber-700 dark:text-amber-400">{p.failure_reason}</p>}
+                    {isAdmin && p.status === "SUCCESS" && (
+                      <button
+                        type="button"
+                        disabled={refunding}
+                        onClick={() => void refundPayment(p)}
+                        className="mt-2 rounded-xl border border-rose-300 px-3 py-1.5 font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900/60 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                      >
+                        {refunding ? "Refunding..." : `Refund ₹${Number(p.amount).toLocaleString("en-IN")}`}
+                      </button>
+                    )}
+                  </div>
+                ))}
 
               <div className="rounded-xl border border-zinc-200/80 bg-zinc-50 p-3 text-center text-[11px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/40">
                 This is an electronically generated service invoice. Thank you for choosing Smart Doorstep Vehicle Service.

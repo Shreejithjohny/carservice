@@ -5,6 +5,7 @@ import { useToast } from "../hooks/useToast";
 import { ApiError } from "../services/api";
 import { PasswordField, PASSWORD_HINT } from "../components/PasswordField";
 import { GoogleSignInButton, OrDivider } from "../components/GoogleSignInButton";
+import { SiteFooter } from "../components/SiteFooter";
 
 const INPUT =
   "mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 focus:ring-2 focus:ring-brand";
@@ -109,6 +110,11 @@ export function Register() {
             Sign in
           </Link>
         </p>
+        <p className="mt-3 text-center text-xs text-zinc-500">
+          By creating an account you agree to our{" "}
+          <Link to="/terms" className="underline">Terms</Link> and <Link to="/privacy" className="underline">Privacy Policy</Link>.
+        </p>
+        <SiteFooter className="mt-4 text-zinc-500" />
       </div>
     </div>
   );

@@ -13,3 +13,7 @@ PyJWT>=2.8.0
 reportlab>=4.0.0
 qrcode>=7.4.0
 numpy>=1.26.0
+# Hosting: the web server, serving the built website, and PostgreSQL
+gunicorn>=22.0.0
+whitenoise>=6.7.0
+psycopg[binary]>=3.2.0

@@ -26,7 +26,9 @@ if not SECRET_KEY:
 elif SECRET_KEY.startswith("django-insecure") and not (DEBUG or TESTING):
     raise ImproperlyConfigured("Replace the placeholder SECRET_KEY with a long random value before running with DEBUG off.")
 
-ALLOWED_HOSTS = ["*"] if DEBUG else [h.strip() for h in (os.getenv("ALLOWED_HOSTS") or "localhost,127.0.0.1,testserver").split(",") if h.strip()]
+# Your domain(s), comma-separated. Render also tells the server its public hostname by itself.
+CONFIGURED_HOSTS = [h.strip() for h in f"{os.getenv('ALLOWED_HOSTS', '')},{os.getenv('RENDER_EXTERNAL_HOSTNAME', '')}".split(",") if h.strip()]
+ALLOWED_HOSTS = ["*"] if DEBUG else (CONFIGURED_HOSTS or ["localhost", "127.0.0.1", "testserver"])
 
 # Application definition
 INSTALLED_APPS = [
@@ -49,6 +51,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Serves the built website (client/dist) and Django's static files straight from this server
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -77,10 +81,40 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Database Configuration (MySQL with SQLite fallback)
+# Database: DATABASE_URL (what most hosts give you), else MySQL via USE_MYSQL + DB_*, else SQLite.
+def database_from_url(url):
+    """postgres://user:pass@host:5432/name or mysql://... -> a Django DATABASES entry."""
+    from urllib.parse import parse_qs, unquote, urlsplit
+
+    parts = urlsplit(url)
+    engines = {"postgres": "postgresql", "postgresql": "postgresql", "mysql": "mysql"}
+    if parts.scheme not in engines:
+        raise ImproperlyConfigured("DATABASE_URL must start with postgres://, postgresql:// or mysql://")
+    config = {
+        "ENGINE": f"django.db.backends.{engines[parts.scheme]}",
+        "NAME": unquote(parts.path.lstrip("/")),
+        "USER": unquote(parts.username or ""),
+        "PASSWORD": unquote(parts.password or ""),
+        "HOST": parts.hostname or "",
+        "PORT": str(parts.port or ""),
+        # Reuse connections between requests instead of opening one per request
+        "CONN_MAX_AGE": 60,
+        "CONN_HEALTH_CHECKS": True,
+    }
+    options = {key: values[-1] for key, values in parse_qs(parts.query).items()}  # e.g. ?sslmode=require
+    if engines[parts.scheme] == "mysql":
+        options = {"charset": "utf8mb4", "init_command": "SET sql_mode='STRICT_TRANS_TABLES'", **options}
+    if options:
+        config["OPTIONS"] = options
+    return config
+
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 USE_MYSQL = os.getenv("USE_MYSQL", "False").lower() in ("true", "1", "t")
 
-if USE_MYSQL:
+if DATABASE_URL:
+    DATABASES = {"default": database_from_url(DATABASE_URL)}
+elif USE_MYSQL:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.mysql",
@@ -125,11 +159,32 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# The built website (npm run build -> client/dist). When that folder exists, this server also serves
+# the website, so the whole product runs at one address: no CORS, one domain, one thing to host.
+# Without it (local development with `npm run dev`) the backend serves only the API.
+FRONTEND_DIST = Path(os.getenv("FRONTEND_DIST") or BASE_DIR.parent / "client" / "dist")
+# On by default in production only; in development the website runs on its own port (npm run dev).
+SERVE_FRONTEND = (
+    os.getenv("SERVE_FRONTEND", str(not DEBUG)).lower() in ("true", "1", "t")
+    and (FRONTEND_DIST / "index.html").is_file()
+    and not TESTING
+)
+if SERVE_FRONTEND:
+    WHITENOISE_ROOT = FRONTEND_DIST
+# Vite puts a content hash in these file names, so browsers may cache them for a year
+WHITENOISE_IMMUTABLE_FILE_TEST = lambda path, url: url.startswith("/assets/")  # noqa: E731
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
 # Public address of the React app; invoice QR codes link to its /verify page.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
+# Uploaded photos and videos (car condition photos, repair evidence). On a host whose disk is wiped
+# on every deploy, point MEDIA_ROOT at a persistent disk, or the uploads are lost.
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT") or BASE_DIR / "media")
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -191,3 +246,64 @@ VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
 # Contact address the push services (Google, Mozilla, Apple) can use if something misbehaves
 VAPID_CONTACT_EMAIL = os.getenv("VAPID_CONTACT_EMAIL", "").strip() or "admin@smartdoorstep.com"
 
+
+# Your business details, shown on the website's Privacy, Terms, Refunds and Contact pages.
+# Payment providers such as Razorpay check those pages, so fill these in before going live.
+BUSINESS = {
+    "name": os.getenv("BUSINESS_NAME", "").strip() or "DoorStep",
+    "legal_name": os.getenv("BUSINESS_LEGAL_NAME", "").strip(),  # registered name, as on GST or bank documents
+    "address": os.getenv("BUSINESS_ADDRESS", "").strip(),
+    "email": os.getenv("BUSINESS_EMAIL", "").strip(),
+    "phone": os.getenv("BUSINESS_PHONE", "").strip(),
+    "gstin": os.getenv("BUSINESS_GSTIN", "").strip(),  # optional
+    "city": os.getenv("BUSINESS_CITY", "").strip(),  # whose courts handle disputes, e.g. Bengaluru
+    "policies_updated": os.getenv("POLICIES_UPDATED", "").strip() or "11 November 2026",
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# Production safety. With DEBUG off the server refuses to start in a state that would be unsafe
+# with real customers, and switches on the browser-side protections.
+# ---------------------------------------------------------------------------------------------
+def env_flag(name, default):
+    return os.getenv(name, str(default)).lower() in ("true", "1", "t")
+
+
+if not (DEBUG or TESTING):
+    problems = []
+    if OTP_BYPASS:
+        problems.append("OTP_BYPASS is on: anyone could sign in to any account without a password. Set OTP_BYPASS=False.")
+    if PAYMENT_GATEWAY == "mock":
+        problems.append(
+            "PAYMENT_GATEWAY=mock marks invoices paid without any money moving. Use PAYMENT_GATEWAY=razorpay, "
+            "or leave it empty so customers pay at the service center."
+        )
+    if PAYMENT_GATEWAY == "razorpay" and not (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET):
+        problems.append("PAYMENT_GATEWAY=razorpay needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.")
+    if PAYMENT_GATEWAY not in ("", "mock", "razorpay"):
+        problems.append(f"Unknown PAYMENT_GATEWAY '{PAYMENT_GATEWAY}'. Use razorpay, or leave it empty.")
+    if len(SECRET_KEY) < 32:
+        problems.append("SECRET_KEY is too short. Use: python -c \"import secrets; print(secrets.token_urlsafe(50))\"")
+    if not CONFIGURED_HOSTS:
+        problems.append("ALLOWED_HOSTS is empty. Set it to your domain(s), e.g. ALLOWED_HOSTS=app.example.com")
+    if DATABASES["default"]["ENGINE"].endswith("sqlite3") and not env_flag("ALLOW_SQLITE_IN_PRODUCTION", False):
+        problems.append(
+            "The database is SQLite, which loses data on hosts that wipe the disk and cannot protect time slots or "
+            "coupons from being double-booked. Set DATABASE_URL (PostgreSQL or MySQL). To run a small demo on "
+            "SQLite anyway, set ALLOW_SQLITE_IN_PRODUCTION=True."
+        )
+    if problems:
+        raise ImproperlyConfigured("Unsafe production settings:\n- " + "\n- ".join(problems))
+
+    # HTTPS everywhere. The host's proxy terminates TLS and tells us with X-Forwarded-Proto.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env_flag("SECURE_SSL_REDIRECT", True)
+    SECURE_REDIRECT_EXEMPT = [r"^api/health-check/$"]  # hosts check health over plain HTTP from inside
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", str(60 * 60 * 24 * 30)))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    # Lets the Django admin site's forms work behind the host's HTTPS proxy
+    CSRF_TRUSTED_ORIGINS = [f"https://{host.lstrip('.')}" for host in ALLOWED_HOSTS if host not in ("*", "localhost", "127.0.0.1", "testserver")]

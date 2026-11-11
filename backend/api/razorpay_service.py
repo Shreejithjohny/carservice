@@ -180,6 +180,15 @@ def record_payment(entity: dict) -> Optional[Payment]:
     return payment
 
 
+def refund(payment: Payment, reason: str) -> str:
+    """Refunds the whole payment through Razorpay; returns Razorpay's refund id (rfnd_...)."""
+    result = _api("POST", f"/payments/{payment.transaction_id}/refund", {
+        "amount": to_paise(payment.amount),
+        "notes": {"invoice_number": payment.invoice.invoice_number, "reason": reason[:200]},
+    })
+    return str(result.get("id") or "")
+
+
 def confirm_checkout(invoice_id: int, user, data: Dict[str, Any]) -> Payment:
     """Called by the browser after Razorpay Checkout succeeds."""
     order_id = str(data.get("razorpay_order_id") or "")

@@ -8,6 +8,7 @@ import { PasswordField } from "../components/PasswordField";
 import { homePathForRole } from "../utils/roles";
 import type { Role } from "../types";
 import { Logo } from "../components/Logo";
+import { SiteFooter } from "../components/SiteFooter";
 import { GoogleSignInButton, OrDivider } from "../components/GoogleSignInButton";
 
 // One sign-in page, one tab per role; each tab has its own URL (/login/driver ...) staff can bookmark.
@@ -181,6 +182,7 @@ function SignInForm({ tab }: Readonly<{ tab: (typeof SIGN_IN_TABS)[number] }>) {
             "Staff accounts are created by your administrator."
           )}
         </p>
+        <SiteFooter className="mt-6 text-zinc-500" />
       </div>
     </div>
   );

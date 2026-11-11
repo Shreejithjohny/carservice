@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowRight, CarFront, ChevronRight, MapPin, ShieldCheck, Sparkles, Video } from "lucide-react";
 import { Logo } from "../components/Logo";
+import { SiteFooter } from "../components/SiteFooter";
 
 export function Landing() {
   return (
@@ -43,6 +44,7 @@ export function Landing() {
           </div>
         </motion.div>
       </section>
+      <SiteFooter className="px-4 pb-8 text-white/50" />
     </div>
   );
 }
