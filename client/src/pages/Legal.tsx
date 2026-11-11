@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Logo } from "../components/Logo";
 import { LEGAL_LINKS } from "../components/SiteFooter";
-import { isSet, useSite } from "../siteInfo";
+import { useSite } from "../siteInfo";
 
 type Page = "privacy" | "terms" | "refunds" | "contact";
 
@@ -23,8 +23,10 @@ function ContactLines() {
     <ul className="mt-2 space-y-1">
       <li><strong>{SITE.legalName}</strong>{SITE.legalName !== SITE.name && ` (trading as ${SITE.name})`}</li>
       <li>Address: {SITE.address}</li>
-      <li>Email: {isSet(SITE.email) ? <a className="text-brand-fg underline" href={`mailto:${SITE.email}`}>{SITE.email}</a> : SITE.email}</li>
-      <li>Phone: {isSet(SITE.phone) ? <a className="text-brand-fg underline" href={`tel:${SITE.phone.replace(/\s/g, "")}`}>{SITE.phone}</a> : SITE.phone}</li>
+      {/* Shown as text, not links: the values come from the server, and a link built from them
+          could carry a harmful address (e.g. a "javascript:" link). */}
+      <li>Email: <span className="select-all font-medium">{SITE.email}</span></li>
+      <li>Phone: <span className="select-all font-medium">{SITE.phone}</span></li>
       {SITE.gstin && <li>GSTIN: {SITE.gstin}</li>}
     </ul>
   );
