@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, isSignedOutError } from "./api";
+import { api, ApiError, clearSession, currentToken, isSignedOutError } from "./api";
 
 const store = new Map<string, string>();
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -15,6 +15,7 @@ beforeEach(() => {
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
   });
+  clearSession(); // forget any token renewed by the previous test
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -35,8 +36,18 @@ describe("api", () => {
     await expect(api("/api/bookings/")).resolves.toEqual({ ok: true });
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/bookings/", "/api/auth/refresh/", "/api/bookings/"]);
     expect(authHeader(fetchMock.mock.calls[2])).toBe(`Bearer ${NEW}`);
-    expect(store.get("doorstep_token")).toBe(NEW);
-    expect(store.get("doorstep_refresh_token")).toBe(R2);
+    // The renewed token is kept in memory only: browser storage is untouched
+    expect(currentToken()).toBe(NEW);
+    expect(store.get("doorstep_token")).toBe("old");
+    expect(store.get("doorstep_refresh_token")).toBe("r1");
+
+    // The next request uses it straight away, without another refresh
+    await api("/api/bookings/");
+    expect(fetchMock.mock.calls.map((c) => c[0]).filter((u) => u === "/api/auth/refresh/")).toHaveLength(1);
+
+    // Signing out, or signing in again, drops it
+    clearSession();
+    expect(currentToken()).toBeNull();
   });
 
   it("refreshes once when several requests fail together", async () => {
@@ -63,15 +74,15 @@ describe("api", () => {
     expect(isSignedOutError(err)).toBe(true);
   });
 
-  it("never stores a refresh answer that is not token-shaped", async () => {
+  it("never uses a refresh answer that is not token-shaped", async () => {
     store.set("doorstep_token", "old");
     store.set("doorstep_refresh_token", "r1");
     vi.stubGlobal("fetch", vi.fn(async (url: string) =>
       url === "/api/auth/refresh/" ? json(200, { access: "<script>alert(1)</script>", refresh: { not: "a string" } }) : json(401, {}),
     ));
     await expect(api("/api/bookings/")).rejects.toBeInstanceOf(ApiError);
+    expect(currentToken()).toBe("old");
     expect(store.get("doorstep_token")).toBe("old");
-    expect(store.get("doorstep_refresh_token")).toBe("r1");
   });
 
   it("does not try to refresh a wrong-password answer or other errors", async () => {

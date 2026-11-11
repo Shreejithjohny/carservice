@@ -1,5 +1,4 @@
-import { api } from "../services/api";
-import { TOKEN_KEY } from "../types";
+import { api, currentToken } from "../services/api";
 
 /** Browser alerts need a service worker, the Push API, and a secure page (https or localhost). */
 export function pushSupported(): boolean {
@@ -61,7 +60,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 export async function disablePush(): Promise<void> {
   if (!pushSupported()) return;
   // Read before the first await, so this still works when the session is cleared right after the call (sign-out)
-  const token = localStorage.getItem(TOKEN_KEY);
+  const token = currentToken();
   const subscription = await currentSubscription();
   if (!subscription) return;
   await fetch("/api/push/subscription/", {
