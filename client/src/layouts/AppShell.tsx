@@ -13,7 +13,6 @@ import {
   Sun,
   Video,
   Wrench,
-  Building2,
   ClipboardCheck,
   Receipt,
   BarChart3,
@@ -62,14 +61,6 @@ const admin = [
   { to: "/admin/invoices", label: "Invoices", icon: Receipt },
 ];
 
-const manager = [
-  { to: "/service-center", label: "Center Dashboard", icon: Building2, end: true },
-  { to: "/service-center/bookings", label: "Manage Bookings", icon: Gauge },
-  { to: "/service-center/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/service-center/staff", label: "Staff", icon: Users },
-  { to: "/service-center/invoices", label: "Invoices", icon: Receipt },
-];
-
 const mechanic = [
   { to: "/mechanic", label: "Service Jobs", icon: ClipboardCheck, end: true },
 ];
@@ -78,7 +69,7 @@ const driver = [
   { to: "/driver", label: "Pickup Jobs", icon: Car, end: true },
 ];
 
-const linksByRole: Record<Role, NavItem[]> = { customer, admin, service_center_manager: manager, mechanic, driver };
+const linksByRole: Record<Role, NavItem[]> = { customer, admin, mechanic, driver };
 
 export function AppShell() {
   const { user, logout } = useAuth();

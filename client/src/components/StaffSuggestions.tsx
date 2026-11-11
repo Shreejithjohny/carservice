@@ -6,7 +6,7 @@ type MechanicRow = { mechanic_id: number; name: string; open_jobs: number; eligi
 
 /**
  * Ranked staff suggestions for a booking: drivers by distance to the customer plus a 3 km penalty per
- * pickup already that day, mechanics by open jobs. Picking one only fills the dropdown; the manager saves.
+ * pickup already that day, mechanics by open jobs. Picking one only fills the dropdown; the admin saves.
  */
 export function StaffSuggestions({
   bookingId,

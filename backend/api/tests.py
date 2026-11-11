@@ -283,8 +283,8 @@ class Phase4ServiceBookingTests(TestCase):
     # COMBINED PHASE 6–8 TESTS
     # ==========================================
 
-    def test_manager_permissions_and_assignments(self):
-        manager = User.objects.create_user(username="mgr1", email="mgr1@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+    def test_admin_confirms_and_assigns_and_nobody_else_can(self):
+        ops_admin = User.objects.create_user(username="adm1", email="adm1@example.com", role=UserRole.ADMIN)
         driver = User.objects.create_user(username="drv1", email="drv1@example.com", role=UserRole.DRIVER)
         mechanic = User.objects.create_user(username="mech1", email="mech1@example.com", role=UserRole.MECHANIC)
 
@@ -293,18 +293,18 @@ class Phase4ServiceBookingTests(TestCase):
             vehicle=self.vehicle1,
             service_type=self.service_type,
             service_center=self.service_center,
-            pickup_address="Manager test address",
+            pickup_address="Admin test address",
             preferred_date="2026-10-10",
         )
 
-        # A manager not linked to any service center cannot manage bookings
-        self.client.force_authenticate(user=manager)
-        unlinked = self.client.patch(f"/api/service-center/bookings/{booking.id}/", {"status": "Confirmed"}, format="json")
-        self.assertEqual(unlinked.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(self.client.get("/api/service-center/bookings/").status_code, status.HTTP_403_FORBIDDEN)
+        # Only an admin runs the service centers: customers, drivers and mechanics are refused
+        for outsider in (self.user1, driver, mechanic):
+            self.client.force_authenticate(user=outsider)
+            refused = self.client.patch(f"/api/service-center/bookings/{booking.id}/", {"status": "Confirmed"}, format="json")
+            self.assertEqual(refused.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(self.client.get("/api/service-center/bookings/").status_code, status.HTTP_403_FORBIDDEN)
 
-        self.service_center.user = manager
-        self.service_center.save()
+        self.client.force_authenticate(user=ops_admin)
         res = self.client.patch(
             f"/api/service-center/bookings/{booking.id}/",
             {"status": "Confirmed", "assigned_driver_id": driver.id, "assigned_mechanic_id": mechanic.id},
@@ -468,11 +468,11 @@ class Phase9To11CompleteOperationsTests(TestCase):
             phone="+919100000004",
             role=UserRole.MECHANIC,
         )
-        self.manager = User.objects.create_user(
-            username="p9_manager",
-            email="p9_manager@example.com",
+        self.ops_admin = User.objects.create_user(
+            username="p9_ops",
+            email="p9_ops@example.com",
             phone="+919100000005",
-            role=UserRole.SERVICE_CENTER_MANAGER,
+            role=UserRole.ADMIN,
         )
         self.admin = User.objects.create_superuser(
             username="p9_admin",
@@ -503,7 +503,7 @@ class Phase9To11CompleteOperationsTests(TestCase):
             estimated_duration="4 hours",
         )
         self.service_center = ServiceCenter.objects.create(
-            user=self.manager,
+            user=self.ops_admin,
             name="Tata Authorized Service Hub",
             address="Whitefield, Bengaluru",
             phone="+918045000000",
@@ -573,7 +573,7 @@ class Phase9To11CompleteOperationsTests(TestCase):
         )
 
         # Not invoiceable before the service is completed
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         res_early = self.client.post(f"/api/bookings/{booking.id}/generate-invoice/")
         self.assertEqual(res_early.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -586,7 +586,7 @@ class Phase9To11CompleteOperationsTests(TestCase):
             res_forbidden = self.client.post(f"/api/bookings/{booking.id}/generate-invoice/")
             self.assertEqual(res_forbidden.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         res_inv = self.client.post(f"/api/bookings/{booking.id}/generate-invoice/")
         self.assertEqual(res_inv.status_code, status.HTTP_200_OK)
         inv_data = res_inv.data
@@ -615,8 +615,8 @@ class Phase9To11CompleteOperationsTests(TestCase):
         res_detail_unauth = self.client.get(f"/api/invoices/{inv_data['id']}/")
         self.assertEqual(res_detail_unauth.status_code, status.HTTP_403_FORBIDDEN)
 
-        # Manager sees their service center's invoices
-        self.client.force_authenticate(user=self.manager)
+        # The admin sees the invoices
+        self.client.force_authenticate(user=self.ops_admin)
         res_mgr_list = self.client.get("/api/invoices/")
         self.assertEqual(res_mgr_list.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res_mgr_list.data), 1)
@@ -688,8 +688,8 @@ class Phase9To11CompleteOperationsTests(TestCase):
         self.assertEqual(res_b.status_code, status.HTTP_201_CREATED)
         booking_id = res_b.data["id"]
 
-        # 2. Manager confirms booking & assigns driver + mechanic
-        self.client.force_authenticate(user=self.manager)
+        # 2. Admin confirms booking & assigns driver + mechanic
+        self.client.force_authenticate(user=self.ops_admin)
         res_up = self.client.patch(
             f"/api/service-center/bookings/{booking_id}/",
             {
@@ -748,8 +748,8 @@ class Phase9To11CompleteOperationsTests(TestCase):
         res_app = self.client.post(f"/api/repair-requests/{rep_id}/approve/")
         self.assertEqual(res_app.status_code, status.HTTP_200_OK)
 
-        # 8. Manager marks Completed
-        self.client.force_authenticate(user=self.manager)
+        # 8. Admin marks Completed
+        self.client.force_authenticate(user=self.ops_admin)
         res_comp = self.client.patch(
             f"/api/service-center/bookings/{booking_id}/",
             {"status": BookingStatus.COMPLETED},
@@ -848,8 +848,8 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.client = APIClient()
         self.customer = User.objects.create_user(username="pay_cust", email="pay_cust@example.com", role=UserRole.CUSTOMER)
         self.other = User.objects.create_user(username="pay_other", email="pay_other@example.com", role=UserRole.CUSTOMER)
-        self.manager = User.objects.create_user(
-            username="pay_mgr", email="pay_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER
+        self.ops_admin = User.objects.create_user(
+            username="pay_mgr", email="pay_mgr@example.com", role=UserRole.ADMIN
         )
         self.driver = User.objects.create_user(username="pay_drv", email="pay_drv@example.com", role=UserRole.DRIVER)
         brand = CarBrand.objects.create(name="Kia")
@@ -860,7 +860,7 @@ class InvoicePaymentAndTrackingTests(TestCase):
         )
         service_type = ServiceType.objects.create(name="General Service", base_price=2000, estimated_duration="3 hours")
         center = ServiceCenter.objects.create(
-            user=self.manager, name="Pay Hub", address="Indiranagar", phone="+918000000000", email="hub@example.com",
+            user=self.ops_admin, name="Pay Hub", address="Indiranagar", phone="+918000000000", email="hub@example.com",
         )
         self.booking = ServiceBooking.objects.create(
             customer=self.customer, vehicle=vehicle, service_type=service_type, service_center=center,
@@ -880,7 +880,7 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.assertEqual(float(res.data["payment"]["amount"]), 2360.0)
         self.assertEqual(res.data["invoice"]["payment_status"], "PAID")
         self.assertEqual(len(res.data["invoice"]["payments"]), 1)
-        self.assertTrue(Notification.objects.filter(user=self.manager, title="Invoice paid").exists())
+        self.assertTrue(Notification.objects.filter(user=self.ops_admin, title="Invoice paid").exists())
 
         again = self.pay(self.customer, method="UPI", upi_id="rahul@okhdfc")
         self.assertEqual(again.status_code, status.HTTP_409_CONFLICT)
@@ -915,7 +915,7 @@ class InvoicePaymentAndTrackingTests(TestCase):
             self.pay(self.customer, method="CARD", card_number="4111111111111111", card_expiry="01/20").status_code, 400
         )
         self.assertEqual(self.pay(self.other, method="UPI", upi_id="x@okaxis").status_code, 403)
-        self.assertEqual(self.pay(self.manager, method="UPI", upi_id="x@okaxis").status_code, 403)
+        self.assertEqual(self.pay(self.ops_admin, method="UPI", upi_id="x@okaxis").status_code, 403)
         self.assertFalse(Payment.objects.exists())
 
     @override_settings(PAYMENT_GATEWAY="")
@@ -948,18 +948,15 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.invoice.delete()
         url = f"/api/bookings/{self.booking.id}/generate-invoice/"
 
-        # A manager of a different service center is refused
-        other_mgr = User.objects.create_user(
+        # Only an admin can generate it: not the customer, and not an account of the retired manager role
+        retired = User.objects.create_user(
             username="other_mgr", email="other_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER
         )
-        ServiceCenter.objects.create(
-            user=other_mgr, name="Other Hub", address="Whitefield", phone="+918000000001", email="o@example.com"
-        )
-        self.client.force_authenticate(user=other_mgr)
-        self.assertEqual(self.client.post(url).status_code, status.HTTP_403_FORBIDDEN)
+        for outsider in (self.customer, retired):
+            self.client.force_authenticate(user=outsider)
+            self.assertEqual(self.client.post(url).status_code, status.HTTP_403_FORBIDDEN)
 
-        # The booking's own manager can generate it
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         res = self.client.post(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         invoice_id = res.data["id"]
@@ -968,7 +965,7 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.client.force_authenticate(user=self.customer)
         self.client.post(f"/api/invoices/{invoice_id}/pay/", {"method": "UPI", "upi_id": "rahul@okhdfc"}, format="json")
         paid_total = Invoice.objects.get(pk=invoice_id).grand_total
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         self.assertEqual(self.client.post(url).status_code, status.HTTP_409_CONFLICT)
         res_complete = self.client.patch(
             f"/api/service-center/bookings/{self.booking.id}/", {"status": "Completed"}, format="json"
@@ -980,7 +977,7 @@ class InvoicePaymentAndTrackingTests(TestCase):
         self.invoice.delete()
         self.booking.status = BookingStatus.IN_SERVICE
         self.booking.save()
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         res = self.client.patch(f"/api/service-center/bookings/{self.booking.id}/", {"status": "Completed"}, format="json")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(Invoice.objects.filter(booking=self.booking).exists())
@@ -1184,11 +1181,11 @@ class SecurityAuditTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.customer = User.objects.create_user(username="sa_cust", email="sa_cust@example.com", role=UserRole.CUSTOMER, phone="+919845000002")
-        self.manager = User.objects.create_user(
-            username="sa_mgr", email="sa_mgr@example.com", role=UserRole.SERVICE_CENTER_MANAGER, is_staff=True
+        self.ops_admin = User.objects.create_user(
+            username="sa_mgr", email="sa_mgr@example.com", role=UserRole.ADMIN, is_staff=True
         )
         self.other_mgr = User.objects.create_user(
-            username="sa_mgr2", email="sa_mgr2@example.com", role=UserRole.SERVICE_CENTER_MANAGER
+            username="sa_mgr2", email="sa_mgr2@example.com", role=UserRole.ADMIN
         )
         self.mechanic = User.objects.create_user(username="sa_mech", email="sa_mech@example.com", role=UserRole.MECHANIC)
         brand = CarBrand.objects.create(name="Honda")
@@ -1198,25 +1195,31 @@ class SecurityAuditTests(TestCase):
             registration_number="KA01SA01", year=2024, fuel_type="Petrol",
         )
         self.st = ServiceType.objects.create(name="Full Service", base_price=4000, estimated_duration="5 hours")
-        self.center = ServiceCenter.objects.create(user=self.manager, name="SA Hub", address="Jayanagar", phone="+918000000005", email="sa@example.com")
+        self.center = ServiceCenter.objects.create(user=self.ops_admin, name="SA Hub", address="Jayanagar", phone="+918000000005", email="sa@example.com")
         self.other_center = ServiceCenter.objects.create(user=self.other_mgr, name="SA Hub 2", address="Hebbal", phone="+918000000006", email="sa2@example.com")
         self.booking = ServiceBooking.objects.create(
             customer=self.customer, vehicle=self.vehicle, service_type=self.st, service_center=self.center,
             pickup_address="Jayanagar 4th Block", status=BookingStatus.PENDING,
         )
 
-    def test_staff_flag_does_not_make_a_manager_an_admin(self):
-        self.client.force_authenticate(user=self.manager)  # is_staff=True
+    def test_staff_flag_does_not_make_a_mechanic_an_admin(self):
+        self.mechanic.is_staff = True  # only opens the Django admin site; app permissions come from the role
+        self.mechanic.save()
+        self.client.force_authenticate(user=self.mechanic)
         self.assertEqual(self.client.get("/api/admin/dashboard-stats/").status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(self.client.post("/api/car-brands/", {"name": "Hacked"}, format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get("/api/service-center/bookings/").status_code, status.HTTP_403_FORBIDDEN)
+        res = self.client.patch(f"/api/service-center/bookings/{self.booking.id}/", {"status": "Cancelled"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_sees_the_bookings_of_every_center(self):
         other = ServiceBooking.objects.create(
             customer=self.customer, vehicle=self.vehicle, service_type=self.st, service_center=self.other_center, pickup_address="x",
         )
+        self.client.force_authenticate(user=self.ops_admin)
         ids = [b["id"] for b in self.client.get("/api/service-center/bookings/").data]
         self.assertIn(self.booking.id, ids)
-        self.assertNotIn(other.id, ids)
-        res = self.client.patch(f"/api/service-center/bookings/{other.id}/", {"status": "Cancelled"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(other.id, ids)
 
     def test_customer_can_only_edit_pickup_details_or_cancel(self):
         self.client.force_authenticate(user=self.customer)
@@ -1268,29 +1271,29 @@ class SecurityAuditTests(TestCase):
         spare = Vehicle.objects.create(customer=self.customer, brand="Honda", model="Amaze", registration_number="KA01SA02", year=2020, fuel_type="Petrol")
         self.assertEqual(self.client.delete(f"/api/vehicles/{spare.id}/").status_code, 200)
 
-    def test_manager_cannot_use_another_centers_staff(self):
+    def test_staff_of_another_center_cannot_be_assigned(self):
         from api.models import Employee
 
         theirs = User.objects.create_user(username="sa_drv2", email="sa_drv2@example.com", role=UserRole.DRIVER)
         Employee.objects.create(user=theirs, service_center=self.other_center, employee_type=Employee.EmployeeType.VALET)
         pool = User.objects.create_user(username="sa_drv3", email="sa_drv3@example.com", role=UserRole.DRIVER)
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         url = f"/api/service-center/bookings/{self.booking.id}/"
         self.assertEqual(self.client.patch(url, {"assigned_driver_id": theirs.id}, format="json").status_code, 400)
         self.assertEqual(self.client.patch(url, {"assigned_driver_id": pool.id}, format="json").status_code, 200)
         staff = self.client.get("/api/service-center/employees/").data
         driver_ids = [d["id"] for d in staff["drivers"]]
         self.assertIn(pool.id, driver_ids)
-        self.assertNotIn(theirs.id, driver_ids)
+        self.assertIn(theirs.id, driver_ids)  # listed for the admin, but only assignable at their own center
         self.assertEqual(self.client.patch(url, {"status": "Teleported"}, format="json").status_code, 400)
 
-    def test_manager_estimates_only_for_own_center_vehicles(self):
-        self.client.force_authenticate(user=self.other_mgr)
-        res = self.client.post("/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "noise"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-        self.client.force_authenticate(user=self.manager)
-        res = self.client.post("/api/repair-cost/estimate/", {"vehicle": self.vehicle.id, "issue_description": "noise"}, format="json")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+    def test_only_the_owner_an_admin_or_the_assigned_mechanic_can_estimate(self):
+        body = {"vehicle": self.vehicle.id, "issue_description": "noise"}
+        stranger = User.objects.create_user(username="sa_x", email="sa_x@example.com", role=UserRole.CUSTOMER)
+        self.client.force_authenticate(user=stranger)
+        self.assertEqual(self.client.post("/api/repair-cost/estimate/", body, format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(user=self.ops_admin)
+        self.assertEqual(self.client.post("/api/repair-cost/estimate/", body, format="json").status_code, status.HTTP_200_OK)
 
     def test_repaired_critical_fault_stops_lowering_health_score(self):
         from api.models import RepairRequest, ServiceInspection
@@ -1702,8 +1705,7 @@ class AnalyticsTests(TestCase):
         self.client = APIClient()
         self.center = ServiceCenter.objects.create(name="AN Hub", address="Malleshwaram", phone="+918000000013", email="an@example.com")
         other_center = ServiceCenter.objects.create(name="AN Other", address="Vijayanagar", phone="+918000000014", email="an2@example.com")
-        self.manager = User.objects.create_user(username="an_m", email="an_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
-        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        self.ops_admin = User.objects.create_user(username="an_m", email="an_m@example.com", role=UserRole.ADMIN)
         customer = User.objects.create_user(username="an_c", email="an_c@example.com", role=UserRole.CUSTOMER)
         mech = User.objects.create_user(username="an_k", email="an_k@example.com", role=UserRole.MECHANIC)
         vehicle = Vehicle.objects.create(customer=customer, brand="Maruti", model="Baleno", registration_number="KA07AN01")
@@ -1726,9 +1728,9 @@ class AnalyticsTests(TestCase):
             RepairRequest.objects.create(booking=done1, mechanic=mech, issue_title=title, description="d", additional_cost=1000, status=st)
         ServiceReview.objects.create(booking=done1, customer=customer, service_center=self.center, center_rating=4, comment="Good")
 
-    def test_manager_sees_own_center_numbers(self):
-        self.client.force_authenticate(user=self.manager)
-        data = self.client.get("/api/service-center/analytics/").data
+    def test_numbers_for_one_center(self):
+        self.client.force_authenticate(user=self.ops_admin)
+        data = self.client.get(f"/api/service-center/analytics/?center={self.center.id}").data
         self.assertEqual(data["scope"], "AN Hub")
         self.assertEqual((data["totals"]["bookings"], data["totals"]["completed"], data["totals"]["cancelled"]), (3, 2, 1))
         self.assertEqual(data["totals"]["revenue_paid"], 1180.0)
@@ -2057,8 +2059,7 @@ class AutoAssignmentTests(TestCase):
             name="AA Hub", address="Indiranagar", phone="+918000000020", email="aa@example.com", latitude=12.9784, longitude=77.6408
         )
         self.other_center = ServiceCenter.objects.create(name="AA Far", address="Yelahanka", phone="+918000000021", email="aa2@example.com")
-        self.manager = User.objects.create_user(username="aa_m", email="aa_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
-        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        self.ops_admin = User.objects.create_user(username="aa_m", email="aa_m@example.com", role=UserRole.ADMIN)
         self.customer = User.objects.create_user(username="aa_c", email="aa_c@example.com", role=UserRole.CUSTOMER)
         self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Tiago", registration_number="KA09AA01")
 
@@ -2089,7 +2090,7 @@ class AutoAssignmentTests(TestCase):
         )
 
     def confirm(self, booking):
-        self.client.force_authenticate(user=self.manager)
+        self.client.force_authenticate(user=self.ops_admin)
         return self.client.patch(f"/api/service-center/bookings/{booking.id}/", {"status": "Confirmed"}, format="json")
 
     def test_confirm_picks_the_nearest_free_driver_and_least_busy_mechanic(self):
@@ -2121,8 +2122,8 @@ class AutoAssignmentTests(TestCase):
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.assigned_driver, self.far)
 
-    def test_managers_choice_is_kept(self):
-        self.client.force_authenticate(user=self.manager)
+    def test_admins_choice_is_kept(self):
+        self.client.force_authenticate(user=self.ops_admin)
         res = self.client.patch(
             f"/api/service-center/bookings/{self.booking.id}/", {"status": "Confirmed", "assigned_driver_id": self.far.id}, format="json"
         )
@@ -2130,13 +2131,13 @@ class AutoAssignmentTests(TestCase):
         self.assertEqual(self.booking.assigned_driver, self.far)
         self.assertNotIn("driver", res.data["auto_assigned"])
 
-    def test_suggestions_are_manager_only(self):
+    def test_suggestions_are_admin_only(self):
         self.client.force_authenticate(user=self.customer)
         self.assertEqual(self.client.get(f"/api/service-center/bookings/{self.booking.id}/staff-suggestions/").status_code, 403)
 
 
 class StaffManagementTests(TestCase):
-    """Admins add drivers/mechanics to any center; managers only to their own; staff then sign in."""
+    """Admins add drivers and mechanics to a center; staff then sign in."""
 
     PASSWORD = "Valet-Route-2048"
 
@@ -2146,21 +2147,21 @@ class StaffManagementTests(TestCase):
         self.center = ServiceCenter.objects.create(name="SM Central", address="Indiranagar", phone="+918000000031", email="sm1@example.com")
         self.other = ServiceCenter.objects.create(name="SM North", address="Yelahanka", phone="+918000000032", email="sm2@example.com")
         self.admin = User.objects.create_user(username="sm_a", email="sm_a@example.com", role=UserRole.ADMIN)
-        self.manager = User.objects.create_user(username="sm_m", email="sm_m@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
-        Employee.objects.create(user=self.manager, service_center=self.center, employee_type="MANAGER")
+        self.ops_admin = User.objects.create_user(username="sm_m", email="sm_m@example.com", role=UserRole.ADMIN)
         self.customer = User.objects.create_user(username="sm_c", email="sm_c@example.com", role=UserRole.CUSTOMER)
         self.client = APIClient()
 
     def add(self, user, **extra):
         self.client.force_authenticate(user=user)
-        data = {"name": "Ravi Kumar", "email": "ravi@example.com", "phone": "9876500001", "password": self.PASSWORD, "role": "DRIVER", **extra}
+        data = {"name": "Ravi Kumar", "email": "ravi@example.com", "phone": "9876500001", "password": self.PASSWORD, "role": "DRIVER",
+                "service_center": self.center.id, **extra}
         return self.client.post("/api/staff/", data, format="json")
 
-    def test_manager_adds_a_driver_to_their_own_center_who_can_then_sign_in(self):
-        res = self.add(self.manager, service_center=self.other.id)  # another center is ignored for a manager
+    def test_admin_adds_a_driver_who_can_then_sign_in(self):
+        res = self.add(self.admin, service_center=self.other.id)
         self.assertEqual(res.status_code, 201, res.data)
         self.assertEqual(res.data["role"], UserRole.DRIVER)
-        self.assertEqual(res.data["service_center"]["id"], self.center.id)
+        self.assertEqual(res.data["service_center"]["id"], self.other.id)
         self.assertEqual(res.data["phone"], "+919876500001")
         self.assertTrue(res.data["is_available"])
 
@@ -2170,37 +2171,37 @@ class StaffManagementTests(TestCase):
         self.assertIn("access", login.data)
 
     def test_admin_chooses_the_center_and_can_add_mechanics(self):
-        self.assertEqual(self.add(self.admin, role="MECHANIC").status_code, 400)  # no center chosen
+        no_center = self.add(self.admin, role="MECHANIC", service_center="")
+        self.assertEqual(no_center.status_code, 400)
+        self.assertFalse(User.objects.filter(email="ravi@example.com").exists())
         res = self.add(self.admin, role="MECHANIC", service_center=self.other.id, speciality="AC and electricals")
         self.assertEqual(res.status_code, 201, res.data)
         self.assertEqual(res.data["service_center"]["name"], "SM North")
         self.assertEqual(res.data["speciality"], "AC and electricals")
 
     def test_validation(self):
-        self.assertEqual(self.add(self.manager, role="ADMIN").status_code, 400)  # only drivers and mechanics
-        self.assertEqual(self.add(self.manager, role="SERVICE_CENTER_MANAGER").status_code, 400)
-        self.assertEqual(self.add(self.manager, password="12345678").status_code, 400)  # Django password rules
-        self.assertEqual(self.add(self.manager, email="sm_c@example.com").status_code, 400)  # email taken
-        self.assertEqual(self.add(self.manager, phone="12").status_code, 400)
+        self.assertEqual(self.add(self.ops_admin, role="ADMIN").status_code, 400)  # only drivers and mechanics
+        self.assertEqual(self.add(self.ops_admin, role="SERVICE_CENTER_MANAGER").status_code, 400)
+        self.assertEqual(self.add(self.ops_admin, password="12345678").status_code, 400)  # Django password rules
+        self.assertEqual(self.add(self.ops_admin, email="sm_c@example.com").status_code, 400)  # email taken
+        self.assertEqual(self.add(self.ops_admin, phone="12").status_code, 400)
 
-    def test_only_admins_and_managers(self):
+    def test_only_admins(self):
         self.assertEqual(self.add(self.customer).status_code, 403)
         self.client.force_authenticate(user=None)
         self.assertEqual(self.client.get("/api/staff/").status_code, 401)
 
-    def test_managers_see_and_change_only_their_own_staff(self):
-        mine = self.add(self.manager).data
-        theirs = self.add(self.admin, email="far@example.com", phone="9876500002", service_center=self.other.id).data
-
-        self.client.force_authenticate(user=self.manager)
-        self.assertEqual([s["id"] for s in self.client.get("/api/staff/").data], [mine["id"]])
+    def test_admin_sees_all_staff_and_can_take_one_off_duty(self):
+        mine = self.add(self.admin).data
+        self.add(self.admin, email="far@example.com", phone="9876500002", service_center=self.other.id)
+        self.assertEqual(len(self.client.get("/api/staff/").data), 2)
         off = self.client.patch(f"/api/staff/{mine['id']}/", {"is_available": False}, format="json")
         self.assertEqual(off.status_code, 200)
         self.assertFalse(off.data["is_available"])
-        self.assertEqual(self.client.patch(f"/api/staff/{theirs['id']}/", {"is_available": False}, format="json").status_code, 404)
-
-        self.client.force_authenticate(user=self.admin)
-        self.assertEqual(len(self.client.get("/api/staff/").data), 2)
+        # A driver cannot manage staff
+        self.client.force_authenticate(user=User.objects.get(pk=mine["id"]))
+        self.assertEqual(self.client.get("/api/staff/").status_code, 403)
+        self.assertEqual(self.client.patch(f"/api/staff/{mine['id']}/", {"is_available": True}, format="json").status_code, 403)
 
 
 class AvatarTests(TestCase):
@@ -2432,9 +2433,9 @@ class BookingExtrasTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.customer = User.objects.create_user(username="bx", email="bx@example.com", role=UserRole.CUSTOMER)
-        self.manager = User.objects.create_user(username="bxm", email="bxm@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
+        self.ops_admin = User.objects.create_user(username="bxm", email="bxm@example.com", role=UserRole.ADMIN)
         self.center = ServiceCenter.objects.create(
-            user=self.manager, name="BX Center", address="MG Road", phone="+918000000009", email="bxc@example.com", slot_capacity=1
+            user=self.ops_admin, name="BX Center", address="MG Road", phone="+918000000009", email="bxc@example.com", slot_capacity=1
         )
         self.st = ServiceType.objects.create(name="BX Service", base_price=2000)
         self.vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number="KA05BX0001")
@@ -2545,7 +2546,7 @@ class BookingExtrasTests(TestCase):
         self.assertEqual(patch_res.status_code, 400)
 
     # --- rescheduling
-    def test_reschedule_notifies_customer_and_manager(self):
+    def test_reschedule_notifies_customer_and_admin(self):
         booking_id = self.book(contact_phone="9845012345").data["id"]
         Notification.objects.all().delete()
         new_day = (timezone.localdate() + timedelta(days=3)).isoformat()
@@ -2553,7 +2554,7 @@ class BookingExtrasTests(TestCase):
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data["preferred_date"], new_day)
         titles = {(n.user_id, n.title) for n in Notification.objects.all()}
-        self.assertEqual(titles, {(self.customer.id, "Pickup rescheduled"), (self.manager.id, "Pickup rescheduled")})
+        self.assertEqual(titles, {(self.customer.id, "Pickup rescheduled"), (self.ops_admin.id, "Pickup rescheduled")})
         self.assertIn("02:00 PM - 04:00 PM", Notification.objects.filter(user=self.customer).first().message)
 
     def test_editing_only_the_address_sends_no_reschedule_notice(self):
@@ -2575,8 +2576,8 @@ class RazorpayPaymentTests(TestCase):
         self.client = APIClient()
         self.customer = User.objects.create_user(username="rz", email="rz@example.com", role=UserRole.CUSTOMER, phone="+919845000010")
         self.other = User.objects.create_user(username="rz2", email="rz2@example.com", role=UserRole.CUSTOMER)
-        self.manager = User.objects.create_user(username="rzm", email="rzm@example.com", role=UserRole.SERVICE_CENTER_MANAGER)
-        center = ServiceCenter.objects.create(user=self.manager, name="RZ", address="x", phone="+918000000008", email="rzc@example.com")
+        self.ops_admin = User.objects.create_user(username="rzm", email="rzm@example.com", role=UserRole.ADMIN)
+        center = ServiceCenter.objects.create(user=self.ops_admin, name="RZ", address="x", phone="+918000000008", email="rzc@example.com")
         st = ServiceType.objects.create(name="RZ Service", base_price=1000)
         vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number="KA05RZ0001")
         booking = ServiceBooking.objects.create(
@@ -2650,7 +2651,7 @@ class RazorpayPaymentTests(TestCase):
         self.assertEqual((payment.transaction_id, payment.provider, payment.method, payment.payer_reference),
                          ("pay_TEST1", "RAZORPAY", "UPI", "meera@okbank"))
         self.assertEqual(payment.amount, Decimal("1180.00"))
-        self.assertTrue(Notification.objects.filter(user=self.manager, title="Invoice paid").exists())
+        self.assertTrue(Notification.objects.filter(user=self.ops_admin, title="Invoice paid").exists())
 
     def test_wrong_signature_is_refused_without_calling_razorpay(self):
         self.create_order()
@@ -2676,7 +2677,7 @@ class RazorpayPaymentTests(TestCase):
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.payment_status, "PENDING")
         self.assertIn("Needs review", Payment.objects.get().failure_reason)
-        self.assertTrue(Notification.objects.filter(user=self.manager, title="Payment needs review").exists())
+        self.assertTrue(Notification.objects.filter(user=self.ops_admin, title="Payment needs review").exists())
 
     def test_another_customer_cannot_confirm_this_invoice(self):
         self.create_order()
@@ -2722,7 +2723,7 @@ class RazorpayPaymentTests(TestCase):
         self.verify()
         self.webhook("payment.captured", self.payment(id="pay_TEST2"))
         self.assertIn("paid twice", Payment.objects.get(transaction_id="pay_TEST2").failure_reason)
-        self.assertTrue(Notification.objects.filter(user=self.manager, title="Payment needs review").exists())
+        self.assertTrue(Notification.objects.filter(user=self.ops_admin, title="Payment needs review").exists())
 
     def test_mock_endpoint_is_closed_when_razorpay_is_the_gateway(self):
         res = self.client.post(f"/api/invoices/{self.invoice.id}/pay/", {"method": "UPI", "upi_id": "a@okbank"}, format="json")
@@ -2878,3 +2879,76 @@ class GoogleClientIdSettingTests(TestCase):
         self.assertEqual(self.client_id_for(""), project)
         self.assertEqual(self.client_id_for("OFF"), "")
         self.assertEqual(self.client_id_for("mine.apps.googleusercontent.com"), "mine.apps.googleusercontent.com")
+
+
+# ==========================================
+# THE MANAGER ROLE IS RETIRED: ADMINS RUN THE SERVICE CENTERS
+# ==========================================
+@override_settings(OTP_BYPASS=False)
+class RetiredManagerRoleTests(TestCase):
+    PASSWORD = "Garage#Blue77"
+
+    def setUp(self):
+        self.client = APIClient()
+        self.old_manager = User.objects.create_user(
+            username="old_m", email="old_m@example.com", password=self.PASSWORD, role=UserRole.SERVICE_CENTER_MANAGER
+        )
+        self.admin = User.objects.create_user(username="ad", email="ad@example.com", password=self.PASSWORD, role=UserRole.ADMIN)
+
+    def test_old_manager_account_cannot_sign_in_with_password_or_google(self):
+        res = self.client.post("/api/auth/login/", {"identifier": "old_m@example.com", "password": self.PASSWORD}, format="json")
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("no longer used", res.data["error"])
+        self.assertNotIn("access", res.data)
+        # A wrong password still gets the usual answer, so the message doesn't reveal the account
+        wrong = self.client.post("/api/auth/login/", {"identifier": "old_m@example.com", "password": "nope"}, format="json")
+        self.assertEqual(wrong.status_code, 400)
+        with override_settings(GOOGLE_CLIENT_ID="cid"), patch(
+            "api.views.verify_google_credential", return_value={"email": "old_m@example.com", "email_verified": True}
+        ):
+            google = self.client.post("/api/auth/google/", {"credential": "tok"}, format="json")
+        self.assertEqual(google.status_code, 403)
+
+    @override_settings(OTP_BYPASS=True)
+    def test_demo_login_has_no_manager(self):
+        res = self.client.post("/api/auth/bypass-login/", {"identifier": "old_m@example.com"}, format="json")
+        self.assertEqual(res.status_code, 403)
+        # Asking for a new manager demo account gives a customer instead
+        res = self.client.post("/api/auth/bypass-login/", {"identifier": "new@example.com", "role": "SERVICE_CENTER_MANAGER"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(User.objects.get(email="new@example.com").role, UserRole.CUSTOMER)
+
+    def test_old_manager_token_opens_nothing_and_admin_does_the_work(self):
+        paths = ["/api/service-center/bookings/", "/api/service-center/analytics/", "/api/service-center/employees/",
+                 "/api/staff/", "/api/invoices/"]
+        self.client.force_authenticate(user=self.old_manager)
+        for path in paths:
+            self.assertEqual(self.client.get(path).status_code, 403, path)
+        self.client.force_authenticate(user=self.admin)
+        for path in paths:
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_staff_cannot_be_created_as_managers(self):
+        center = ServiceCenter.objects.create(name="C", address="x", phone="+918000000077", email="c@example.com")
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post("/api/staff/", {
+            "name": "New Manager", "email": "nm@example.com", "password": self.PASSWORD,
+            "role": "SERVICE_CENTER_MANAGER", "service_center": center.id,
+        }, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(User.objects.filter(email="nm@example.com").exists())
+
+    def test_operational_alerts_go_to_every_active_admin(self):
+        from api.notification_service import notify_admins
+        inactive = User.objects.create_user(username="ad2", email="ad2@example.com", role=UserRole.ADMIN, is_active=False)
+        notify_admins("GENERAL", "Payment needs review", "Invoice X was paid twice")
+        self.assertTrue(Notification.objects.filter(user=self.admin, title="Payment needs review").exists())
+        self.assertFalse(Notification.objects.filter(user__in=[inactive, self.old_manager]).exists())
+
+
+class FaviconTests(TestCase):
+    def test_backend_serves_the_logo_for_browser_tabs(self):
+        res = self.client.get("/favicon.ico")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res["Content-Type"], "image/x-icon")
+        self.assertEqual(b"".join(res.streaming_content)[:4], b"\x00\x00\x01\x00")  # ICO file signature

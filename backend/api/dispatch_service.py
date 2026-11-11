@@ -58,7 +58,7 @@ def _driver_position(driver, booking):
 
 
 def rank_drivers(booking):
-    """Every candidate driver, best first, with the reasoning shown to the manager."""
+    """Every candidate driver, best first, with the reasoning shown to the admin."""
     day = booking.preferred_date or timezone.localdate()
     has_pickup_point = booking.pickup_latitude is not None and booking.pickup_longitude is not None
     rows = []
