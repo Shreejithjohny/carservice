@@ -102,6 +102,12 @@ Uploaded files are served at `/media/...` to anyone who has the exact link.
 ## 6. After it is online
 Follow `docs/AFTER_HOSTING.md`.
 
+## Updating dependencies
+The Docker image installs exact, hash-checked versions from `backend/requirements-lock.txt`, and
+only pre-built packages, so nothing downloaded gets to run a setup script during the install. After
+changing `backend/requirements.txt`, regenerate the lock (the command is at the top of that file),
+and regenerate `backend/requirements-ci.txt` the same way for CI.
+
 ## Troubleshooting
 | What you see | Cause |
 |---|---|

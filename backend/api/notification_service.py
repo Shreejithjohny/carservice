@@ -8,11 +8,12 @@ from .models import User, ServiceBooking, Notification, NotificationType, UserRo
 logger = logging.getLogger(__name__)
 
 # Page a push notification opens when clicked
+INVOICES_PAGE = "/app/invoices"
 _CUSTOMER_PAGES = {
     NotificationType.REPAIR_APPROVAL_REQUIRED: "/app/approvals",
-    NotificationType.INVOICE_GENERATED: "/app/invoices",
-    NotificationType.PAYMENT_RECEIVED: "/app/invoices",
-    NotificationType.REFUND_ISSUED: "/app/invoices",
+    NotificationType.INVOICE_GENERATED: INVOICES_PAGE,
+    NotificationType.PAYMENT_RECEIVED: INVOICES_PAGE,
+    NotificationType.REFUND_ISSUED: INVOICES_PAGE,
 }
 _STAFF_HOME = {
     UserRole.DRIVER: "/driver",
