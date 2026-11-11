@@ -12,6 +12,15 @@ export class ApiError extends Error {
   }
 }
 
+const JWT_SHAPE = /^[A-Za-z0-9_-]{1,2000}\.[A-Za-z0-9_-]{1,4000}\.[A-Za-z0-9_-]{1,2000}$/;
+
+/** The value if it is a JWT (three base64url parts), otherwise null. */
+function jwtOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = JWT_SHAPE.exec(value);
+  return match ? match[0] : null;
+}
+
 let refreshing: Promise<boolean> | null = null;
 
 /**
@@ -30,10 +39,13 @@ function refreshAccessToken(): Promise<boolean> {
         body: JSON.stringify({ refresh }),
       });
       if (!res.ok) return false;
-      const data = (await res.json()) as { access?: string; refresh?: string };
-      if (!data.access) return false;
-      localStorage.setItem(TOKEN_KEY, data.access);
-      if (data.refresh) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh);
+      const data = (await res.json()) as { access?: unknown; refresh?: unknown };
+      // Only ever store something shaped like a token, whatever the response contains
+      const access = jwtOrNull(data.access);
+      if (!access) return false;
+      localStorage.setItem(TOKEN_KEY, access);
+      const nextRefresh = jwtOrNull(data.refresh);
+      if (nextRefresh) localStorage.setItem(REFRESH_TOKEN_KEY, nextRefresh);
       return true;
     } catch {
       return false;

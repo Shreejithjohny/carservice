@@ -503,6 +503,27 @@ def register_with_password(request):
     return auth_tokens_response(user, "Account created.", status.HTTP_201_CREATED)
 
 
+def password_lock_error(user):
+    """429 while the account is locked after too many wrong passwords; otherwise None."""
+    now = timezone.now()
+    if not user.password_locked_until or user.password_locked_until <= now:
+        return None
+    minutes = max(1, int((user.password_locked_until - now).total_seconds() // 60) + 1)
+    return Response(
+        {"error": f"Too many failed attempts. Try again in {minutes} minute(s), or reset your password."},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
+def record_wrong_password(user):
+    """Counts a wrong password; the fifth in a row locks the account for 15 minutes."""
+    user.password_attempts += 1
+    if user.password_attempts >= MAX_PASSWORD_ATTEMPTS:
+        user.password_attempts = 0
+        user.password_locked_until = timezone.now() + timedelta(minutes=PASSWORD_LOCK_MINUTES)
+    user.save(update_fields=["password_attempts", "password_locked_until"])
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def password_login(request):
@@ -524,20 +545,12 @@ def password_login(request):
         User().set_password(password)
         return invalid
 
-    now = timezone.now()
-    if user.password_locked_until and user.password_locked_until > now:
-        minutes = max(1, int((user.password_locked_until - now).total_seconds() // 60) + 1)
-        return Response(
-            {"error": f"Too many failed attempts. Try again in {minutes} minute(s), or reset your password."},
-            status=status.HTTP_429_TOO_MANY_REQUESTS,
-        )
+    locked = password_lock_error(user)
+    if locked:
+        return locked
 
     if not user.check_password(password) or not user.is_active:
-        user.password_attempts += 1
-        if user.password_attempts >= MAX_PASSWORD_ATTEMPTS:
-            user.password_attempts = 0
-            user.password_locked_until = now + timedelta(minutes=PASSWORD_LOCK_MINUTES)
-        user.save(update_fields=["password_attempts", "password_locked_until"])
+        record_wrong_password(user)
         return invalid
 
     user.password_attempts = 0
