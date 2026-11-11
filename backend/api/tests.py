@@ -2852,3 +2852,29 @@ class PushNotificationTests(TestCase):
         with override_settings(VAPID_PRIVATE_KEY=""):
             self.assertIsNone(self.client.get("/api/health-check/").data["push_public_key"])
             self.assertEqual(self.subscribe().status_code, 503)
+
+
+class GoogleClientIdSettingTests(TestCase):
+    """GOOGLE_CLIENT_ID: empty = the project's client, "off" = disabled, anything else = that client."""
+
+    def client_id_for(self, value):
+        """The setting as a fresh process computes it with GOOGLE_CLIENT_ID set to `value` (None = unset)."""
+        import os
+        import subprocess
+        import sys
+        from django.conf import settings
+
+        code = "import django; django.setup(); from django.conf import settings; print(settings.GOOGLE_CLIENT_ID)"
+        env = {**os.environ, "DJANGO_SETTINGS_MODULE": "config.settings", "IGNORE_DOTENV": "1", "DEBUG": "True"}
+        env.pop("GOOGLE_CLIENT_ID", None)
+        if value is not None:
+            env["GOOGLE_CLIENT_ID"] = value
+        run = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True, cwd=settings.BASE_DIR)
+        return run.stdout.strip()
+
+    def test_default_off_and_override(self):
+        project = self.client_id_for(None)
+        self.assertRegex(project, r"^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$")
+        self.assertEqual(self.client_id_for(""), project)
+        self.assertEqual(self.client_id_for("OFF"), "")
+        self.assertEqual(self.client_id_for("mine.apps.googleusercontent.com"), "mine.apps.googleusercontent.com")

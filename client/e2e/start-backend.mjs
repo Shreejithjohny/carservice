@@ -15,7 +15,8 @@ mkdirSync(dataDir, { recursive: true });
 const dbPath = join(dataDir, "e2e.sqlite3");
 rmSync(dbPath, { force: true });
 
-const env = { ...process.env, DEBUG: "True", OTP_BYPASS: "True", SQLITE_PATH: dbPath, IGNORE_DOTENV: "1" };
+// GOOGLE_CLIENT_ID "off": the tests sign in with passwords and must not depend on Google's servers
+const env = { ...process.env, DEBUG: "True", OTP_BYPASS: "True", SQLITE_PATH: dbPath, IGNORE_DOTENV: "1", GOOGLE_CLIENT_ID: "off" };
 
 for (const args of [["migrate", "--noinput"], ["seed_vehicle_catalog"], ["seed_service_data"], ["seed_demo_accounts"]]) {
   const run = spawnSync(python, [manage, ...args], { env, stdio: "inherit" });
