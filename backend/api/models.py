@@ -226,7 +226,8 @@ class ServiceCenter(models.Model):
     )
     name = models.CharField(max_length=150)
     address = models.TextField()
-    phone = models.CharField(max_length=15)
+    # A number as printed for customers, e.g. "+91 80 2525 1111" (with spaces)
+    phone = models.CharField(max_length=20)
     email = models.EmailField()
     latitude = models.FloatField(default=12.9716)
     longitude = models.FloatField(default=77.5946)
@@ -815,6 +816,7 @@ class Payment(models.Model):
     class Status(models.TextChoices):
         SUCCESS = "SUCCESS", _("Success")
         FAILED = "FAILED", _("Failed")
+        REFUNDED = "REFUNDED", _("Refunded")
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="payments")
     customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="payments")
@@ -826,6 +828,11 @@ class Payment(models.Model):
     # Masked payer reference only (UPI ID or card last 4); full card numbers are never stored.
     payer_reference = models.CharField(max_length=60, blank=True)
     failure_reason = models.CharField(max_length=200, blank=True)
+    # Set when an admin refunds the payment (the whole amount goes back to the customer)
+    refund_id = models.CharField(max_length=40, blank=True, default="")
+    refund_reason = models.CharField(max_length=200, blank=True, default="")
+    refunded_at = models.DateTimeField(null=True, blank=True)
+    refunded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="refunds_made")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -899,6 +906,7 @@ class NotificationType(models.TextChoices):
     DELIVERY_COMPLETED = "DELIVERY_COMPLETED", _("Delivery Completed")
     INVOICE_GENERATED = "INVOICE_GENERATED", _("Invoice Generated")
     PAYMENT_RECEIVED = "PAYMENT_RECEIVED", _("Payment Received")
+    REFUND_ISSUED = "REFUND_ISSUED", _("Refund Issued")
     SERVICE_REMINDER = "SERVICE_REMINDER", _("Service Reminder")
     GENERAL = "GENERAL", _("General")
 

@@ -2952,3 +2952,213 @@ class FaviconTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res["Content-Type"], "image/x-icon")
         self.assertEqual(b"".join(res.streaming_content)[:4], b"\x00\x00\x01\x00")  # ICO file signature
+
+
+# ==========================================
+# PRODUCTION SETTINGS: SAFETY CHECKS AND DATABASE URL
+# ==========================================
+class ProductionSettingsTests(TestCase):
+    GOOD = {
+        "DEBUG": "False", "SECRET_KEY": "k" * 50, "ALLOWED_HOSTS": "app.example.com", "OTP_BYPASS": "False",
+        "PAYMENT_GATEWAY": "", "DATABASE_URL": "postgres://u:p%40ss@db.example.com:5432/doorstep?sslmode=require",
+    }
+
+    def load(self, **env):
+        """Loads the settings in a fresh process, the way a production server would."""
+        import os
+        import subprocess
+        import sys
+        from django.conf import settings
+
+        code = (
+            "import json, django; django.setup(); from django.conf import settings as s; d = s.DATABASES['default'];"
+            "print(json.dumps({'engine': d['ENGINE'], 'name': str(d['NAME']), 'user': d['USER'], 'password': d['PASSWORD'],"
+            " 'host': d['HOST'], 'port': d['PORT'], 'options': d.get('OPTIONS', {}), 'ssl': s.SECURE_SSL_REDIRECT,"
+            " 'csrf': s.CSRF_TRUSTED_ORIGINS, 'cookie': s.SESSION_COOKIE_SECURE}))"
+        )
+        keep = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "PYTHONPATH", "VIRTUAL_ENV", "LANG")}
+        full = {**keep, "DJANGO_SETTINGS_MODULE": "config.settings", "IGNORE_DOTENV": "1", **self.GOOD, **env}
+        return subprocess.run([sys.executable, "-c", code], env=full, capture_output=True, text=True, cwd=settings.BASE_DIR)
+
+    def test_good_production_settings_start_with_https_protections_and_the_database_url(self):
+        run = self.load()
+        self.assertEqual(run.returncode, 0, run.stderr[-600:])
+        loaded = json.loads(run.stdout)
+        self.assertEqual(loaded["engine"], "django.db.backends.postgresql")
+        self.assertEqual((loaded["name"], loaded["user"], loaded["password"], loaded["host"], loaded["port"]),
+                         ("doorstep", "u", "p@ss", "db.example.com", "5432"))
+        self.assertEqual(loaded["options"], {"sslmode": "require"})
+        self.assertTrue(loaded["ssl"] and loaded["cookie"])
+        self.assertEqual(loaded["csrf"], ["https://app.example.com"])
+
+    def test_unsafe_production_settings_refuse_to_start(self):
+        for env, text in [
+            ({"OTP_BYPASS": "True"}, "OTP_BYPASS is on"),
+            ({"PAYMENT_GATEWAY": "mock"}, "marks invoices paid without any money"),
+            ({"PAYMENT_GATEWAY": "razorpay"}, "needs RAZORPAY_KEY_ID"),
+            ({"PAYMENT_GATEWAY": "paypal"}, "Unknown PAYMENT_GATEWAY"),
+            ({"SECRET_KEY": "short"}, "SECRET_KEY is too short"),
+            ({"ALLOWED_HOSTS": ""}, "ALLOWED_HOSTS is empty"),
+            ({"DATABASE_URL": ""}, "The database is SQLite"),
+            ({"DATABASE_URL": "oracle://x/y"}, "DATABASE_URL must start with"),
+        ]:
+            run = self.load(**env)
+            self.assertNotEqual(run.returncode, 0, env)
+            self.assertIn(text, run.stderr, env)
+
+    def test_every_problem_is_listed_at_once_and_sqlite_can_be_allowed_for_a_demo(self):
+        run = self.load(OTP_BYPASS="True", PAYMENT_GATEWAY="mock")
+        self.assertIn("OTP_BYPASS is on", run.stderr)
+        self.assertIn("PAYMENT_GATEWAY=mock", run.stderr)
+        demo = self.load(DATABASE_URL="", ALLOW_SQLITE_IN_PRODUCTION="True")
+        self.assertEqual(demo.returncode, 0, demo.stderr[-400:])
+
+    def test_razorpay_with_keys_and_mysql_url(self):
+        run = self.load(PAYMENT_GATEWAY="razorpay", RAZORPAY_KEY_ID="rzp_live_x", RAZORPAY_KEY_SECRET="s",
+                        DATABASE_URL="mysql://root:pw@127.0.0.1:3306/doorstep")
+        self.assertEqual(run.returncode, 0, run.stderr[-400:])
+        loaded = json.loads(run.stdout)
+        self.assertEqual(loaded["engine"], "django.db.backends.mysql")
+        self.assertEqual(loaded["options"]["charset"], "utf8mb4")
+
+    def test_development_is_not_restricted(self):
+        run = self.load(DEBUG="True", OTP_BYPASS="True", PAYMENT_GATEWAY="mock", DATABASE_URL="", SECRET_KEY="", ALLOWED_HOSTS="")
+        self.assertEqual(run.returncode, 0, run.stderr[-400:])
+        loaded = json.loads(run.stdout)
+        self.assertEqual(loaded["engine"], "django.db.backends.sqlite3")
+        self.assertFalse(loaded["ssl"])  # no HTTPS redirect on localhost
+
+
+# ==========================================
+# REFUNDS
+# ==========================================
+class RefundTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.customer = User.objects.create_user(username="rf", email="rf@example.com", role=UserRole.CUSTOMER, phone="+919845000020")
+        self.admin = User.objects.create_user(username="rfa", email="rfa@example.com", role=UserRole.ADMIN)
+        center = ServiceCenter.objects.create(name="RF", address="x", phone="+918000000018", email="rfc@example.com")
+        st = ServiceType.objects.create(name="RF Service", base_price=1000)
+        vehicle = Vehicle.objects.create(customer=self.customer, brand="Tata", model="Nexon", registration_number="KA05RF0001")
+        booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=vehicle, service_type=st, service_center=center,
+            pickup_address="x", status=BookingStatus.COMPLETED,
+        )
+        self.invoice = generate_invoice_for_booking(booking)  # 1180.00
+
+    def paid(self, provider="MOCK", transaction_id="SDVPAY-1", **kw):
+        payment = Payment.objects.create(
+            invoice=self.invoice, customer=self.customer, amount=self.invoice.grand_total, method="UPI",
+            status=Payment.Status.SUCCESS, provider=provider, transaction_id=transaction_id, **kw,
+        )
+        self.invoice.payment_status = "PAID"
+        self.invoice.invoice_status = "PAID"
+        self.invoice.save()
+        return payment
+
+    def refund(self, payment, user=None, reason="Customer cancelled after payment"):
+        self.client.force_authenticate(user=user or self.admin)
+        return self.client.post(f"/api/payments/{payment.id}/refund/", {"reason": reason}, format="json")
+
+    def test_admin_refunds_a_test_payment_and_the_invoice_cannot_be_paid_again(self):
+        payment = self.paid()
+        # A payment alert moments earlier must not swallow the refund alert (alerts of one type are
+        # de-duplicated within a minute)
+        Notification.objects.all().delete()
+        from api.payment_service import notify_invoice_paid
+        notify_invoice_paid(self.invoice, payment)
+        res = self.refund(payment)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["payment"]["status"], "REFUNDED")
+        self.assertTrue(res.data["payment"]["refund_id"].startswith("SDVREF-"))
+        self.assertEqual((res.data["invoice"]["payment_status"], res.data["invoice"]["invoice_status"]), ("REFUNDED", "CANCELLED"))
+        payment.refresh_from_db()
+        self.assertEqual(payment.refunded_by, self.admin)
+        self.assertEqual(payment.refund_reason, "Customer cancelled after payment")
+        note = Notification.objects.get(user=self.customer, title="Refund issued")
+        self.assertEqual(note.notification_type, "REFUND_ISSUED")
+        self.assertIn("1,180.00", note.message)
+
+        self.assertEqual(self.refund(payment).status_code, 409)  # not twice
+        with override_settings(PAYMENT_GATEWAY="mock"):
+            self.client.force_authenticate(user=self.customer)
+            again = self.client.post(f"/api/invoices/{self.invoice.id}/pay/", {"method": "UPI", "upi_id": "a@okbank"}, format="json")
+        self.assertEqual(again.status_code, 400)
+
+    def test_only_an_admin_can_refund_and_a_reason_is_required(self):
+        payment = self.paid()
+        driver = User.objects.create_user(username="rfd", email="rfd@example.com", role=UserRole.DRIVER)
+        for user in (self.customer, driver):
+            self.assertEqual(self.refund(payment, user=user).status_code, 403)
+        self.assertEqual(self.refund(payment, reason=" ").status_code, 400)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)
+        self.assertEqual(self.client.post("/api/payments/999999/refund/", {"reason": "none"}, format="json").status_code, 404)
+
+    def test_failed_payment_cannot_be_refunded(self):
+        failed = Payment.objects.create(invoice=self.invoice, customer=self.customer, amount=1180, method="UPI",
+                                        status=Payment.Status.FAILED, provider="MOCK", transaction_id="SDVPAY-F")
+        self.assertEqual(self.refund(failed).status_code, 400)
+
+    @override_settings(**RZP)
+    def test_razorpay_payment_is_refunded_through_razorpay_for_the_full_amount(self):
+        payment = self.paid(provider="RAZORPAY", transaction_id="pay_LIVE1")
+        with patch.object(razorpay_service, "_api", return_value={"id": "rfnd_TEST1", "status": "processed"}) as api:
+            res = self.refund(payment)
+        self.assertEqual(res.status_code, 200, res.data)
+        method, path, body = api.call_args.args
+        self.assertEqual((method, path, body["amount"]), ("POST", "/payments/pay_LIVE1/refund", 118000))
+        self.assertEqual(res.data["payment"]["refund_id"], "rfnd_TEST1")
+
+    @override_settings(**RZP)
+    def test_nothing_changes_when_razorpay_refuses_the_refund(self):
+        from api.payment_service import PaymentError
+        payment = self.paid(provider="RAZORPAY", transaction_id="pay_LIVE2")
+        with patch.object(razorpay_service, "_api", side_effect=PaymentError("The payment service refused the request. Please try again.", 502)):
+            res = self.refund(payment)
+        self.assertEqual(res.status_code, 502)
+        payment.refresh_from_db()
+        self.invoice.refresh_from_db()
+        self.assertEqual((payment.status, self.invoice.payment_status), (Payment.Status.SUCCESS, "PAID"))
+        self.assertFalse(Notification.objects.filter(title="Refund issued").exists())
+
+    def test_refunding_an_accidental_second_payment_leaves_the_invoice_paid(self):
+        self.paid()
+        extra = self.paid(transaction_id="SDVPAY-2", failure_reason="Needs review: invoice was paid twice.")
+        res = self.refund(extra, reason="Paid twice")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["invoice"]["payment_status"], "PAID")
+
+
+class SetUserRoleCommandTests(TestCase):
+    def run_command(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command("set_user_role", *args, stdout=out)
+        return out.getvalue()
+
+    def test_brings_back_a_retired_manager_as_admin_who_can_then_sign_in(self):
+        User.objects.create_user(username="om", email="om@example.com", password="Garage#Blue77", role=UserRole.SERVICE_CENTER_MANAGER)
+        out = self.run_command("OM@example.com", "admin")
+        self.assertIn("SERVICE_CENTER_MANAGER -> ADMIN", out)
+        self.assertIn("controls the whole platform", out)
+        with override_settings(OTP_BYPASS=False):
+            res = APIClient().post("/api/auth/login/", {"identifier": "om@example.com", "password": "Garage#Blue77", "role": "ADMIN"}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+
+    def test_demoting_a_superuser_really_removes_admin_powers(self):
+        boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="x")
+        self.run_command("boss@example.com", "CUSTOMER")
+        boss.refresh_from_db()
+        self.assertEqual((boss.role, boss.is_superuser, boss.is_staff), (UserRole.CUSTOMER, False, False))
+        self.assertTrue(hasattr(boss, "customer_profile"))
+
+    def test_unknown_email_or_role_is_refused(self):
+        from django.core.management.base import CommandError
+        User.objects.create_user(username="u", email="u@example.com", role=UserRole.CUSTOMER)
+        with self.assertRaisesMessage(CommandError, "No account uses"):
+            self.run_command("nobody@example.com", "ADMIN")
+        for bad in ("SERVICE_CENTER_MANAGER", "pilot"):
+            with self.assertRaisesMessage(CommandError, "Unknown role"):
+                self.run_command("u@example.com", bad)

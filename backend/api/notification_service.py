@@ -12,6 +12,7 @@ _CUSTOMER_PAGES = {
     NotificationType.REPAIR_APPROVAL_REQUIRED: "/app/approvals",
     NotificationType.INVOICE_GENERATED: "/app/invoices",
     NotificationType.PAYMENT_RECEIVED: "/app/invoices",
+    NotificationType.REFUND_ISSUED: "/app/invoices",
 }
 _STAFF_HOME = {
     UserRole.DRIVER: "/driver",

@@ -593,6 +593,9 @@ class PaymentSerializer(serializers.ModelSerializer):
             "transaction_id",
             "payer_reference",
             "failure_reason",
+            "refund_id",
+            "refund_reason",
+            "refunded_at",
             "created_at",
         ]
         read_only_fields = fields

@@ -35,6 +35,7 @@ urlpatterns = [
     path("coupons/check/", views.coupon_check, name="coupon_check"),
     path("push/subscription/", views.push_subscription, name="push_subscription"),
     path("payments/razorpay/webhook/", views.razorpay_webhook, name="razorpay_webhook"),
+    path("payments/<int:pk>/refund/", views.payment_refund, name="payment_refund"),
     path("invoices/<int:pk>/razorpay/order/", views.invoice_razorpay_order, name="invoice_razorpay_order"),
     path("invoices/<int:pk>/razorpay/verify/", views.invoice_razorpay_verify, name="invoice_razorpay_verify"),
     path("service-types/", views.service_type_list, name="service_type_list"),

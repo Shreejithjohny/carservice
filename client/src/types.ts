@@ -255,12 +255,15 @@ export interface Invoice {
 export interface Payment {
   id: number;
   amount: number | string;
-  method: "UPI" | "CARD";
-  status: "SUCCESS" | "FAILED";
+  method: "UPI" | "CARD" | "NETBANKING" | "WALLET" | "OTHER";
+  status: "SUCCESS" | "FAILED" | "REFUNDED";
   provider: string;
   transaction_id: string;
   payer_reference: string;
   failure_reason: string;
+  refund_id?: string;
+  refund_reason?: string;
+  refunded_at?: string | null;
   created_at: string;
 }
 
