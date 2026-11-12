@@ -44,8 +44,9 @@ def _e(value) -> str:
 
 
 def _money(value) -> str:
-    # Built-in PDF fonts have no rupee glyph, so amounts are written "Rs."
-    return f"Rs. {float(value or 0):,.2f}"
+    # Built-in PDF fonts have no rupee glyph, so amounts are written "Rs.". Negatives read "- Rs. 299.90".
+    amount = float(value or 0)
+    return f"- Rs. {-amount:,.2f}" if amount < 0 else f"Rs. {amount:,.2f}"
 
 
 def _totals_rows(invoice: Invoice) -> list[list[str]]:
@@ -59,7 +60,7 @@ def _totals_rows(invoice: Invoice) -> list[list[str]]:
         ["Repair labour", _money(invoice.labor_total)],
     ]
     if (invoice.discount or 0) > 0:
-        rows.append(["Discount", f"- {_money(invoice.discount)}"])
+        rows.append(["Discount", _money(-invoice.discount)])
     paid = invoice.payment_status == Invoice.PaymentStatus.PAID
     rows += [
         ["GST (18%)", _money(invoice.tax)],

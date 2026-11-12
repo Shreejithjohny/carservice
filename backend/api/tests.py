@@ -1759,6 +1759,8 @@ class InvoicePdfTests(TestCase):
         self.assertIn("(Discount) Tj", text)
         self.assertIn("(- Rs. 299.90) Tj", text)
         self.assertIn("(Rs. 7,904.94) Tj", text)
+        # The itemised discount line uses the same sign style as the panel
+        self.assertNotIn("Rs. -", text)
 
     def test_totals_panel_has_no_discount_row_without_coupon(self):
         from api.invoice_pdf import _totals_rows, build_invoice_pdf
