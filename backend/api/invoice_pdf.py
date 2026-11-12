@@ -48,6 +48,27 @@ def _money(value) -> str:
     return f"Rs. {float(value or 0):,.2f}"
 
 
+def _totals_rows(invoice: Invoice) -> list[list[str]]:
+    """
+    Rows of the totals panel, which must add up to the grand total. The coupon discount comes off before
+    GST (see invoice_service), so it sits between the charges and the tax.
+    """
+    rows = [
+        ["Service", _money(invoice.subtotal)],
+        ["Approved repairs", _money(invoice.additional_repairs_total)],
+        ["Repair labour", _money(invoice.labor_total)],
+    ]
+    if (invoice.discount or 0) > 0:
+        rows.append(["Discount", f"- {_money(invoice.discount)}"])
+    paid = invoice.payment_status == Invoice.PaymentStatus.PAID
+    rows += [
+        ["GST (18%)", _money(invoice.tax)],
+        ["Grand total", _money(invoice.grand_total)],
+        ["Status", "PAID" if paid else "UNPAID"],
+    ]
+    return rows
+
+
 def _qr_image(data: str, size_mm: float = 32) -> Image:
     buf = BytesIO()
     qrcode.make(data, box_size=8, border=1).save(buf, format="PNG")
@@ -112,24 +133,15 @@ def build_invoice_pdf(invoice: Invoice) -> bytes:
     ]))
 
     paid = invoice.payment_status == Invoice.PaymentStatus.PAID
-    totals = Table(
-        [
-            ["Service", _money(invoice.subtotal)],
-            ["Approved repairs", _money(invoice.additional_repairs_total)],
-            ["Repair labour", _money(invoice.labor_total)],
-            ["GST (18%)", _money(invoice.tax)],
-            ["Grand total", _money(invoice.grand_total)],
-            ["Status", "PAID" if paid else "UNPAID"],
-        ],
-        colWidths=[40 * mm, 34 * mm],
-    )
+    totals = Table(_totals_rows(invoice), colWidths=[40 * mm, 34 * mm])
+    # Rows are counted from the end (-2 = Grand total, -1 = Status) because the Discount row is optional
     totals.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("FONTNAME", (0, 4), (-1, 4), "Helvetica-Bold"),
-        ("LINEABOVE", (0, 4), (-1, 4), 0.75, colors.black),
-        ("TEXTCOLOR", (1, 5), (1, 5), colors.HexColor("#059669") if paid else ACCENT),
-        ("FONTNAME", (1, 5), (1, 5), "Helvetica-Bold"),
+        ("FONTNAME", (0, -2), (-1, -2), "Helvetica-Bold"),
+        ("LINEABOVE", (0, -2), (-1, -2), 0.75, colors.black),
+        ("TEXTCOLOR", (1, -1), (1, -1), colors.HexColor("#059669") if paid else ACCENT),
+        ("FONTNAME", (1, -1), (1, -1), "Helvetica-Bold"),
     ]))
 
     qr_block = Table(

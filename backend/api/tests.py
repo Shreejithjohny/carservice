@@ -1697,6 +1697,77 @@ class InvoicePdfTests(TestCase):
         forged = number[:-1] + ("2" if number[-1] != "2" else "3") + ":" + sig
         self.assertEqual(self.client.get(f"/api/invoices/verify/{forged}/").status_code, 404)
 
+    @staticmethod
+    def _pdf_text(pdf: bytes) -> str:
+        """Page text of a ReportLab PDF, using only the standard library (streams are ASCII85 + Flate encoded)."""
+        import base64
+        import re
+        import zlib
+
+        chunks = []
+        for raw in re.findall(rb"stream\r?\n(.*?)endstream", pdf, re.S):
+            try:
+                chunks.append(zlib.decompress(base64.a85decode(raw.strip(), adobe=True)).decode("latin-1"))
+            except Exception:
+                continue  # images and other non-text streams
+        return "\n".join(chunks)
+
+    def _coupon_invoice(self):
+        from decimal import Decimal
+        from api.invoice_service import generate_invoice_for_booking
+        from api.models import Coupon, RepairRequest, RepairRequestStatus
+
+        mechanic = User.objects.create_user(username="pdf_m", email="pdf_m@example.com", role=UserRole.MECHANIC)
+        coupon = Coupon.objects.create(code="WELCOME10", discount_type="PERCENT", value=10)
+        booking = ServiceBooking.objects.create(
+            customer=self.customer, vehicle=self.invoice.vehicle, service_center=self.invoice.service_center,
+            service_type=ServiceType.objects.create(name="General Service", base_price=2999),
+            pickup_address="Yeshwanthpur", status=BookingStatus.COMPLETED,
+            coupon=coupon, coupon_discount=Decimal("299.90"),
+        )
+        RepairRequest.objects.create(
+            booking=booking, mechanic=mechanic, issue_title="Clutch plate", description="Slipping",
+            additional_cost=3200, estimated_extra_hours=2, status=RepairRequestStatus.APPROVED,
+        )
+        return generate_invoice_for_booking(booking)
+
+    def test_totals_panel_lists_coupon_discount_and_adds_up(self):
+        from decimal import Decimal
+        from api.invoice_pdf import _totals_rows
+
+        invoice = self._coupon_invoice()
+        self.assertEqual(invoice.discount, Decimal("299.90"))
+        self.assertEqual(invoice.grand_total, Decimal("7904.94"))
+        rows = _totals_rows(invoice)
+        self.assertEqual(
+            [label for label, _ in rows],
+            ["Service", "Approved repairs", "Repair labour", "Discount", "GST (18%)", "Grand total", "Status"],
+        )
+        self.assertEqual(dict(rows)["Discount"], "- Rs. 299.90")
+
+        def amount(text):
+            return Decimal(text.replace("- ", "-").replace("Rs. ", "").replace(",", ""))
+
+        # Every row above the grand total adds up to it
+        charges = sum((amount(value) for label, value in rows[:-2]), Decimal("0"))
+        self.assertEqual(charges, amount(dict(rows)["Grand total"]))
+
+        # The row is drawn in the actual PDF, not just in the row data
+        from api.invoice_pdf import build_invoice_pdf
+
+        text = self._pdf_text(build_invoice_pdf(invoice))
+        self.assertIn("(Discount) Tj", text)
+        self.assertIn("(- Rs. 299.90) Tj", text)
+        self.assertIn("(Rs. 7,904.94) Tj", text)
+
+    def test_totals_panel_has_no_discount_row_without_coupon(self):
+        from api.invoice_pdf import _totals_rows, build_invoice_pdf
+
+        self.assertNotIn("Discount", [label for label, _ in _totals_rows(self.invoice)])
+        text = self._pdf_text(build_invoice_pdf(self.invoice))
+        self.assertIn("(Grand total) Tj", text)
+        self.assertNotIn("Discount", text)
+
 
 class AnalyticsTests(TestCase):
     def setUp(self):
