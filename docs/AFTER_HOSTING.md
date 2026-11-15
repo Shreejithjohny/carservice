@@ -35,7 +35,10 @@ or keys; nobody else can do them.
       browser to see an alert arrive.
 
 ## Accounts
-- [ ] Create your own admin with `python manage.py createsuperuser`; do not use demo accounts.
+- [ ] Sign in with your own admin (`ADMIN_EMAIL` / `ADMIN_PASSWORD` on Render); do not use demo accounts.
+      You can then remove `ADMIN_PASSWORD` from the settings: the account keeps it.
+- [ ] Before real customers: move from Render's free plans to paid ones (`docs/DEPLOY.md`,
+      "Going from free to paid"). Free plans lose uploaded photos and the free database expires.
 - [ ] Old manager accounts cannot sign in. To bring one back:
       `python manage.py set_user_role someone@example.com ADMIN` (or `DRIVER`, `MECHANIC`, `CUSTOMER`).
 - [ ] Add your real service centers, packages and coupons at `/django-admin/`.
