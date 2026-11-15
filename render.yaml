@@ -26,9 +26,9 @@ services:
           property: connectionString
       - key: OTP_BYPASS
         value: "False"
-      # Empty = customers pay at the service center. Later: razorpay (see docs/AFTER_HOSTING.md)
-      - key: PAYMENT_GATEWAY
-        value: ""
+      # Online payment (PAYMENT_GATEWAY, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET) is set in Render's
+      # Environment page, not here, so Blueprint updates never overwrite it. Unset = customers pay at
+      # the service center. Steps: "Razorpay test payments" in docs/DEPLOY.md.
       # Loads the sample car catalogue, service packages and centers on start (nothing is duplicated)
       - key: LOAD_SAMPLE_DATA
         value: "True"

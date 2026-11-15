@@ -22,7 +22,7 @@ problem at once.
 | `DATABASE_URL` | `postgres://user:password@host:5432/dbname` (the host gives you this) |
 | `FRONTEND_URL` | Your public address, e.g. `https://app.example.com` (used in invoice QR codes) |
 | `OTP_BYPASS` | `False` |
-| `PAYMENT_GATEWAY` | empty (pay at the service center) or `razorpay` |
+| `PAYMENT_GATEWAY` | empty (pay at the service center) or `razorpay` (see "Razorpay test payments") |
 | `BUSINESS_NAME`, `BUSINESS_LEGAL_NAME`, `BUSINESS_ADDRESS`, `BUSINESS_EMAIL`, `BUSINESS_PHONE`, `BUSINESS_CITY`, `BUSINESS_GSTIN` (optional) | Shown on `/privacy`, `/terms`, `/refunds` and `/contact` |
 
 Optional: `GOOGLE_CLIENT_ID`, `RAZORPAY_*`, `VAPID_*` (see `docs/AFTER_HOSTING.md`),
@@ -125,6 +125,30 @@ Add your service packages and service centers in the Django admin site at `/djan
 python manage.py seed_vehicle_catalog && python manage.py seed_service_data
 ```
 Do **not** run `seed_demo_accounts` on a live site: it creates demo logins.
+
+## Razorpay test payments (no real money, no KYC)
+Customers then pay invoices in Razorpay's real payment window, with Razorpay's test cards and
+test UPI IDs. Good for a demo; nothing is charged.
+
+1. Sign up at razorpay.com. Test Mode works before KYC.
+2. Dashboard: switch to **Test Mode** (toggle at the top), then **Account & Settings > API Keys >
+   Generate Test Key**. Copy the **Key ID** (`rzp_test_...`) and the **Key Secret** (shown once).
+3. Render > `doorstep` > **Environment** > add, in this order:
+   - `RAZORPAY_KEY_ID` = the Key ID
+   - `RAZORPAY_KEY_SECRET` = the Key Secret
+   - `PAYMENT_GATEWAY` = `razorpay`
+   Save; Render redeploys. (If `PAYMENT_GATEWAY` is set without both keys, the new version refuses to
+   start and says so; the previous version keeps running.)
+4. Pay an invoice as a customer: card `4111 1111 1111 1111`, any future expiry, any CVV, or UPI
+   `success@razorpay` (check Razorpay's "test cards" page if these change). The invoice turns Paid
+   and the payment appears in Razorpay's dashboard under Transactions.
+
+Optional, so an invoice is marked paid even if the customer closes the page right after paying:
+Razorpay Dashboard (Test Mode) > **Developers > Webhooks > Add**, URL
+`https://<your address>/api/payments/razorpay/webhook/`, events `payment.captured` and
+`payment.failed`, and a secret you invent; put the same secret in `RAZORPAY_WEBHOOK_SECRET` on Render.
+
+Never put the Key Secret in the code, in a screenshot or in a chat.
 
 ## 4. Moving existing data from SQLite to PostgreSQL
 Only needed if you already have real data in `backend/db.sqlite3`.
