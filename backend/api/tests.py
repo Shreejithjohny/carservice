@@ -3197,3 +3197,10 @@ class EnsureAdminCommandTests(TestCase):
         with self.assertRaisesMessage(CommandError, "too weak"):
             self.run_command(ADMIN_EMAIL="a@example.com", ADMIN_PASSWORD="12345678")
         self.assertFalse(User.objects.filter(email="a@example.com").exists())
+
+
+class PopupHeaderTests(TestCase):
+    def test_pages_allow_the_google_sign_in_and_payment_popups_to_answer(self):
+        # "same-origin" (Django's default) silently breaks Google's popup sign-in
+        res = self.client.get("/api/health-check/")
+        self.assertEqual(res["Cross-Origin-Opener-Policy"], "same-origin-allow-popups")
