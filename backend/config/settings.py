@@ -189,6 +189,11 @@ MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT") or BASE_DIR / "media")
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Django's default ("same-origin") cuts the link between the page and popups it opens, which breaks
+# "Sign in with Google" (you pick your account and nothing happens) and payment windows. This value
+# keeps the protection for the page while letting it receive the answer from popups it opened.
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
+
 # CORS Configuration: any origin in development, only listed origins otherwise.
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
