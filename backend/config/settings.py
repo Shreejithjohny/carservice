@@ -278,10 +278,13 @@ if not (DEBUG or TESTING):
     problems = []
     if OTP_BYPASS:
         problems.append("OTP_BYPASS is on: anyone could sign in to any account without a password. Set OTP_BYPASS=False.")
-    if PAYMENT_GATEWAY == "mock":
+    # The test payment form marks invoices paid without money moving. Allowed on a live site only when
+    # deliberately switched on, e.g. for a college demo or a pilot without a payment provider.
+    if PAYMENT_GATEWAY == "mock" and not env_flag("ALLOW_TEST_PAYMENTS", False):
         problems.append(
             "PAYMENT_GATEWAY=mock marks invoices paid without any money moving. Use PAYMENT_GATEWAY=razorpay, "
-            "or leave it empty so customers pay at the service center."
+            "leave it empty so customers pay at the service center, or, for a demo only, also set "
+            "ALLOW_TEST_PAYMENTS=True."
         )
     if PAYMENT_GATEWAY == "razorpay" and not (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET):
         problems.append("PAYMENT_GATEWAY=razorpay needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.")

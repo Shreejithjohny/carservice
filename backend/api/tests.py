@@ -3013,6 +3013,11 @@ class ProductionSettingsTests(TestCase):
         demo = self.load(DATABASE_URL="", ALLOW_SQLITE_IN_PRODUCTION="True")
         self.assertEqual(demo.returncode, 0, demo.stderr[-400:])
 
+    def test_test_payments_on_a_live_site_only_when_switched_on(self):
+        self.assertIn("ALLOW_TEST_PAYMENTS=True", self.load(PAYMENT_GATEWAY="mock").stderr)
+        demo = self.load(PAYMENT_GATEWAY="mock", ALLOW_TEST_PAYMENTS="True")
+        self.assertEqual(demo.returncode, 0, demo.stderr[-400:])
+
     def test_razorpay_with_keys_and_mysql_url(self):
         run = self.load(PAYMENT_GATEWAY="razorpay", RAZORPAY_KEY_ID="rzp_live_x", RAZORPAY_KEY_SECRET="s",
                         DATABASE_URL="mysql://root:pw@127.0.0.1:3306/doorstep")

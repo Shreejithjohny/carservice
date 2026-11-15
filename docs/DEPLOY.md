@@ -126,8 +126,21 @@ python manage.py seed_vehicle_catalog && python manage.py seed_service_data
 ```
 Do **not** run `seed_demo_accounts` on a live site: it creates demo logins.
 
-## Razorpay test payments (no real money, no KYC)
-Customers then pay invoices in Razorpay's real payment window, with Razorpay's test cards and
+## Demo payments without any account (college projects, demos)
+A built-in test payment form: the customer enters any UPI ID (e.g. `name@okbank`) or the test card
+`4111 1111 1111 1111`, and the invoice is marked paid. A yellow notice on the form says that no real
+money is charged. Use `failure@mock` or card `4000 0000 0000 0002` to show a declined payment.
+
+Render > `doorstep` > **Environment** > add:
+- `PAYMENT_GATEWAY` = `mock`
+- `ALLOW_TEST_PAYMENTS` = `True`
+
+Save; Render redeploys. Without `ALLOW_TEST_PAYMENTS=True` a live server refuses `PAYMENT_GATEWAY=mock`,
+so it can never be switched on by accident. Remove both before taking real customers.
+
+## Razorpay test payments (no real money)
+Razorpay may ask for your PAN before it shows Test Mode; if it does and you don't want to give it,
+use the demo payments above. Customers then pay invoices in Razorpay's real payment window, with Razorpay's test cards and
 test UPI IDs. Good for a demo; nothing is charged.
 
 1. Sign up at razorpay.com. Test Mode works before KYC.
